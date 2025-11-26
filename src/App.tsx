@@ -333,18 +333,22 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
   }, [gameState.drivers, gameState.activeDriverId]);
 
   // 🏎️ CALCUL DU PROCHAIN PILOTE POUR L'AFFICHAGE 🏎️
-  const nextDriverInfo = useMemo(() => {
-      const nextStint = (gameState.currentStint || 0) + 1;
-      let nextId = gameState.stintAssignments[nextStint];
-      
-      if (!nextId && gameState.drivers.length > 0) {
-          const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
-          const nextIdx = currentIdx === -1 ? 0 : (currentIdx + 1) % gameState.drivers.length;
-          nextId = gameState.drivers[nextIdx].id;
-      }
+// 🏎️ CORRECTION : On récupère le pilote directement depuis les données du tableau
+const nextDriverInfo = useMemo(() => {
+  // 1. On cible l'index du prochain relais
+  const nextStintIndex = (gameState.currentStint || 0) + 1;
+  
+  // 2. On cherche ce relais précis dans tes données de stratégie déjà calculées
+  const nextStintObj = strategyData.stints.find(s => s.id === nextStintIndex);
 
-      return getSafeDriver(gameState.drivers.find(d => d.id === nextId));
-  }, [gameState, activeDriver]);
+  // 3. Si on le trouve, on retourne le pilote associé (qui prend en compte ton menu déroulant)
+  if (nextStintObj && nextStintObj.driver) {
+      return nextStintObj.driver;
+  }
+
+  // 4. Fallback (fin de course ou erreur)
+  return { name: "---", phone: "", color: "#334155" };
+}, [gameState.currentStint, strategyData]);
 
 
   return (
