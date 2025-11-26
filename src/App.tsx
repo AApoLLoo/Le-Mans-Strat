@@ -37,7 +37,6 @@ try {
 // --- IMPORT IMAGES ---
 import trackMapImg from './assets/track-map.jpg'; 
 import lmp2CarImg from './assets/lmp2-car.jpg'; 
-// 👇 AJOUT DE L'IMAGE HYPERCAR ICI 👇
 import hypercarCarImg from './assets/Hypercar.jpg'; 
 
 const getSafeDriver = (driver) => {
@@ -399,18 +398,16 @@ const RaceStrategyApp = () => {
         {/* BACKGROUND ACCUEIL */}
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-red-900/20 opacity-30 animate-pulse z-0"></div>
 
+        {/* ⚠️ AJOUT DE LA MENTION FBT ICI 👇 */}
+        <span className="text-xs font-bold text-indigo-500 tracking-widest uppercase mb-[-20px] z-10">FBT Technologies only</span>
         <h1 className="text-4xl font-black text-white italic z-10">LE MANS <span className="text-indigo-500">24H</span> STRATEGY</h1>
         
         <div className="flex gap-6 z-10">
           {/* BOUTON HYPERCAR AVEC IMAGE */}
           <button onClick={() => setSelectedTeam('hypercar')} className="w-72 h-48 rounded-3xl relative overflow-hidden group shadow-2xl hover:scale-105 transition-all duration-300 border border-red-500/30">
-             {/* IMAGE FOND HYPERCAR */}
              <img src={hypercarCarImg} alt="Hypercar" className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-500" />
-             {/* OVERLAY ROUGE */}
              <div className="absolute inset-0 bg-gradient-to-t from-red-950/95 via-red-900/60 to-black/30 mix-blend-multiply transition-opacity group-hover:opacity-90"></div>
-             {/* CONTENU */}
              <div className="relative z-10 flex flex-col items-center justify-center h-full text-white p-4">
-                 <Trophy size={56} className="mb-2 drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]"/>
                  <span className="font-black text-3xl drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] tracking-tight">HYPERCAR</span>
                  <span className="text-sm text-red-100 mt-2 font-bold bg-red-700/80 px-3 py-0.5 rounded-full drop-shadow">WEC TOP CLASS</span>
              </div>
@@ -418,13 +415,9 @@ const RaceStrategyApp = () => {
 
           {/* BOUTON LMP2 AVEC IMAGE */}
           <button onClick={() => setSelectedTeam('lmp2')} className="w-72 h-48 rounded-3xl relative overflow-hidden group shadow-2xl hover:scale-105 transition-all duration-300 border border-blue-500/30">
-             {/* IMAGE FOND LMP2 */}
              <img src={lmp2CarImg} alt="LMP2" className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-500" />
-             {/* OVERLAY BLEU */}
              <div className="absolute inset-0 bg-gradient-to-t from-blue-950/95 via-blue-900/60 to-black/30 mix-blend-multiply transition-opacity group-hover:opacity-90"></div>
-             {/* CONTENU */}
              <div className="relative z-10 flex flex-col items-center justify-center h-full text-white p-4">
-                 <Users size={56} className="mb-2 drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]"/>
                  <span className="font-black text-3xl drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] tracking-tight">LMP2</span>
                  <span className="text-sm text-blue-100 mt-2 font-bold bg-blue-600/80 px-3 py-0.5 rounded-full drop-shadow">ORECA 07</span>
              </div>
