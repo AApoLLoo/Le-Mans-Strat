@@ -36,14 +36,15 @@ try {
 
 // --- IMPORT IMAGES ---
 import trackMapImg from './assets/track-map.jpg'; 
-// 👇 Assure-toi que cette image est bien dans src/assets/ 👇
 import lmp2CarImg from './assets/lmp2-car.jpg'; 
+// 👇 AJOUT DE L'IMAGE HYPERCAR ICI 👇
+import hypercarCarImg from './assets/hypercar-car.jpg'; 
 
 const getSafeDriver = (driver) => {
   return driver || { id: 'unknown', name: "---", phone: "", color: "#3b82f6", text: "text-slate-500" };
 };
 
-// --- CSS GLOBAL (Défini une seule fois ici) ---
+// --- CSS GLOBAL ---
 const globalCss = `
   :root, body, #root { width: 100vw; height: 100vh; margin: 0; padding: 0; max-width: none !important; overflow: hidden; background-color: #020408; }
   .custom-scrollbar::-webkit-scrollbar { width: 6px; }
@@ -395,29 +396,33 @@ const RaceStrategyApp = () => {
       <div className="flex flex-col items-center justify-center h-screen w-full bg-[#020408] gap-8 font-sans relative overflow-hidden">
         <style>{globalCss}</style>
         
-        {/* BACKGROUND ACCUEIL - Optionnel : Ajoute un effet de fond */}
+        {/* BACKGROUND ACCUEIL */}
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-red-900/20 opacity-30 animate-pulse z-0"></div>
 
         <h1 className="text-4xl font-black text-white italic z-10">LE MANS <span className="text-indigo-500">24H</span> STRATEGY</h1>
         
         <div className="flex gap-6 z-10">
-          {/* BOUTON HYPERCAR */}
-          <button onClick={() => setSelectedTeam('hypercar')} className="w-72 h-48 bg-gradient-to-br from-red-600 to-red-900 rounded-3xl flex flex-col items-center justify-center text-white shadow-2xl hover:scale-105 transition-all duration-300 border border-red-500/30 group relative overflow-hidden">
-             <div className="absolute inset-0 bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-             <Trophy size={56} className="mb-4 drop-shadow-lg"/>
-             <span className="font-black text-3xl drop-shadow-lg tracking-tight">HYPERCAR</span>
-             <span className="text-sm text-red-100 mt-2 font-bold bg-red-700/50 px-3 py-0.5 rounded-full">WEC TOP CLASS</span>
+          {/* BOUTON HYPERCAR AVEC IMAGE */}
+          <button onClick={() => setSelectedTeam('hypercar')} className="w-72 h-48 rounded-3xl relative overflow-hidden group shadow-2xl hover:scale-105 transition-all duration-300 border border-red-500/30">
+             {/* IMAGE FOND HYPERCAR */}
+             <img src={hypercarCarImg} alt="Hypercar" className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-500" />
+             {/* OVERLAY ROUGE */}
+             <div className="absolute inset-0 bg-gradient-to-t from-red-950/95 via-red-900/60 to-black/30 mix-blend-multiply transition-opacity group-hover:opacity-90"></div>
+             {/* CONTENU */}
+             <div className="relative z-10 flex flex-col items-center justify-center h-full text-white p-4">
+                 <Trophy size={56} className="mb-2 drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]"/>
+                 <span className="font-black text-3xl drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] tracking-tight">HYPERCAR</span>
+                 <span className="text-sm text-red-100 mt-2 font-bold bg-red-700/80 px-3 py-0.5 rounded-full drop-shadow">WEC TOP CLASS</span>
+             </div>
           </button>
 
           {/* BOUTON LMP2 AVEC IMAGE */}
           <button onClick={() => setSelectedTeam('lmp2')} className="w-72 h-48 rounded-3xl relative overflow-hidden group shadow-2xl hover:scale-105 transition-all duration-300 border border-blue-500/30">
-             {/* L'IMAGE DE FOND */}
-             <img src={lmp2CarImg} alt="LMP2 Iron Lynx" className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-500" />
-             
-             {/* L'OVERLAY SOMBRE POUR LA LISIBILITÉ */}
+             {/* IMAGE FOND LMP2 */}
+             <img src={lmp2CarImg} alt="LMP2" className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-500" />
+             {/* OVERLAY BLEU */}
              <div className="absolute inset-0 bg-gradient-to-t from-blue-950/95 via-blue-900/60 to-black/30 mix-blend-multiply transition-opacity group-hover:opacity-90"></div>
-
-             {/* LE CONTENU (TEXTE ET ICÔNE) */}
+             {/* CONTENU */}
              <div className="relative z-10 flex flex-col items-center justify-center h-full text-white p-4">
                  <Users size={56} className="mb-2 drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]"/>
                  <span className="font-black text-3xl drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] tracking-tight">LMP2</span>
