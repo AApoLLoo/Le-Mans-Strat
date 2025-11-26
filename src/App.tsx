@@ -2,21 +2,22 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Fuel, RotateCcw, Users, Flag, Timer, X, Save, AlertOctagon, 
   Settings, Play, Pause, CloudRain, Sun, Cloud, Wifi, 
-  Calculator, StopCircle, Clock, FileText, ChevronRight, Phone, Trash2, Edit3
+  Calculator, StopCircle, Clock, FileText, ChevronRight, Phone, Trash2, Edit3, AlertTriangle
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE ---
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 
-// 👇 --- TA CONFIGURATION FIREBASE --- 👇
+// 👇 --- COLLE TA CONFIGURATION FIREBASE ICI --- 👇
 const firebaseConfig = {
   apiKey: "AIzaSyAezT5Np6-v18OBR1ICV3uHoFViQB555sg",
   authDomain: "le-mans-strat.firebaseapp.com",
   projectId: "le-mans-strat",
   storageBucket: "le-mans-strat.firebasestorage.app",
   messagingSenderId: "1063156323054",
-  appId: "1:1063156323054:web:81e74528a75ffb770099ff",
+  appId: "1:1063156323054:web:81e74528a75ffb770099ff"
+
 };
 // 👆 --------------------------------- 👆
 
@@ -66,7 +67,7 @@ const RaceStrategyApp = () => {
       { id: 4, name: "Pilote 4", phone: "00 00 00 00 00", color: "from-amber-600 to-amber-700", text: "text-amber-400" }
     ],
     activeDriverIndex: 0,
-    incidents: [], // Structure: { id, lap, time, text }
+    incidents: [], 
     stintNotes: {}
   });
 
@@ -205,11 +206,11 @@ const RaceStrategyApp = () => {
   `;
 
   return (
-    <div className="min-h-screen bg-[#020408] text-slate-200 flex flex-col font-sans">
+    <div className="h-screen w-full bg-[#020408] text-slate-200 flex flex-col font-sans overflow-hidden">
       <style>{css}</style>
       
       {/* HEADER */}
-      <div className="h-16 glass-panel flex items-center justify-between px-4 lg:px-6 sticky top-0 z-50">
+      <div className="h-16 glass-panel flex items-center justify-between px-6 sticky top-0 z-50 shrink-0">
         <div className="flex items-center gap-4">
           <div className="bg-indigo-600 p-2 rounded transform skew-x-[-10deg]">
              <Flag className="text-white transform skew-x-[10deg]" size={20}/>
@@ -243,14 +244,14 @@ const RaceStrategyApp = () => {
         </div>
       </div>
 
-      {/* MAIN CONTENT */}
-      <div className="flex-1 p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden">
+      {/* MAIN CONTENT (FLEXBOX FIX) */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden p-4 lg:p-6 gap-6">
         
-        {/* --- LEFT COLUMN --- */}
-        <div className="lg:col-span-4 flex flex-col gap-4 h-full">
+        {/* --- LEFT COLUMN (FIXED WIDTH) --- */}
+        <div className="w-full lg:w-[420px] shrink-0 flex flex-col gap-4 h-full overflow-hidden">
           
           {/* DRIVER CARD */}
-          <div className="glass-panel rounded-xl p-6 relative overflow-hidden group">
+          <div className="glass-panel rounded-xl p-6 relative overflow-hidden group shrink-0">
              <div className={`absolute top-0 right-0 w-[60%] h-full bg-gradient-to-l ${activeDriver.color} opacity-10 transform skew-x-12`}></div>
              
              <div className="flex justify-between items-start mb-6 relative">
@@ -262,7 +263,7 @@ const RaceStrategyApp = () => {
                          <span className="text-[9px] font-bold text-slate-400 tracking-widest flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> DRIVER</span>
                       )}
                    </div>
-                   <h2 className="text-3xl lg:text-4xl font-black text-white italic uppercase tracking-tighter truncate">{activeDriver.name}</h2>
+                   <h2 className="text-3xl lg:text-4xl font-black text-white italic uppercase tracking-tighter truncate max-w-[250px]">{activeDriver.name}</h2>
                    
                    {/* Phone Display */}
                    {activeDriver.phone && (
@@ -316,7 +317,7 @@ const RaceStrategyApp = () => {
           </div>
 
           {/* TELEMETRY */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 shrink-0">
              <div className="glass-panel rounded-xl p-3 flex flex-col justify-between h-24">
                 <div className="flex justify-between items-start">
                    <div className="text-slate-500 text-[9px] font-bold uppercase"><Fuel size={12} className="inline mr-1"/> AVG FUEL</div>
@@ -332,14 +333,19 @@ const RaceStrategyApp = () => {
              </div>
           </div>
           
-          {/* LOG INCIDENTS (INTERACTIF) */}
-          <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden min-h-[200px]">
-             <div className="p-2 border-b border-white/5 bg-black/20 text-[9px] font-bold text-slate-500 uppercase tracking-widest px-3 flex justify-between items-center">
+          {/* LOG INCIDENTS (Fills Remaining Height) */}
+          <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden min-h-[150px]">
+             <div className="p-2 border-b border-white/5 bg-black/20 text-[9px] font-bold text-slate-500 uppercase tracking-widest px-3 flex justify-between items-center shrink-0">
                 <span>RACE LOG</span>
                 <span className="text-[9px] opacity-50">{gameState.incidents.length} EVENTS</span>
              </div>
              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
-                {gameState.incidents.length === 0 && <div className="text-center text-slate-700 text-xs mt-4">No incidents recorded</div>}
+                {gameState.incidents.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-700 gap-2">
+                        <AlertTriangle size={24} className="opacity-20"/>
+                        <span className="text-xs">No incidents recorded</span>
+                    </div>
+                )}
                 {gameState.incidents.map((inc) => (
                    <div key={inc.id} className="bg-slate-900/50 p-2 rounded border-l-2 border-red-500/50 flex flex-col gap-1 group">
                       <div className="flex justify-between items-start">
@@ -364,8 +370,8 @@ const RaceStrategyApp = () => {
           </div>
         </div>
 
-        {/* --- RIGHT COLUMN --- */}
-        <div className="lg:col-span-8 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500">
+        {/* --- RIGHT COLUMN (TAKES ALL REMAINING SPACE) --- */}
+        <div className="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500">
            <div className="p-3 border-b border-white/5 bg-slate-900/50 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-white text-sm uppercase flex items-center gap-2"><FileText size={16} className="text-indigo-400"/> Strategy Plan</h3>
               <button onClick={() => syncUpdate({isEmergency: !gameState.isEmergency})} className={`px-2 py-1 rounded text-[9px] font-bold border ${gameState.isEmergency ? 'bg-red-600 text-white border-red-600 animate-pulse' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
