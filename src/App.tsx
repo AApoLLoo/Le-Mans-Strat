@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Fuel, RotateCcw, Users, Flag, X, Save, AlertOctagon, 
   Settings, Play, Pause, CloudRain, Sun, Cloud, Wifi, 
-  Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, AlertTriangle, CheckCircle2, Plus, Minus, Home, Trophy, MessageSquare, Send
+  Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, AlertTriangle, CheckCircle2, Plus, Minus, Home, Trophy, MessageSquare, Send, ArrowDownCircle
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE ---
@@ -29,11 +29,11 @@ try {
   }
 } catch (error) { console.error("Firebase Error", error); }
 
-// --- IMPORT IMAGES CORRIGÉS ---
+// --- IMPORT IMAGES ---
 import trackMapImg from './assets/track-map.jpg'; 
 import lmp2CarImg from './assets/lmp2-car.jpg'; 
-// 👇 NOMS CORRIGÉS ICI 👇
 import hypercarCarImg from './assets/Hypercar.jpg'; 
+// 👇 CORRECTION ICI (.png) 👇
 import baguetteImg from './assets/Baguette.png';
 
 const getSafeDriver = (driver) => {
@@ -333,6 +333,21 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
       return getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
   }, [gameState.drivers, gameState.activeDriverId]);
 
+  // 🏎️ CALCUL DU PROCHAIN PILOTE POUR L'AFFICHAGE 🏎️
+  const nextDriverInfo = useMemo(() => {
+      const nextStint = (gameState.currentStint || 0) + 1;
+      let nextId = gameState.stintAssignments[nextStint];
+      
+      if (!nextId && gameState.drivers.length > 0) {
+          const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
+          const nextIdx = currentIdx === -1 ? 0 : (currentIdx + 1) % gameState.drivers.length;
+          nextId = gameState.drivers[nextIdx].id;
+      }
+
+      return getSafeDriver(gameState.drivers.find(d => d.id === nextId));
+  }, [gameState, activeDriver]);
+
+
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-[#020408] text-slate-200 font-sans">
       
@@ -371,10 +386,29 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
                 </div>
                 <div className="flex flex-col items-end gap-2"><div className="w-10 h-10 lg:w-12 lg:h-12 rounded-lg flex items-center justify-center border border-white/10 shadow-lg" style={{ backgroundColor: activeDriver.color }}><Users size={20} className="text-white" /></div></div>
              </div>
+             
              <div className="mb-4">
                 <button onClick={confirmPitStop} className="w-full h-16 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl font-black text-xl uppercase shadow-lg shadow-indigo-900/50 border border-indigo-400/50 flex items-center justify-center gap-3 active:scale-[0.98] transition-all"><CheckCircle2 size={28} /> Pit Stop Done</button>
                 <div className="flex justify-between mt-2 px-1"><button onClick={undoStint} className="text-[10px] text-slate-500 hover:text-red-400 underline">Mistake? Undo Stop</button></div>
              </div>
+
+             {/* 🆕 BLOC INFO "NEXT DRIVER" */}
+             <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700 flex items-center justify-between mb-4 shadow-lg relative overflow-hidden">
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-500"></div>
+                <div>
+                   <div className="flex items-center gap-2 text-[10px] text-amber-500 font-bold uppercase tracking-widest mb-0.5">
+                      <ArrowDownCircle size={12} /> Next Driver
+                   </div>
+                   <div className="text-xl font-black text-white uppercase italic tracking-tighter">{nextDriverInfo.name}</div>
+                </div>
+                {nextDriverInfo.phone && (
+                    <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded px-2 py-1.5">
+                        <Phone size={14} className="text-green-500"/>
+                        <span className="text-xs font-mono font-bold text-green-400">{nextDriverInfo.phone}</span>
+                    </div>
+                )}
+             </div>
+
              <div className="bg-black/30 rounded p-1 flex gap-1 mb-4">{['DRY', 'DAMP', 'WET'].map(w => <button key={w} onClick={() => syncUpdate({weather: w})} className={`flex-1 flex justify-center items-center py-1 rounded text-[10px] ${gameState.weather === w ? 'bg-slate-600 text-white shadow' : 'text-slate-600'}`}>{w === 'DRY' ? <Sun size={14}/> : w === 'DAMP' ? <Cloud size={14}/> : <CloudRain size={14}/>}</button>)}</div>
           </div>
 
@@ -459,6 +493,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
              </div>
            )}
 
+           {/* VUE CHAT AVEC BADGES ÉQUIPES */}
            {viewMode === "CHAT" && (
              <div className="flex flex-col h-full bg-slate-900/50">
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -535,7 +570,7 @@ const RaceStrategyApp = () => {
            <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-red-900/40 opacity-50 animate-pulse"></div>
         </div>
 
-        {/* ⚠️ MENTION FBT ICI */}
+        {/* ⚠️ AJOUT DE LA MENTION FBT ICI 👇 */}
         <span className="text-xs font-bold text-indigo-500 tracking-widest uppercase mb-[-20px] z-20 relative">FBT Technologies only</span>
         <h1 className="text-4xl font-black text-white italic z-20 relative">LE MANS <span className="text-indigo-500">24H</span> STRATEGY</h1>
         
