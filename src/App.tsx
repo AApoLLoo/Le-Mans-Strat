@@ -200,6 +200,33 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
           const newRaceDurationHours = typeof data.raceDurationHours === 'number' ? data.raceDurationHours : gameState.raceDurationHours;
           const totalRaceSeconds = newRaceDurationHours * 3600;
 
+          // --- CORRECTION : MAPPING DES DONNÉES LIVE DU BRIDGE VERS L'OBJET TELEMETRY ---
+          const liveTelemetry = {
+              ...gameState.telemetry, // Garde les champs mockés non mis à jour par le bridge
+              // Mise à jour des tours
+              laps: data.currentLap ?? gameState.telemetry.laps,
+              
+              // Mise à jour du Fuel
+              fuel: {
+                  ...gameState.telemetry.fuel,
+                  current: data.fuelRemainingL ?? gameState.telemetry.fuel.current,
+                  // Le bridge envoie la consommation moyenne sur 5 tours, nous la mappons ici :
+                  averageCons: data.fuelConsumptionPerLapL ?? gameState.telemetry.fuel.averageCons,
+                  lastLapCons: data.fuelConsumptionPerLapL ?? gameState.telemetry.fuel.lastLapCons,
+              },
+              
+              // Mise à jour des Pneus (le bridge envoie un pourcentage d'usure moyen, que nous mappons sur les 4 roues pour l'affichage)
+              tires: {
+                  fl: data.tireWearAvgPct ?? gameState.telemetry.tires.fl,
+                  fr: data.tireWearAvgPct ?? gameState.telemetry.tires.fr,
+                  rl: data.tireWearAvgPct ?? gameState.telemetry.tires.rl,
+                  rr: data.tireWearAvgPct ?? gameState.telemetry.tires.rr,
+              },
+              // La VE reste la valeur mockée (ou mise à jour si le bridge commence à l'envoyer)
+              virtualEnergy: data.virtualEnergy ?? gameState.telemetry.virtualEnergy,
+          };
+          // --- FIN DE LA CORRECTION ---
+
           const safeData = {
               ...gameState, 
               ...data,      
@@ -216,6 +243,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               stintVirtualEnergy: data.stintVirtualEnergy || gameState.stintVirtualEnergy,
               fuelCons: typeof data.fuelCons === 'number' ? data.fuelCons : gameState.fuelCons,
               veCons: typeof data.veCons === 'number' ? data.veCons : gameState.veCons, // <-- Nouvelle synchronisation
+              // Écrase le bloc telemetry avec les données LIVE mappées :
+              telemetry: liveTelemetry
           };
 
           setGameState(safeData); 
