@@ -2,8 +2,15 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Fuel, RotateCcw, Users, Flag, X, Save, AlertOctagon, 
   Settings, Play, Pause, CloudRain, Sun, Cloud, Wifi, 
-  Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, AlertTriangle, CheckCircle2, Plus, Minus, Home, Trophy, MessageSquare, Send, ArrowDownCircle
+  Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, 
+  AlertTriangle, CheckCircle2, Plus, Minus, Home, Trophy, 
+  MessageSquare, Send, ArrowDownCircle 
 } from 'lucide-react';
+
+// --- IMPORT NOUVEAUX COMPOSANTS ---
+import StrategyView from './components/StrategyView';
+import MapView from './components/MapView';
+import ChatView from './components/ChatView';
 
 // --- IMPORT FIREBASE ---
 import { initializeApp } from "firebase/app";
@@ -30,10 +37,9 @@ try {
 } catch (error) { console.error("Firebase Error", error); }
 
 // --- IMPORT IMAGES ---
-import trackMapImg from './assets/track-map.jpg'; 
+// Note : trackMapImg a été déplacé dans MapView.tsx, on ne l'importe plus ici si on ne l'utilise pas.
 import lmp2CarImg from './assets/lmp2-car.jpg'; 
 import hypercarCarImg from './assets/Hypercar.jpg'; 
-// 👇 CORRECTION ICI (.png) 👇
 import baguetteImg from './assets/Baguette.png';
 
 const getSafeDriver = (driver) => {
@@ -95,8 +101,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
   const [chatInput, setChatInput] = useState("");
   const [username, setUsername] = useState("Engineer");
   const [globalMessages, setGlobalMessages] = useState([]); 
-  const chatEndRef = useRef(null);
-
+  
   const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
   const [localStintTime, setLocalStintTime] = useState(0);
 
@@ -173,12 +178,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
     });
     return () => unsubChat();
   }, []);
-
-  useEffect(() => {
-    if (viewMode === "CHAT" && chatEndRef.current) {
-        chatEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [globalMessages, viewMode]);
 
   // --- TIMERS LOOP ---
   useEffect(() => {
@@ -373,7 +372,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
 
       {/* CONTENT */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden p-4 lg:p-6 gap-6 w-full">
-        {/* LEFT */}
+        {/* LEFT - INFORMATIONS PILOTES & INCIDENTS (Reste identique) */}
         <div className="w-full lg:w-[420px] shrink-0 flex flex-col gap-4 h-full overflow-hidden">
           <div className="glass-panel rounded-xl p-6 relative overflow-hidden group shrink-0">
              <div className="absolute top-0 right-0 w-[60%] h-full opacity-20 transform skew-x-12" style={{ background: `linear-gradient(to left, ${activeDriver.color}, transparent)` }}></div>
@@ -445,7 +444,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
           </div>
         </div>
 
-        {/* RIGHT */}
+        {/* RIGHT - PANNEAU PRINCIPAL (AVEC LES NOUVEAUX COMPOSANTS) */}
         <div className="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500 relative w-full">
            <div className="p-3 border-b border-white/5 bg-slate-900/50 flex justify-between items-center shrink-0">
               <div className="flex gap-1 p-1 bg-black/30 rounded-lg">
@@ -456,67 +455,30 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
               <button onClick={() => syncUpdate({isEmergency: !gameState.isEmergency})} className={`px-2 py-1 rounded text-[9px] font-bold border ${gameState.isEmergency ? 'bg-red-600 text-white border-red-600 animate-pulse' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>{gameState.isEmergency ? '⚠ SAFETY CAR' : 'GREEN FLAG'}</button>
            </div>
            
+           {/* AFFICHAGE CONDITIONNEL DES VUES */}
            {viewMode === "STRATEGY" && (
-             <div className="flex-1 overflow-auto custom-scrollbar bg-[#050a10]">
-                <table className="w-full text-left text-sm border-collapse">
-                   <thead className="sticky top-0 bg-[#050a10] z-10 text-[9px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800">
-                      <tr><th className="p-3 w-10 text-center">#</th><th className="p-3">Driver Selection</th><th className="p-3">Window</th><th className="p-3 text-right">Refuel</th><th className="p-3 text-center">Status</th><th className="p-3">Notes</th></tr>
-                   </thead>
-                   <tbody className="divide-y divide-white/5">
-                      {strategyData.stints.map((stint) => (
-                         <tr key={stint.id} className={`group hover:bg-white/[0.02] ${stint.isCurrent ? 'row-current' : ''} ${stint.isNext ? 'row-next' : ''} ${stint.isDone ? 'row-done' : ''}`}>
-                            <td className="p-3 text-center font-mono font-bold text-xs text-slate-600">{stint.stopNum}</td>
-                            <td className="p-3">
-                                <select value={stint.driverId || ""} onChange={(e) => assignDriverToStint(stint.id, e.target.value)} className="bg-transparent border border-slate-700 rounded px-2 py-1 text-xs font-bold text-white focus:border-indigo-500 focus:bg-slate-900 outline-none w-full max-w-[150px]">
-                                    {gameState.drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                                </select>
-                            </td>
-                            <td className="p-3 font-mono text-xs text-slate-300 flex items-center gap-1">{stint.startLap} <ChevronRight size={10} className="text-slate-600"/> {stint.endLap}</td>
-                            <td className="p-3 text-right font-mono text-xs text-slate-300 font-bold">{stint.fuel}</td>
-                            <td className="p-3 text-center">
-                                {stint.isCurrent && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500 text-white shadow-lg shadow-emerald-500/20">CURRENT</span>}
-                                {stint.isNext && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-black shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1">NEXT STOP</span>}
-                                {!stint.isCurrent && !stint.isNext && <span className="text-[9px] text-slate-600 border border-slate-800 px-1 rounded">{stint.note}</span>}
-                            </td>
-                            <td className="p-3"><input type="text" value={gameState.stintNotes[stint.stopNum] || ""} onChange={(e) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stint.stopNum]: e.target.value }})} className="bg-transparent border-b border-transparent focus:border-indigo-500 w-full text-xs text-slate-300 outline-none font-mono placeholder-slate-800" placeholder="..."/></td>
-                         </tr>
-                      ))}
-                   </tbody>
-                </table>
-             </div>
+             <StrategyView 
+               strategyData={strategyData}
+               drivers={gameState.drivers}
+               stintNotes={gameState.stintNotes}
+               onAssignDriver={assignDriverToStint}
+               onUpdateNote={(stopNum, val) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
+             />
            )}
 
            {viewMode === "MAP" && (
-             <div className="flex-1 bg-[#e5e5e5] flex items-center justify-center p-8 overflow-hidden relative">
-                 <img src={trackMapImg} alt="Track Map" className="max-w-full max-h-full object-contain map-invert drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]" />
-                 <div className="absolute bottom-4 right-4 text-black font-bold text-xs opacity-50">LE MANS 13.626 KM</div>
-             </div>
+             <MapView />
            )}
 
-           {/* VUE CHAT AVEC BADGES ÉQUIPES */}
            {viewMode === "CHAT" && (
-             <div className="flex flex-col h-full bg-slate-900/50">
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {(globalMessages || []).map((msg) => (
-                        <div key={msg.id} className={`flex flex-col ${msg.user === username ? 'items-end' : 'items-start'}`}>
-                            <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${msg.teamColor === 'bg-red-600' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}>{msg.team}</span>
-                                <span className="text-[10px] font-bold text-indigo-300">{msg.user}</span>
-                                <span className="text-[9px] text-slate-500">{msg.time}</span>
-                            </div>
-                            <div className={`px-3 py-2 rounded-xl text-sm max-w-[80%] ${msg.user === username ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
-                                {msg.text}
-                            </div>
-                        </div>
-                    ))}
-                    <div ref={chatEndRef} />
-                </div>
-                <div className="p-3 bg-black/40 border-t border-slate-800 flex gap-2">
-                    <input type="text" placeholder="Pseudo" value={username} onChange={(e) => setUsername(e.target.value)} className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-2 text-xs text-white outline-none focus:border-indigo-500"/>
-                    <input type="text" placeholder="Message..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"/>
-                    <button onClick={sendMessage} className="bg-indigo-600 hover:bg-indigo-500 text-white p-2 rounded transition-colors"><Send size={18}/></button>
-                </div>
-             </div>
+             <ChatView 
+                messages={globalMessages}
+                username={username}
+                setUsername={setUsername}
+                chatInput={chatInput}
+                setChatInput={setChatInput}
+                onSendMessage={sendMessage}
+             />
            )}
         </div>
       </div>
