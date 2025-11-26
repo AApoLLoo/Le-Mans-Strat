@@ -38,7 +38,7 @@ try {
 import trackMapImg from './assets/track-map.jpg'; 
 import lmp2CarImg from './assets/lmp2-car.jpg'; 
 // 👇 AJOUT DE L'IMAGE HYPERCAR ICI 👇
-import hypercarCarImg from './assets/hypercar-car.jpg'; 
+import hypercarCarImg from './assets/Hypercar.jpg'; 
 
 const getSafeDriver = (driver) => {
   return driver || { id: 'unknown', name: "---", phone: "", color: "#3b82f6", text: "text-slate-500" };
