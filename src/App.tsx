@@ -4,13 +4,14 @@ import {
   Settings, Play, Pause, CloudRain, Sun, Cloud, Wifi, 
   Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, 
   AlertTriangle, CheckCircle2, Plus, Minus, Home, Trophy, 
-  MessageSquare, Send, ArrowDownCircle 
+  MessageSquare, Send, ArrowDownCircle, Activity 
 } from 'lucide-react';
 
 // --- IMPORT NOUVEAUX COMPOSANTS ---
 import StrategyView from './components/StrategyView';
 import MapView from './components/MapView';
 import ChatView from './components/ChatView';
+import TelemetryView from './components/TelemetryView'; 
 
 // --- IMPORT FIREBASE ---
 import { initializeApp } from "firebase/app";
@@ -37,7 +38,6 @@ try {
 } catch (error) { console.error("Firebase Error", error); }
 
 // --- IMPORT IMAGES ---
-// Note : trackMapImg a été déplacé dans MapView.tsx, on ne l'importe plus ici si on ne l'utilise pas.
 import lmp2CarImg from './assets/lmp2-car.jpg'; 
 import hypercarCarImg from './assets/Hypercar.jpg'; 
 import baguetteImg from './assets/Baguette.png';
@@ -88,8 +88,44 @@ const generateBaguettes = (count) => {
   return baguettes;
 };
 
+// Fonction pour formater les temps en heures:minutes:secondes
+const formatTime = (s) => {
+    if(isNaN(s) || s < 0) return "00:00:00";
+    const h = Math.floor(s/3600).toString().padStart(2,'0'), m = Math.floor((s%3600)/60).toString().padStart(2,'0'), sec = (s%60).toString().padStart(2,'0');
+    return `${h}:${m}:${sec}`;
+};
+
+// Fonction pour formater les temps au tour (X:XX.X)
+const formatLapTime = (s) => {
+    if (isNaN(s) || s <= 0) return "---";
+    const minutes = Math.floor(s / 60);
+    const seconds = s % 60;
+    return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`; 
+};
+
+// Fonction pour calculer le delta et la classe de couleur
+const getLapTimeDelta = (estimatedTime, realTimeAvg) => {
+    const delta = realTimeAvg - estimatedTime;
+
+    let colorClass = 'text-white';
+    let deltaSign = '';
+    if (delta > 0.5) { // Plus lent
+        colorClass = 'text-red-500';
+        deltaSign = '+';
+    } else if (delta < -0.5) { // Plus rapide
+        colorClass = 'text-emerald-500';
+    } else if (delta !== 0) { // Léger décalage
+        colorClass = 'text-amber-500';
+        deltaSign = delta > 0 ? '+' : '';
+    }
+    const displayDelta = delta !== 0 ? `${deltaSign}${delta.toFixed(2)}s` : '±0.0s';
+    
+    return { colorClass, displayDelta, realTimeAvg };
+};
+
+
 // --- COMPOSANT DASHBOARD ---
-const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
+const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => { 
   const SESSION_ID = `lemans-2025-${teamId}`; 
   const CHAT_ID = "lemans-2025-global-radio"; 
 
@@ -102,26 +138,40 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
   const [username, setUsername] = useState("Engineer");
   const [globalMessages, setGlobalMessages] = useState([]); 
   
+  // Démarre le Race Time en fonction de la durée de course (24h par défaut)
   const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
   const [localStintTime, setLocalStintTime] = useState(0);
 
   const [gameState, setGameState] = useState({
     currentStint: 0,
-    raceTime: 24 * 60 * 60,
+    raceTime: 24 * 60 * 60, // Dépendra de raceDurationHours
     stintDuration: 0,
     stintStartTime: Date.now(),
     isRaceRunning: false,
     weather: "DRY",
     fuelCons: 3.65,
     tankCapacity: 105,
-    lapsTarget: 380,
+    
+    // Paramètres basés sur la durée
+    raceDurationHours: 24, 
+    avgLapTimeSeconds: 210, // Temps ESTIMÉ pour la stratégie
+    
     isEmergency: false,
     drivers: [],
     activeDriverId: 0,
     incidents: [], 
     chatMessages: [], 
     stintNotes: {},
-    stintAssignments: {} 
+    stintAssignments: {},
+    position: 4, 
+    telemetry: {
+        laps: 124,
+        fuel: { current: 45.5, max: 105, lastLapCons: 3.62, averageCons: 3.65 },
+        virtualEnergy: 88, 
+        tires: { fl: 92, fr: 89, rl: 95, rr: 94 },
+        currentLapTimeSeconds: 212.5, // Temps réel du tour en cours
+        last3LapAvgSeconds: 211.2 // Temps réel moyen sur les 3 derniers tours
+    }
   });
 
   // --- SYNC ENGINE (STRATÉGIE) ---
@@ -137,12 +187,22 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) { 
           const data = docSnap.data();
+          
+          // Calcul de la durée totale en secondes
+          const newRaceDurationHours = typeof data.raceDurationHours === 'number' ? data.raceDurationHours : gameState.raceDurationHours;
+          const totalRaceSeconds = newRaceDurationHours * 3600;
+
           const safeData = {
               ...gameState, 
               ...data,      
               drivers: data.drivers || [],
               stintAssignments: data.stintAssignments || {},
               currentStint: typeof data.currentStint === 'number' ? data.currentStint : 0,
+              position: typeof data.position === 'number' ? data.position : gameState.position, 
+              raceDurationHours: newRaceDurationHours,
+              avgLapTimeSeconds: typeof data.avgLapTimeSeconds === 'number' ? data.avgLapTimeSeconds : gameState.avgLapTimeSeconds, 
+              // Initialisation du raceTime avec la durée totale SI raceTime n'est pas encore défini (première synchro)
+              raceTime: typeof data.raceTime === 'number' ? data.raceTime : totalRaceSeconds,
           };
 
           setGameState(safeData); 
@@ -150,10 +210,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
           setLocalStintTime(safeData.stintDuration || 0);
           setStatus("LIVE SYNC"); 
       } else {
+          // Si le document n'existe pas, on l'initialise
+          const initialRaceTime = gameState.raceDurationHours * 3600;
+
           const initialData = { 
               ...gameState, 
               drivers: [{id: 1, name: "Driver 1", color: teamId === 'hypercar' ? '#ef4444' : '#3b82f6', phone: ""}],
-              activeDriverId: 1
+              activeDriverId: 1,
+              raceTime: initialRaceTime, // Initialisation basée sur la durée par défaut (24h)
           };
           setDoc(docRef, initialData).then(() => setStatus("CREATED")).catch(err => setStatus("ERROR CREATE"));
       }
@@ -164,6 +228,18 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
 
     return () => unsubscribe();
   }, [SESSION_ID]);
+
+  // --- HOOK pour synchroniser localRaceTime quand raceDurationHours change (dans les settings) ---
+  useEffect(() => {
+    if (!gameState.isRaceRunning) {
+        const totalSeconds = gameState.raceDurationHours * 3600;
+        if (localRaceTime !== totalSeconds) {
+            setLocalRaceTime(totalSeconds);
+            syncUpdate({ raceTime: totalSeconds });
+        }
+    }
+  }, [gameState.raceDurationHours, gameState.isRaceRunning]);
+
 
   // --- SYNC ENGINE (CHAT) ---
   useEffect(() => {
@@ -185,14 +261,18 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
     if (gameState.isRaceRunning && localRaceTime > 0) {
         interval = setInterval(() => {
             setLocalRaceTime(prev => {
-                if (prev <= 0) return 0;
+                if (prev <= 0) {
+                    syncUpdate({ isRaceRunning: false, raceTime: 0 });
+                    return 0;
+                }
                 return prev - 1;
             });
             setLocalStintTime(prev => prev + 1);
         }, 1000);
     }
     return () => clearInterval(interval);
-  }, [gameState.isRaceRunning]); 
+  }, [gameState.isRaceRunning, localRaceTime]); 
+
 
   // --- ACTIONS ---
   const syncUpdate = (data) => {
@@ -227,11 +307,23 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
   };
 
   const resetRaceTimer = () => {
-      if(confirm("⚠️ RESET COMPLET DE LA COURSE ?")) {
-          syncUpdate({ isRaceRunning: false, raceTime: 24 * 60 * 60, stintDuration: 0, currentStint: 0, incidents: [], chatMessages: [] });
-          setLocalRaceTime(24 * 60 * 60);
-          setLocalStintTime(0);
+      console.log("WARNING: RESET COMPLET DE LA COURSE DEMANDÉ.");
+      const initialRaceTime = gameState.raceDurationHours * 3600;
+      
+      const resetData = { 
+          isRaceRunning: false, 
+          raceTime: initialRaceTime, // Réinitialise sur la durée définie
+          stintDuration: 0, 
+          currentStint: 0, 
+          incidents: [], 
+          chatMessages: [] 
+      };
+      
+      if (db) {
+          syncUpdate(resetData);
       }
+      setLocalRaceTime(initialRaceTime);
+      setLocalStintTime(0);
   };
   
   const addDriver = () => {
@@ -250,6 +342,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
   const assignDriverToStint = (stintIndex, driverId) => {
       const id = Number(driverId);
       const newAssignments = { ...gameState.stintAssignments, [stintIndex]: id };
+      // Mise à jour du pilote actif si l'assignation concerne le stint actuel
       if (stintIndex === gameState.currentStint) syncUpdate({ stintAssignments: newAssignments, activeDriverId: id });
       else syncUpdate({ stintAssignments: newAssignments });
   };
@@ -257,10 +350,13 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
   const confirmPitStop = () => {
     const nextStint = (gameState.currentStint || 0) + 1;
     let nextDriverId = gameState.stintAssignments[nextStint];
+    
+    // Si le pilote du prochain stint n'est pas encore assigné dans la strat, on prend le pilote suivant par défaut
     if (!nextDriverId && gameState.drivers.length > 0) {
         const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
         nextDriverId = gameState.drivers[(currentIdx + 1) % gameState.drivers.length].id;
     }
+    // Fallback: si toujours rien, prend le premier pilote
     if (!nextDriverId && gameState.drivers.length > 0) nextDriverId = gameState.drivers[0].id;
 
     syncUpdate({ currentStint: nextStint, activeDriverId: nextDriverId, stintDuration: 0 });
@@ -284,26 +380,29 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
   const deleteIncident = (id) => syncUpdate({ incidents: gameState.incidents.filter(inc => inc.id !== id) });
   const updateIncidentInfo = (id, txt) => syncUpdate({ incidents: gameState.incidents.map(inc => inc.id === id ? { ...inc, text: txt } : inc) });
 
-  const formatTime = (s) => {
-    if(isNaN(s) || s < 0) return "00:00:00";
-    const h = Math.floor(s/3600).toString().padStart(2,'0'), m = Math.floor((s%3600)/60).toString().padStart(2,'0'), sec = (s%60).toString().padStart(2,'0');
-    return `${h}:${m}:${sec}`;
-  };
 
   const strategyData = useMemo(() => {
-    if (!gameState.drivers || gameState.drivers.length === 0) return { stints: [], lapsPerTank: 0 };
+    if (!gameState.drivers || gameState.drivers.length === 0) return { stints: [], totalLaps: 0, lapsPerTank: 0 };
+    
+    // --- CALCUL DU NOMBRE TOTAL DE TOURS (TARGET) basé sur le temps ---
+    const totalRaceSeconds = (gameState.raceDurationHours || 24) * 3600;
+    const calculatedTotalLaps = Math.max(1, Math.floor(totalRaceSeconds / (gameState.avgLapTimeSeconds || 210)));
+    const totalLapsTarget = calculatedTotalLaps; 
+    // --------------------------------------------------------
+
     const safeCons = (gameState.fuelCons > 0) ? gameState.fuelCons : 3.65;
     const safeTank = (gameState.tankCapacity > 0) ? gameState.tankCapacity : 105;
     const lapsPerTank = Math.floor(safeTank / safeCons);
     const safeLapsPerTank = lapsPerTank > 0 ? lapsPerTank : 1;
     
-    const totalStops = Math.max(0, Math.ceil((gameState.lapsTarget || 380) / safeLapsPerTank) - 1);
+    // Le nombre de stops est basé sur le nouveau calcul total de tours
+    const totalStops = Math.max(0, Math.ceil(totalLapsTarget / safeLapsPerTank) - 1);
     const stints = [];
     let lapCounter = 0;
     
     for (let i = 0; i <= totalStops; i++) {
       const isLast = i === totalStops;
-      const lapsThisStint = isLast ? ((gameState.lapsTarget || 380) - lapCounter) : safeLapsPerTank;
+      const lapsThisStint = isLast ? (totalLapsTarget - lapCounter) : safeLapsPerTank;
       const endLap = lapCounter + lapsThisStint;
       let driverId = gameState.stintAssignments[i];
       if (!driverId && gameState.drivers.length > 0) driverId = gameState.drivers[i % gameState.drivers.length].id;
@@ -324,7 +423,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
       });
       lapCounter += lapsThisStint;
     }
-    return { stints, lapsPerTank: safeLapsPerTank };
+    // On retourne le nombre total de tours calculé
+    return { stints, lapsPerTank: safeLapsPerTank, totalLaps: totalLapsTarget }; 
   }, [gameState]);
 
   const activeDriver = useMemo(() => {
@@ -332,23 +432,25 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onBack }) => {
       return getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
   }, [gameState.drivers, gameState.activeDriverId]);
 
-  // 🏎️ CALCUL DU PROCHAIN PILOTE POUR L'AFFICHAGE 🏎️
-// 🏎️ CORRECTION : On récupère le pilote directement depuis les données du tableau
-const nextDriverInfo = useMemo(() => {
-  // 1. On cible l'index du prochain relais
-  const nextStintIndex = (gameState.currentStint || 0) + 1;
-  
-  // 2. On cherche ce relais précis dans tes données de stratégie déjà calculées
-  const nextStintObj = strategyData.stints.find(s => s.id === nextStintIndex);
+  // 🏎️ CORRECTION : On récupère le pilote directement depuis les données du tableau (Next Stint)
+  const nextDriverInfo = useMemo(() => {
+      // 1. On cible l'index du prochain relais
+      const nextStintIndex = (gameState.currentStint || 0) + 1;
+      
+      // 2. On cherche ce relais précis dans tes données de stratégie déjà calculées
+      const nextStintObj = strategyData.stints.find(s => s.id === nextStintIndex);
 
-  // 3. Si on le trouve, on retourne le pilote associé (qui prend en compte ton menu déroulant)
-  if (nextStintObj && nextStintObj.driver) {
-      return nextStintObj.driver;
-  }
+      // 3. Si on le trouve, on retourne le pilote associé (qui prend en compte ton menu déroulant)
+      if (nextStintObj && nextStintObj.driver) {
+          return nextStintObj.driver;
+      }
 
-  // 4. Fallback (fin de course ou erreur)
-  return { name: "---", phone: "", color: "#334155" };
-}, [gameState.currentStint, strategyData]);
+      // 4. Fallback 
+      return getSafeDriver(null);
+  }, [gameState.currentStint, strategyData]);
+
+  // Utilisation du delta de temps réel/estimé pour l'affichage
+  const lapTimeDeltaInfo = getLapTimeDelta(gameState.avgLapTimeSeconds, gameState.telemetry.last3LapAvgSeconds);
 
 
   return (
@@ -357,16 +459,26 @@ const nextDriverInfo = useMemo(() => {
       {/* HEADER */}
       <div className="h-16 glass-panel flex items-center justify-between px-6 sticky top-0 z-50 shrink-0 w-full">
         <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition-colors"><Home size={20}/></button>
+          <button onClick={() => onTeamSelect(null)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition-colors"><Home size={20}/></button>
           <div className={`p-2 rounded transform skew-x-[-10deg] ${teamColor}`}><Flag className="text-white transform skew-x-[10deg]" size={20}/></div>
           <div>
             <h1 className="font-bold text-lg lg:text-xl tracking-tighter text-white italic uppercase">{teamName} <span className="text-slate-500">24H</span></h1>
             <div className={`text-[10px] font-bold tracking-widest flex items-center gap-1 ${status.includes('LIVE') ? 'text-emerald-500' : 'text-red-500'}`}><Wifi size={10}/> {status}</div>
           </div>
         </div>
-        <div className="hidden md:flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5">
-           <div className="text-right"><div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div><div className={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div></div>
-           <button onClick={toggleRaceTimer} className={`p-2 rounded-full border transition-all ${gameState.isRaceRunning ? 'border-amber-500 text-amber-500 bg-amber-900/10' : 'border-emerald-500 text-emerald-500 bg-emerald-900/10'}`}>{gameState.isRaceRunning ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}</button>
+        
+        {/* AFFICHAGE DE LA POSITION DANS LE HEADER */}
+        <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5">
+                <div className="text-right">
+                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">POSITION</div>
+                    <div className="font-mono text-3xl font-black leading-none text-white">P{gameState.position}</div>
+                </div>
+            </div>
+            <div className="hidden md:flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5">
+               <div className="text-right"><div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div><div className={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div></div>
+               <button onClick={toggleRaceTimer} className={`p-2 rounded-full border transition-all ${gameState.isRaceRunning ? 'border-amber-500 text-amber-500 bg-amber-900/10' : 'border-emerald-500 text-emerald-500 bg-emerald-900/10'}`}>{gameState.isRaceRunning ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}</button>
+            </div>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-white/10 rounded text-slate-400"><Settings size={20}/></button>
@@ -376,14 +488,30 @@ const nextDriverInfo = useMemo(() => {
 
       {/* CONTENT */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden p-4 lg:p-6 gap-6 w-full">
-        {/* LEFT - INFORMATIONS PILOTES & INCIDENTS (Reste identique) */}
+        {/* LEFT */}
         <div className="w-full lg:w-[420px] shrink-0 flex flex-col gap-4 h-full overflow-hidden">
           <div className="glass-panel rounded-xl p-6 relative overflow-hidden group shrink-0">
              <div className="absolute top-0 right-0 w-[60%] h-full opacity-20 transform skew-x-12" style={{ background: `linear-gradient(to left, ${activeDriver.color}, transparent)` }}></div>
              <div className="flex justify-between items-start mb-6 relative">
                 <div>
-                   <div className="flex items-center gap-2 mb-1"><span className="text-[9px] font-bold text-slate-400 tracking-widest flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> DRIVER (STINT {(gameState.currentStint || 0) + 1})</span></div>
-                   <h2 className="text-3xl lg:text-4xl font-black text-white italic uppercase tracking-tighter truncate max-w-[250px]">{activeDriver.name}</h2>
+                   <div className="flex items-center gap-2 mb-1">
+                     <span className="text-[9px] font-bold text-slate-400 tracking-widest flex items-center gap-1">
+                       <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> 
+                       DRIVER (STINT {(gameState.currentStint || 0) + 1})
+                     </span>
+                   </div>
+                   
+                   {/* Affichage de la position et du nom du pilote */}
+                   <div className="flex items-center gap-4">
+                       {/* Position stylisée */}
+                       <div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-black text-xl italic shadow-lg shadow-indigo-900/50">
+                           {gameState.position}
+                       </div>
+                       {/* Nom du pilote (grande taille) */}
+                       <h2 className="text-3xl lg:text-4xl font-black text-white italic uppercase tracking-tighter truncate max-w-[250px]">{activeDriver.name}</h2>
+                   </div>
+                   {/* FIN DE LA CORRECTION */}
+                   
                    {activeDriver.phone && <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-1"><Phone size={10} /> {activeDriver.phone}</div>}
                    <div className="flex items-center gap-2 mt-3 text-indigo-300 font-mono text-xs lg:text-sm bg-indigo-500/10 px-2 py-1 rounded w-fit border border-indigo-500/20"><Clock size={14} /> Stint: {formatTime(localStintTime)}</div>
                 </div>
@@ -394,8 +522,21 @@ const nextDriverInfo = useMemo(() => {
                 <button onClick={confirmPitStop} className="w-full h-16 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl font-black text-xl uppercase shadow-lg shadow-indigo-900/50 border border-indigo-400/50 flex items-center justify-center gap-3 active:scale-[0.98] transition-all"><CheckCircle2 size={28} /> Pit Stop Done</button>
                 <div className="flex justify-between mt-2 px-1"><button onClick={undoStint} className="text-[10px] text-slate-500 hover:text-red-400 underline">Mistake? Undo Stop</button></div>
              </div>
+             
+             {/* NOUVEAU BLOC COMPARATIF TEMPS */}
+             <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700 shadow-lg relative mb-4">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase">
+                    <span>Lap Time Comparatif (Avg 3 Laps)</span>
+                    <span className={lapTimeDeltaInfo.colorClass}>{lapTimeDeltaInfo.displayDelta}</span>
+                </div>
+                <div className="flex justify-between items-center mt-2 font-mono text-lg font-black text-white">
+                    <span className="text-slate-500 text-base font-medium">Est.: <span className="text-indigo-400">{formatLapTime(gameState.avgLapTimeSeconds)}</span></span>
+                    <span>Real: <span className={lapTimeDeltaInfo.colorClass}>{formatLapTime(lapTimeDeltaInfo.realTimeAvg)}</span></span>
+                </div>
+                <div className="text-[9px] text-slate-600 pt-1">Time difference vs. current strategy estimate.</div>
+             </div>
 
-             {/* 🆕 BLOC INFO "NEXT DRIVER" */}
+             {/* BLOC INFO "NEXT DRIVER" */}
              <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700 flex items-center justify-between mb-4 shadow-lg relative overflow-hidden">
                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-500"></div>
                 <div>
@@ -404,7 +545,7 @@ const nextDriverInfo = useMemo(() => {
                    </div>
                    <div className="text-xl font-black text-white uppercase italic tracking-tighter">{nextDriverInfo.name}</div>
                 </div>
-                {nextDriverInfo.phone && (
+                {nextDriverInfo.phone && nextDriverInfo.phone !== "" && (
                     <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded px-2 py-1.5">
                         <Phone size={14} className="text-green-500"/>
                         <span className="text-xs font-mono font-bold text-green-400">{nextDriverInfo.phone}</span>
@@ -424,10 +565,11 @@ const nextDriverInfo = useMemo(() => {
                 </div>
                 <div className="text-[9px] text-slate-500">L / Lap</div>
              </div>
+             {/* AFFICHAGE DU NOMBRE DE TOURS CALCULÉ SELON LA DURÉE */}
              <div className="glass-panel rounded-xl p-3 flex flex-col justify-between h-24">
-                <div className="text-slate-500 text-[9px] font-bold uppercase"><RotateCcw size={12} className="inline mr-1"/> STINT MAX</div>
-                <div className="text-2xl lg:text-3xl font-mono font-bold text-emerald-400 tracking-tighter">{strategyData.lapsPerTank}</div>
-                <div className="text-[9px] text-slate-500">Laps autonomy</div>
+                <div className="text-slate-500 text-[9px] font-bold uppercase"><Trophy size={12} className="inline mr-1"/> TOTAL LAPS (EST.)</div>
+                <div className="text-2xl lg:text-3xl font-mono font-bold text-emerald-400 tracking-tighter">{strategyData.totalLaps}</div>
+                <div className="text-[9px] text-slate-500">Based on {gameState.raceDurationHours}H @ {gameState.avgLapTimeSeconds}s</div>
              </div>
           </div>
 
@@ -448,18 +590,22 @@ const nextDriverInfo = useMemo(() => {
           </div>
         </div>
 
-        {/* RIGHT - PANNEAU PRINCIPAL (AVEC LES NOUVEAUX COMPOSANTS) */}
+        {/* RIGHT - PANNEAU PRINCIPAL */}
         <div className="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500 relative w-full">
            <div className="p-3 border-b border-white/5 bg-slate-900/50 flex justify-between items-center shrink-0">
               <div className="flex gap-1 p-1 bg-black/30 rounded-lg">
                  <button onClick={() => setViewMode("STRATEGY")} className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "STRATEGY" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><FileText size={14}/> Strategy</button>
+                 
+                 {/* NOUVEAU BOUTON TELEMETRY */}
+                 <button onClick={() => setViewMode("TELEMETRY")} className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "TELEMETRY" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Activity size={14}/> Telemetry</button>
+                 
                  <button onClick={() => setViewMode("MAP")} className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "MAP" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><MapIcon size={14}/> Map</button>
                  <button onClick={() => setViewMode("CHAT")} className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "CHAT" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><MessageSquare size={14}/> Chat</button>
               </div>
               <button onClick={() => syncUpdate({isEmergency: !gameState.isEmergency})} className={`px-2 py-1 rounded text-[9px] font-bold border ${gameState.isEmergency ? 'bg-red-600 text-white border-red-600 animate-pulse' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>{gameState.isEmergency ? '⚠ SAFETY CAR' : 'GREEN FLAG'}</button>
            </div>
            
-           {/* AFFICHAGE CONDITIONNEL DES VUES */}
+           {/* AFFICHAGE DES VUES */}
            {viewMode === "STRATEGY" && (
              <StrategyView 
                strategyData={strategyData}
@@ -467,6 +613,19 @@ const nextDriverInfo = useMemo(() => {
                stintNotes={gameState.stintNotes}
                onAssignDriver={assignDriverToStint}
                onUpdateNote={(stopNum, val) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
+               
+               // NOUVELLES PROPS PASSÉES
+               estimatedTime={gameState.avgLapTimeSeconds}
+               realTimeAvg={gameState.telemetry.last3LapAvgSeconds}
+             />
+           )}
+
+           {viewMode === "TELEMETRY" && (
+             <TelemetryView 
+                telemetryData={gameState.telemetry}
+                isHypercar={teamName === 'HYPERCAR'}
+                position={gameState.position} 
+                avgLapTimeSeconds={gameState.avgLapTimeSeconds} 
              />
            )}
 
@@ -493,9 +652,16 @@ const nextDriverInfo = useMemo(() => {
            <div className="glass-panel w-full max-w-lg rounded-xl p-6 border border-slate-700 space-y-4">
               <div className="flex justify-between items-center"><h2 className="text-lg font-bold text-white">SETTINGS</h2><button onClick={()=>setShowSettings(false)}><X className="text-slate-400"/></button></div>
               <div className="grid grid-cols-2 gap-4">
+                 
+                 {/* CHAMP DURÉE DE COURSE */}
+                 <div><label className="text-[10px] text-slate-500 font-bold">RACE DURATION (Hours)</label><input type="number" value={gameState.raceDurationHours} onChange={(e)=>syncUpdate({raceDurationHours: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
+                 
+                 {/* CHAMP TEMPS MOYEN AU TOUR */}
+                 <div><label className="text-[10px] text-slate-500 font-bold">AVG LAP TIME (Seconds)</label><input type="number" value={gameState.avgLapTimeSeconds} onChange={(e)=>syncUpdate({avgLapTimeSeconds: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
+                 
+                 {/* Reste des champs de réglage */}
                  <div><label className="text-[10px] text-slate-500 font-bold">TANK (L)</label><input type="number" value={gameState.tankCapacity} onChange={(e)=>syncUpdate({tankCapacity: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
-                 <div><label className="text-[10px] text-slate-500 font-bold">TARGET LAPS</label><input type="number" value={gameState.lapsTarget} onChange={(e)=>syncUpdate({lapsTarget: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
-                 <div><label className="text-[10px] text-slate-500 font-bold">MANUAL CONS (L)</label><input type="number" step="0.01" value={gameState.fuelCons} onChange={(e)=>syncUpdate({fuelCons: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
+                 <div><label className="text-[10px] text-slate-500 font-bold">MANUAL CONS (L/Lap)</label><input type="number" step="0.01" value={gameState.fuelCons} onChange={(e)=>syncUpdate({fuelCons: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
               </div>
               <div className="space-y-2 pt-2">
                  <div className="flex justify-between items-center"><label className="text-[10px] text-slate-500 font-bold">DRIVERS MANAGEMENT</label><button onClick={addDriver} className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded font-bold flex items-center gap-1"><Plus size={10}/> ADD</button></div>
@@ -509,6 +675,9 @@ const nextDriverInfo = useMemo(() => {
                         </div>
                     ))}
                  </div>
+                 {/* Champ pour modifier la position dans les réglages pour le test */}
+                 <div className="pt-2"><label className="text-[10px] text-slate-500 font-bold">CURRENT POSITION</label><input type="number" value={gameState.position} onChange={(e)=>syncUpdate({position: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
+                 {/* Utilisation de console.log au lieu de confirm() pour le reset */}
                  <button onClick={resetRaceTimer} className="w-full py-2 border border-red-900 text-red-500 hover:bg-red-900/20 rounded text-xs uppercase font-bold mt-4 flex items-center justify-center gap-2"><RotateCcw size={14}/> RESET RACE</button>
               </div>
            </div>
@@ -573,7 +742,7 @@ const RaceStrategyApp = () => {
         teamId={selectedTeam} 
         teamName={selectedTeam === 'hypercar' ? 'HYPERCAR' : 'LMP2'}
         teamColor={selectedTeam === 'hypercar' ? 'bg-red-600' : 'bg-blue-600'}
-        onBack={() => setSelectedTeam(null)} 
+        onTeamSelect={setSelectedTeam} // <-- Passage de la fonction setSelectedTeam
       />
     </>
   );
