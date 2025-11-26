@@ -4,7 +4,7 @@ import {
   Settings, Play, Pause, CloudRain, Sun, Cloud, Wifi, 
   Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, 
   AlertTriangle, CheckCircle2, Plus, Minus, Home, Trophy, 
-  MessageSquare, Send, ArrowDownCircle, Activity 
+  MessageSquare, Send, ArrowDownCircle, Activity, Battery, Zap 
 } from 'lucide-react';
 
 // --- IMPORT NOUVEAUX COMPOSANTS ---
@@ -128,6 +128,7 @@ const getLapTimeDelta = (estimatedTime, realTimeAvg) => {
 const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => { 
   const SESSION_ID = `lemans-2025-${teamId}`; 
   const CHAT_ID = "lemans-2025-global-radio"; 
+  const isHypercar = teamId === 'hypercar';
 
   const [status, setStatus] = useState("CONNECTING...");
   const [showSettings, setShowSettings] = useState(false);
@@ -148,8 +149,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     stintDuration: 0,
     stintStartTime: Date.now(),
     isRaceRunning: false,
-    weather: "DRY",
-    fuelCons: 3.65,
+    
+    // Météo et état de la piste - MOCK DATA
+    weather: "SUNNY", 
+    airTemp: 25,     
+    trackWetness: 0, 
+    
+    fuelCons: 3.65, // Consommation pour LMP2 (L/Lap)
+    veCons: 2.5,    // Consommation pour Hypercar (%/Lap) <-- Nouvelle variable
     tankCapacity: 105,
     
     // Paramètres basés sur la durée
@@ -169,9 +176,11 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
         fuel: { current: 45.5, max: 105, lastLapCons: 3.62, averageCons: 3.65 },
         virtualEnergy: 88, 
         tires: { fl: 92, fr: 89, rl: 95, rr: 94 },
-        currentLapTimeSeconds: 212.5, // Temps réel du tour en cours
-        last3LapAvgSeconds: 211.2 // Temps réel moyen sur les 3 derniers tours
-    }
+        currentLapTimeSeconds: 212.5, 
+        last3LapAvgSeconds: 211.2 
+    },
+    // Données spécifiques à la stratégie VE (si Hypercar)
+    stintVirtualEnergy: { 1: 90, 2: 85, 3: 92 } // VE target pour chaque stint (en %)
   });
 
   // --- SYNC ENGINE (STRATÉGIE) ---
@@ -188,7 +197,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
       if (docSnap.exists()) { 
           const data = docSnap.data();
           
-          // Calcul de la durée totale en secondes
           const newRaceDurationHours = typeof data.raceDurationHours === 'number' ? data.raceDurationHours : gameState.raceDurationHours;
           const totalRaceSeconds = newRaceDurationHours * 3600;
 
@@ -201,8 +209,13 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               position: typeof data.position === 'number' ? data.position : gameState.position, 
               raceDurationHours: newRaceDurationHours,
               avgLapTimeSeconds: typeof data.avgLapTimeSeconds === 'number' ? data.avgLapTimeSeconds : gameState.avgLapTimeSeconds, 
-              // Initialisation du raceTime avec la durée totale SI raceTime n'est pas encore défini (première synchro)
               raceTime: typeof data.raceTime === 'number' ? data.raceTime : totalRaceSeconds,
+              weather: data.weather || gameState.weather,
+              airTemp: typeof data.airTemp === 'number' ? data.airTemp : gameState.airTemp,
+              trackWetness: typeof data.trackWetness === 'number' ? data.trackWetness : gameState.trackWetness,
+              stintVirtualEnergy: data.stintVirtualEnergy || gameState.stintVirtualEnergy,
+              fuelCons: typeof data.fuelCons === 'number' ? data.fuelCons : gameState.fuelCons,
+              veCons: typeof data.veCons === 'number' ? data.veCons : gameState.veCons, // <-- Nouvelle synchronisation
           };
 
           setGameState(safeData); 
@@ -217,7 +230,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               ...gameState, 
               drivers: [{id: 1, name: "Driver 1", color: teamId === 'hypercar' ? '#ef4444' : '#3b82f6', phone: ""}],
               activeDriverId: 1,
-              raceTime: initialRaceTime, // Initialisation basée sur la durée par défaut (24h)
+              raceTime: initialRaceTime,
           };
           setDoc(docRef, initialData).then(() => setStatus("CREATED")).catch(err => setStatus("ERROR CREATE"));
       }
@@ -280,6 +293,10 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     updateDoc(doc(db, "strategies", SESSION_ID), data).catch(e => console.error("Update Error", e));
   };
 
+  const updateStintVE = (stintId, value) => {
+      syncUpdate({ stintVirtualEnergy: { ...gameState.stintVirtualEnergy, [stintId]: value } });
+  };
+  
   const sendMessage = () => {
       if (!chatInput.trim()) return;
       if (!db) return;
@@ -316,7 +333,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
           stintDuration: 0, 
           currentStint: 0, 
           incidents: [], 
-          chatMessages: [] 
+          chatMessages: [],
+          stintVirtualEnergy: {}
       };
       
       if (db) {
@@ -351,12 +369,10 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     const nextStint = (gameState.currentStint || 0) + 1;
     let nextDriverId = gameState.stintAssignments[nextStint];
     
-    // Si le pilote du prochain stint n'est pas encore assigné dans la strat, on prend le pilote suivant par défaut
     if (!nextDriverId && gameState.drivers.length > 0) {
         const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
         nextDriverId = gameState.drivers[(currentIdx + 1) % gameState.drivers.length].id;
     }
-    // Fallback: si toujours rien, prend le premier pilote
     if (!nextDriverId && gameState.drivers.length > 0) nextDriverId = gameState.drivers[0].id;
 
     syncUpdate({ currentStint: nextStint, activeDriverId: nextDriverId, stintDuration: 0 });
@@ -371,7 +387,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
       }
   };
 
-  const updateFuel = (delta) => syncUpdate({ fuelCons: Number((gameState.fuelCons + delta).toFixed(2)) });
+  // Mise à jour de la conso pour l'élément actif (Fuel ou VE)
+  const updateCons = (delta) => {
+      if (isHypercar) {
+          syncUpdate({ veCons: Number((gameState.veCons + delta).toFixed(2)) });
+      } else {
+          syncUpdate({ fuelCons: Number((gameState.fuelCons + delta).toFixed(2)) });
+      }
+  }
   
   const addIncident = () => {
     const newInc = { id: Date.now(), lap: "Stint " + (gameState.currentStint + 1), time: formatTime(localRaceTime), text: "" };
@@ -382,7 +405,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
 
 
   const strategyData = useMemo(() => {
-    if (!gameState.drivers || gameState.drivers.length === 0) return { stints: [], totalLaps: 0, lapsPerTank: 0 };
+    if (!gameState.drivers || gameState.drivers.length === 0) return { stints: [], totalLaps: 0, lapsPerTank: 0, lapsPerVE: 0 };
     
     // --- CALCUL DU NOMBRE TOTAL DE TOURS (TARGET) basé sur le temps ---
     const totalRaceSeconds = (gameState.raceDurationHours || 24) * 3600;
@@ -392,17 +415,26 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
 
     const safeCons = (gameState.fuelCons > 0) ? gameState.fuelCons : 3.65;
     const safeTank = (gameState.tankCapacity > 0) ? gameState.tankCapacity : 105;
-    const lapsPerTank = Math.floor(safeTank / safeCons);
-    const safeLapsPerTank = lapsPerTank > 0 ? lapsPerTank : 1;
+    const safeVECons = (gameState.veCons > 0) ? gameState.veCons : 2.5;
     
-    // Le nombre de stops est basé sur le nouveau calcul total de tours
-    const totalStops = Math.max(0, Math.ceil(totalLapsTarget / safeLapsPerTank) - 1);
+    // Calcul de l'autonomie Fuel
+    const lapsPerTank = Math.floor(safeTank / safeCons);
+    
+    // Calcul de l'autonomie VE (basé sur 100%)
+    const lapsPerVE = Math.floor(100 / safeVECons); 
+
+    const safeLapsPerStint = isHypercar ? lapsPerVE : lapsPerTank; // L'autonomie est définie par la VE pour les Hypercars
+    
+    // Le nombre de stops est basé sur l'autonomie la plus critique
+    const finalLapsPerStint = Math.max(1, safeLapsPerStint);
+
+    const totalStops = Math.max(0, Math.ceil(totalLapsTarget / finalLapsPerStint) - 1);
     const stints = [];
     let lapCounter = 0;
     
     for (let i = 0; i <= totalStops; i++) {
       const isLast = i === totalStops;
-      const lapsThisStint = isLast ? (totalLapsTarget - lapCounter) : safeLapsPerTank;
+      const lapsThisStint = isLast ? (totalLapsTarget - lapCounter) : finalLapsPerStint;
       const endLap = lapCounter + lapsThisStint;
       let driverId = gameState.stintAssignments[i];
       if (!driverId && gameState.drivers.length > 0) driverId = gameState.drivers[i % gameState.drivers.length].id;
@@ -418,13 +450,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
       stints.push({ 
           id: i, stopNum: i+1, startLap: lapCounter, endLap, 
           fuel: fuelDisplay, 
+          veTarget: (lapsThisStint * safeVECons).toFixed(1) + "%", // VE consommée pour ce stint
           driver, driverId, isCurrent: i === gameState.currentStint, isNext: i === gameState.currentStint + 1, isDone: i < gameState.currentStint, 
           note: isLast ? "FINISH" : "BOX" 
       });
       lapCounter += lapsThisStint;
     }
     // On retourne le nombre total de tours calculé
-    return { stints, lapsPerTank: safeLapsPerTank, totalLaps: totalLapsTarget }; 
+    return { stints, lapsPerTank: finalLapsPerStint, totalLaps: totalLapsTarget }; 
   }, [gameState]);
 
   const activeDriver = useMemo(() => {
@@ -434,23 +467,32 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
 
   // 🏎️ CORRECTION : On récupère le pilote directement depuis les données du tableau (Next Stint)
   const nextDriverInfo = useMemo(() => {
-      // 1. On cible l'index du prochain relais
       const nextStintIndex = (gameState.currentStint || 0) + 1;
-      
-      // 2. On cherche ce relais précis dans tes données de stratégie déjà calculées
       const nextStintObj = strategyData.stints.find(s => s.id === nextStintIndex);
 
-      // 3. Si on le trouve, on retourne le pilote associé (qui prend en compte ton menu déroulant)
       if (nextStintObj && nextStintObj.driver) {
           return nextStintObj.driver;
       }
-
-      // 4. Fallback 
       return getSafeDriver(null);
   }, [gameState.currentStint, strategyData]);
 
   // Utilisation du delta de temps réel/estimé pour l'affichage
   const lapTimeDeltaInfo = getLapTimeDelta(gameState.avgLapTimeSeconds, gameState.telemetry.last3LapAvgSeconds);
+
+  // Fonction pour afficher l'icône météo
+  const getWeatherIcon = (weather) => {
+    switch (weather) {
+      case 'SUNNY':
+        return <Sun size={14} className="text-yellow-400"/>;
+      case 'CLOUDY':
+        return <Cloud size={14} className="text-slate-400"/>;
+      case 'RAIN':
+      case 'WET':
+        return <CloudRain size={14} className="text-blue-400"/>;
+      default:
+        return <Sun size={14} className="text-yellow-400"/>;
+    }
+  };
 
 
   return (
@@ -476,7 +518,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                 </div>
             </div>
             <div className="hidden md:flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5">
-               <div className="text-right"><div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div><div className={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div></div>
+               <div className="text-right"><div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div><div class={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div></div>
                <button onClick={toggleRaceTimer} className={`p-2 rounded-full border transition-all ${gameState.isRaceRunning ? 'border-amber-500 text-amber-500 bg-amber-900/10' : 'border-emerald-500 text-emerald-500 bg-emerald-900/10'}`}>{gameState.isRaceRunning ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}</button>
             </div>
         </div>
@@ -553,25 +595,54 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                 )}
              </div>
 
-             <div className="bg-black/30 rounded p-1 flex gap-1 mb-4">{['DRY', 'DAMP', 'WET'].map(w => <button key={w} onClick={() => syncUpdate({weather: w})} className={`flex-1 flex justify-center items-center py-1 rounded text-[10px] ${gameState.weather === w ? 'bg-slate-600 text-white shadow' : 'text-slate-600'}`}>{w === 'DRY' ? <Sun size={14}/> : w === 'DAMP' ? <Cloud size={14}/> : <CloudRain size={14}/>}</button>)}</div>
+             {/* AFFICHAGE MÉTÉO (Remplaçant les boutons supprimés) */}
+             <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700 flex justify-between items-center text-sm font-bold shadow-lg">
+                <div className="flex items-center gap-2 text-slate-400">
+                    {getWeatherIcon(gameState.weather)}
+                    <span className="text-white uppercase">{gameState.weather}</span>
+                    <span className="text-slate-500 font-normal">({gameState.airTemp}°C)</span>
+                </div>
+                <div className="flex items-center gap-2 text-blue-400">
+                    <CloudRain size={14}/>
+                    <span className="text-white">{gameState.trackWetness}%</span>
+                    <span className="text-slate-500 font-normal">Wet</span>
+                </div>
+             </div>
+             {/* FIN AFFICHAGE MÉTÉO */}
+
           </div>
 
           <div className="grid grid-cols-2 gap-4 shrink-0">
+             {/* CONSO / VE CONS */}
              <div className="glass-panel rounded-xl p-3 flex flex-col justify-between h-24">
-                <div className="flex justify-between items-center"><div className="text-slate-500 text-[9px] font-bold uppercase"><Fuel size={12} className="inline mr-1"/> CONS</div></div>
-                <div className="flex items-center justify-between mt-1">
-                    <div className="text-2xl lg:text-3xl font-mono font-bold text-white tracking-tighter">{gameState.fuelCons}</div>
-                    <div className="flex flex-col gap-1"><button onClick={()=>updateFuel(0.05)} className="w-6 h-4 flex items-center justify-center bg-slate-800 rounded hover:bg-indigo-600"><Plus size={8}/></button><button onClick={()=>updateFuel(-0.05)} className="w-6 h-4 flex items-center justify-center bg-slate-800 rounded hover:bg-indigo-600"><Minus size={8}/></button></div>
+                <div className="flex justify-between items-center">
+                    <div className={`${isHypercar ? 'text-cyan-500' : 'text-slate-500'} text-[9px] font-bold uppercase flex items-center gap-1`}>
+                        {isHypercar ? <Zap size={12} className="inline mr-1"/> : <Fuel size={12} className="inline mr-1"/>} 
+                        {isHypercar ? 'VE CONS' : 'FUEL CONS'}
+                    </div>
                 </div>
-                <div className="text-[9px] text-slate-500">L / Lap</div>
+                <div className="flex items-center justify-between mt-1">
+                    <div className="text-2xl lg:text-3xl font-mono font-bold text-white tracking-tighter">
+                        {isHypercar ? gameState.veCons : gameState.fuelCons}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <button onClick={()=>updateCons(0.05)} className="w-6 h-4 flex items-center justify-center bg-slate-800 rounded hover:bg-indigo-600"><Plus size={8}/></button>
+                        <button onClick={()=>updateCons(-0.05)} className="w-6 h-4 flex items-center justify-center bg-slate-800 rounded hover:bg-indigo-600"><Minus size={8}/></button>
+                    </div>
+                </div>
+                <div className="text-[9px] text-slate-500">
+                    {isHypercar ? '% / Lap' : 'L / Lap'}
+                </div>
              </div>
-             {/* AFFICHAGE DU NOMBRE DE TOURS CALCULÉ SELON LA DURÉE */}
+             {/* TOTAL LAPS (Autonomie basée sur l'élément critique) */}
              <div className="glass-panel rounded-xl p-3 flex flex-col justify-between h-24">
                 <div className="text-slate-500 text-[9px] font-bold uppercase"><Trophy size={12} className="inline mr-1"/> TOTAL LAPS (EST.)</div>
                 <div className="text-2xl lg:text-3xl font-mono font-bold text-emerald-400 tracking-tighter">{strategyData.totalLaps}</div>
                 <div className="text-[9px] text-slate-500">Based on {gameState.raceDurationHours}H @ {gameState.avgLapTimeSeconds}s</div>
              </div>
           </div>
+
+          {/* Le bloc VIRTUAL ENERGY a été supprimé ici, comme demandé. */}
 
           <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden min-h-[150px]">
              <div className="p-2 border-b border-white/5 bg-black/20 text-[9px] font-bold text-slate-500 uppercase tracking-widest px-3 flex justify-between items-center shrink-0"><span>RACE LOG</span><span className="text-[9px] opacity-50">{gameState.incidents.length} EVENTS</span></div>
@@ -614,18 +685,26 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                onAssignDriver={assignDriverToStint}
                onUpdateNote={(stopNum, val) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
                
-               // NOUVELLES PROPS PASSÉES
+               // PROPS DE TEMPS
                estimatedTime={gameState.avgLapTimeSeconds}
                realTimeAvg={gameState.telemetry.last3LapAvgSeconds}
+               
+               // PROPS VIRTUAL ENERGY
+               isHypercar={isHypercar}
+               telemetryData={gameState.telemetry}
              />
            )}
 
            {viewMode === "TELEMETRY" && (
              <TelemetryView 
                 telemetryData={gameState.telemetry}
-                isHypercar={teamName === 'HYPERCAR'}
+                isHypercar={isHypercar}
                 position={gameState.position} 
                 avgLapTimeSeconds={gameState.avgLapTimeSeconds} 
+                // PASSAGE DES NOUVELLES DONNÉES MÉTÉO
+                weather={gameState.weather}
+                airTemp={gameState.airTemp}
+                trackWetness={gameState.trackWetness}
              />
            )}
 
@@ -661,9 +740,31 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                  
                  {/* Reste des champs de réglage */}
                  <div><label className="text-[10px] text-slate-500 font-bold">TANK (L)</label><input type="number" value={gameState.tankCapacity} onChange={(e)=>syncUpdate({tankCapacity: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
-                 <div><label className="text-[10px] text-slate-500 font-bold">MANUAL CONS (L/Lap)</label><input type="number" step="0.01" value={gameState.fuelCons} onChange={(e)=>syncUpdate({fuelCons: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
+                 
+                 {/* CHAMP CONSO CONDITIONNEL DANS LES RÉGLAGES */}
+                 <div>
+                    {/* Le label s'adapte */}
+                    <label className={`${isHypercar ? 'text-cyan-500' : 'text-slate-500'} text-[10px] font-bold`}>
+                        {isHypercar ? 'VE CONS (%/Lap)' : 'FUEL CONS (L/Lap)'}
+                    </label>
+                    {/* L'input lit et écrit la variable appropriée */}
+                    <input 
+                        type="number" 
+                        step="0.01" 
+                        value={isHypercar ? gameState.veCons : gameState.fuelCons} 
+                        onChange={(e)=> syncUpdate(isHypercar ? {veCons: Number(e.target.value)} : {fuelCons: Number(e.target.value)})} 
+                        className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                    />
+                 </div>
               </div>
               <div className="space-y-2 pt-2">
+                 {/* Nouveaux champs de réglages Météo/Piste pour le test */}
+                 <div className="grid grid-cols-3 gap-2">
+                    <div><label className="text-[10px] text-slate-500 font-bold">MÉTÉO (SUNNY/RAIN/CLOUDY)</label><input type="text" value={gameState.weather} onChange={(e)=>syncUpdate({weather: e.target.value.toUpperCase()})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
+                    <div><label className="text-[10px] text-slate-500 font-bold">TEMP AIR (°C)</label><input type="number" value={gameState.airTemp} onChange={(e)=>syncUpdate({airTemp: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
+                    <div><label className="text-[10px] text-slate-500 font-bold">WETNESS (%)</label><input type="number" value={gameState.trackWetness} onChange={(e)=>syncUpdate({trackWetness: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
+                 </div>
+                 
                  <div className="flex justify-between items-center"><label className="text-[10px] text-slate-500 font-bold">DRIVERS MANAGEMENT</label><button onClick={addDriver} className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded font-bold flex items-center gap-1"><Plus size={10}/> ADD</button></div>
                  <div className="max-h-60 overflow-y-auto space-y-2">
                     {gameState.drivers && gameState.drivers.map((d) => (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Battery, Zap } from 'lucide-react'; // Ajout de Zap pour plus de clarté
 
 // Fonctions utilitaires du parent (réimplémentées ici pour l'affichage uniquement)
 const formatLapTime = (s) => {
@@ -19,20 +19,25 @@ const getLapTimeDelta = (estimatedTime, realTimeAvg) => {
         deltaSign = '+';
     } else if (delta < -0.5) { 
         colorClass = 'text-emerald-500';
+        deltaSign = '-'; 
     } else if (delta !== 0) { 
         colorClass = 'text-amber-500';
         deltaSign = delta > 0 ? '+' : '';
     }
-    const displayDelta = delta !== 0 ? `${deltaSign}${delta.toFixed(2)}s` : '±0.0s';
+    const displayDelta = delta !== 0 ? `${deltaSign}${Math.abs(delta).toFixed(2)}s` : '±0.0s';
     
     return { colorClass, displayDelta };
 };
 
 
-const StrategyView = ({ strategyData, drivers, stintNotes, onAssignDriver, onUpdateNote, estimatedTime, realTimeAvg }) => {
+// On passe maintenant telemetryData pour lire la VE en temps réel
+const StrategyView = ({ strategyData, drivers, stintNotes, onAssignDriver, onUpdateNote, estimatedTime, realTimeAvg, isHypercar, telemetryData }) => {
   
   // Calcul du différentiel de temps pour l'affichage conditionnel
   const lapTimeDeltaInfo = getLapTimeDelta(estimatedTime, realTimeAvg);
+  
+  // Lecture de la VE actuelle
+  const currentVE = telemetryData?.virtualEnergy || 0;
 
   return (
     <div className="flex-1 overflow-auto custom-scrollbar bg-[#050a10]">
@@ -43,7 +48,9 @@ const StrategyView = ({ strategyData, drivers, stintNotes, onAssignDriver, onUpd
              <th className="p-3">Driver Selection</th>
              <th className="p-3">Window</th>
              <th className="p-3 text-right">Refuel</th>
-             <th className="p-3 text-center">Time Diff</th> {/* NOUVELLE COLONNE */}
+             {/* TITRE MODIFIÉ : Affiche la VE actuelle */}
+             {isHypercar && <th className="p-3 text-center flex items-center justify-center gap-1"><Zap size={10} className="text-cyan-400"/> VE Current</th>} 
+             <th className="p-3 text-center">Time Diff</th>
              <th className="p-3">Notes</th>
            </tr>
          </thead>
@@ -65,9 +72,22 @@ const StrategyView = ({ strategyData, drivers, stintNotes, onAssignDriver, onUpd
                </td>
                <td className="p-3 text-right font-mono text-xs text-slate-300 font-bold">{stint.fuel}</td>
                
+               {/* AFFICHAGE DE LA VIRTUAL ENERGY EN TEMPS RÉEL (si stint actuel) */}
+               {isHypercar && (
+                   <td className="p-3 text-center">
+                       {stint.isCurrent ? (
+                           <span className="font-mono text-sm font-bold text-cyan-400">
+                               {currentVE}%
+                           </span>
+                       ) : (
+                           <span className="text-slate-700">---</span>
+                       )}
+                   </td>
+               )}
+               
                {/* AFFICHAGE DU DIFFÉRENTIEL */}
                <td className="p-3 text-center font-mono font-bold text-xs">
-                 {stint.isCurrent || (stint.isDone && stint.id === 0) ? (
+                 {stint.isCurrent ? ( 
                     <span className={lapTimeDeltaInfo.colorClass}>
                         {lapTimeDeltaInfo.displayDelta}
                     </span>

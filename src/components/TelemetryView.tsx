@@ -1,5 +1,5 @@
 import React from 'react';
-import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock } from 'lucide-react';
+import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer } from 'lucide-react';
 
 // Fonction utilitaire pour la couleur des pneus selon l'usure
 const getTireColor = (wear) => {
@@ -20,8 +20,22 @@ const formatLapTime = (s) => {
     return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`; 
 };
 
+// Fonction pour afficher l'icône météo
+const getWeatherIcon = (weather) => {
+    switch (weather) {
+      case 'SUNNY':
+        return <Sun size={20} className="text-yellow-400"/>;
+      case 'CLOUDY':
+        return <Cloud size={20} className="text-slate-400"/>;
+      case 'RAIN':
+      case 'WET':
+        return <CloudRain size={20} className="text-blue-400"/>;
+      default:
+        return <Sun size={20} className="text-yellow-400"/>;
+    }
+};
 
-const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds }) => { 
+const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds, weather, airTemp, trackWetness }) => { 
   const { tires, fuel, laps, virtualEnergy, currentLapTimeSeconds, last3LapAvgSeconds } = telemetryData;
 
   // Calcul du delta pour le style
@@ -46,22 +60,45 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds 
   return (
     <div className="flex-1 overflow-hidden bg-[#050a10] p-6 flex flex-col gap-6">
       
-      {/* NOUVELLE LIGNE : POSITION & TEMPS RÉEL (MISES À JOUR) */}
+      {/* NOUVELLE LIGNE : MÉTÉO, POSITION & TEMPS RÉEL */}
       <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4">
-              <Trophy size={24} className="text-indigo-400"/>
-              <div className="text-sm font-bold text-slate-500 uppercase">Current Position</div>
-              <div className="text-4xl font-black text-white italic tracking-tighter font-mono">P{position}</div>
-          </div>
           
-          {/* BLOC TEMPS RÉEL MOYEN */}
-          <div className="flex flex-col items-end">
-              <div className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1"><Clock size={12} className="text-amber-500"/> Avg Lap (Last 3)</div>
-              <div className="text-3xl font-black italic tracking-tighter font-mono flex items-center gap-2">
-                  <span className="text-white">{formatLapTime(realTimeAvg)}</span>
-                  <span className={`text-base font-bold ${deltaColorClass}`}>{displayDelta}</span>
+          {/* MÉTÉO & TEMPÉRATURE */}
+          <div className="flex items-center gap-6">
+              {/* Météo principale */}
+              <div className="flex items-center gap-2">
+                  {getWeatherIcon(weather)}
+                  <span className="text-sm font-bold text-white uppercase">{weather}</span>
+              </div>
+              {/* Température */}
+              <div className="flex items-center gap-1.5 text-sm text-slate-400">
+                  <Thermometer size={16} className="text-red-400"/>
+                  <span className="font-mono text-white">{airTemp}°C</span>
+              </div>
+              {/* Humidité piste */}
+              <div className="flex items-center gap-1.5 text-sm text-slate-400">
+                  <CloudRain size={16} className="text-blue-400"/>
+                  <span className="font-mono text-white">{trackWetness}%</span>
               </div>
           </div>
+
+          {/* POSITION & TEMPS MOYEN */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+                <Trophy size={20} className="text-indigo-400"/>
+                <div className="text-4xl font-black text-white italic tracking-tighter font-mono">P{position}</div>
+            </div>
+            
+            {/* BLOC TEMPS RÉEL MOYEN */}
+            <div className="flex flex-col items-end">
+                <div className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1"><Clock size={12} className="text-amber-500"/> Avg Lap (Last 3)</div>
+                <div className="text-3xl font-black italic tracking-tighter font-mono flex items-center gap-2">
+                    <span className="text-white">{formatLapTime(realTimeAvg)}</span>
+                    <span className={`text-base font-bold ${deltaColorClass}`}>{displayDelta}</span>
+                </div>
+            </div>
+          </div>
+
       </div>
       
       {/* LIGNE DU HAUT : PNEUS & INFOS GÉNÉRALES */}
