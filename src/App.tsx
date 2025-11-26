@@ -145,7 +145,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
 
   const [gameState, setGameState] = useState({
     currentStint: 0,
-    raceTime: 24 * 60 * 60, // Dépendra de raceDurationHours
+    raceTime: 24 * 60 * 60, // Durée TOTALE stockée. C'est la valeur de reset.
     stintDuration: 0,
     stintStartTime: Date.now(),
     isRaceRunning: false,
@@ -156,8 +156,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     trackWetness: 0, 
     
     fuelCons: 3.65, // Consommation pour LMP2 (L/Lap)
-    veCons: 2.5,    // Consommation pour Hypercar (%/Lap) <-- Nouvelle variable
-    tankCapacity: 105,
+    veCons: 2.5,    // Consommation pour Hypercar (%/Lap)
+    tankCapacity: 105, // Capacité du réservoir.
     
     // Paramètres basés sur la durée
     raceDurationHours: 24, 
@@ -180,7 +180,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
         last3LapAvgSeconds: 211.2 
     },
     // Données spécifiques à la stratégie VE (si Hypercar)
-    stintVirtualEnergy: { 1: 90, 2: 85, 3: 92 } // VE target pour chaque stint (en %)
+    stintVirtualEnergy: { 1: 90, 2: 85, 3: 92 } 
   });
 
   // --- SYNC ENGINE (STRATÉGIE) ---
@@ -200,30 +200,37 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
           const newRaceDurationHours = typeof data.raceDurationHours === 'number' ? data.raceDurationHours : gameState.raceDurationHours;
           const totalRaceSeconds = newRaceDurationHours * 3600;
 
-          // --- CORRECTION : MAPPING DES DONNÉES LIVE DU BRIDGE VERS L'OBJET TELEMETRY ---
+          // --- CORRECTION: MAPPING DES DONNÉES LIVE DU BRIDGE VERS L'OBJET TELEMETRY ---
           const liveTelemetry = {
-              ...gameState.telemetry, // Garde les champs mockés non mis à jour par le bridge
-              // Mise à jour des tours
+              ...gameState.telemetry, 
               laps: data.currentLap ?? gameState.telemetry.laps,
               
               // Mise à jour du Fuel
               fuel: {
                   ...gameState.telemetry.fuel,
                   current: data.fuelRemainingL ?? gameState.telemetry.fuel.current,
-                  // Le bridge envoie la consommation moyenne sur 5 tours, nous la mappons ici :
+                  max: data.fuelTankCapacityL ?? gameState.telemetry.fuel.max, // NOUVEAU: Capacité du réservoir
                   averageCons: data.fuelConsumptionPerLapL ?? gameState.telemetry.fuel.averageCons,
                   lastLapCons: data.fuelConsumptionPerLapL ?? gameState.telemetry.fuel.lastLapCons,
               },
               
-              // Mise à jour des Pneus (le bridge envoie un pourcentage d'usure moyen, que nous mappons sur les 4 roues pour l'affichage)
+              // Mise à jour des Pneus (USURE RESTANTE)
               tires: {
-                  fl: data.tireWearFLPct ?? gameState.telemetry.tires.fl,
-                  fr: data.tireWearFRPct ?? gameState.telemetry.tires.fr,
-                  rl: data.tireWearRLPct ?? gameState.telemetry.tires.rl,
-                  rr: data.tireWearRRPct ?? gameState.telemetry.tires.rr,
+                  fl: data.tireWearFL ?? gameState.telemetry.tires.fl,
+                  fr: data.tireWearFR ?? gameState.telemetry.tires.fr,
+                  rl: data.tireWearRL ?? gameState.telemetry.tires.rl,
+                  rr: data.tireWearRR ?? gameState.telemetry.tires.rr,
               },
-              // La VE reste la valeur mockée (ou mise à jour si le bridge commence à l'envoyer)
-              virtualEnergy: data.virtualEnergy ?? gameState.telemetry.virtualEnergy,
+              // Mise à jour conso/usure par tour (données brutes pour StrategyView)
+              avgWearPerLapFL: data.avgWearPerLapFL ?? 0,
+              avgWearPerLapFR: data.avgWearPerLapFR ?? 0,
+              avgWearPerLapRL: data.avgWearPerLapRL ?? 0,
+              avgWearPerLapRR: data.avgWearPerLapRR ?? 0,
+              
+              // Temps du dernier tour
+              lastLapTimeSeconds: data.lapTimeLast ?? 0,
+              
+              virtualEnergy: data.engineMode === 3 ? 99 : (data.engineMode === 2 ? 1 : gameState.telemetry.virtualEnergy), // MAPPING SIMPLIFIÉ ERS -> VE (Regen=99, Propulse=1)
           };
           // --- FIN DE LA CORRECTION ---
 
@@ -240,15 +247,30 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               weather: data.weather || gameState.weather,
               airTemp: typeof data.airTemp === 'number' ? data.airTemp : gameState.airTemp,
               trackWetness: typeof data.trackWetness === 'number' ? data.trackWetness : gameState.trackWetness,
-              stintVirtualEnergy: data.stintVirtualEnergy || gameState.stintVirtualEnergy,
               fuelCons: typeof data.fuelCons === 'number' ? data.fuelCons : gameState.fuelCons,
-              veCons: typeof data.veCons === 'number' ? data.veCons : gameState.veCons, // <-- Nouvelle synchronisation
-              // Écrase le bloc telemetry avec les données LIVE mappées :
+              veCons: typeof data.veCons === 'number' ? data.veCons : gameState.veCons, 
               telemetry: liveTelemetry
           };
 
           setGameState(safeData); 
-          setLocalRaceTime(safeData.raceTime);
+          
+          // --- DÉBUT SYNCHRONISATION TEMPS RESTANT LIVE ---
+          let newLocalRaceTime = safeData.raceTime;
+          
+          // 1. Si la course est en cours (safeData.isRaceRunning)
+          // 2. ET si le bridge envoie un temps restant (sessionTimeRemainingSeconds) 
+          // On utilise la valeur live pour forcer le compteur local, même si ce n'est pas le mode "Race" officiel.
+          if (
+              safeData.isRaceRunning &&
+              typeof data.sessionTimeRemainingSeconds === 'number' && 
+              data.sessionTimeRemainingSeconds >= 0
+          ) {
+              newLocalRaceTime = data.sessionTimeRemainingSeconds;
+          }
+          
+          setLocalRaceTime(newLocalRaceTime); // <- Utilisation de la source déterminée
+          // --- FIN SYNCHRONISATION TEMPS RESTANT LIVE ---
+
           setLocalStintTime(safeData.stintDuration || 0);
           setStatus("LIVE SYNC"); 
       } else {
@@ -273,6 +295,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
 
   // --- HOOK pour synchroniser localRaceTime quand raceDurationHours change (dans les settings) ---
   useEffect(() => {
+    // Cette logique ne devrait s'appliquer que si la course n'a pas commencé ou si la source LIVE n'est pas active.
+    // L'ajout de "sessionTimeRemainingSeconds" ci-dessus prime.
     if (!gameState.isRaceRunning) {
         const totalSeconds = gameState.raceDurationHours * 3600;
         if (localRaceTime !== totalSeconds) {
@@ -297,7 +321,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     return () => unsubChat();
   }, []);
 
-  // --- TIMERS LOOP ---
+  // --- TIMERS LOOP (Le compte à rebours local qui continue si la source live s'arrête) ---
   useEffect(() => {
     let interval = null;
     if (gameState.isRaceRunning && localRaceTime > 0) {
@@ -345,6 +369,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
   };
 
   const toggleRaceTimer = () => {
+    // Quand on démarre/arrête la course, on met à jour la valeur persistée (raceTime) 
+    // avec la valeur actuelle du compteur (localRaceTime)
     if (gameState.isRaceRunning) {
         syncUpdate({ isRaceRunning: false, raceTime: localRaceTime, stintDuration: localStintTime });
     } else {
@@ -358,7 +384,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
       
       const resetData = { 
           isRaceRunning: false, 
-          raceTime: initialRaceTime, // Réinitialise sur la durée définie
+          raceTime: initialRaceTime, 
           stintDuration: 0, 
           currentStint: 0, 
           incidents: [], 
@@ -443,7 +469,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     // --------------------------------------------------------
 
     const safeCons = (gameState.fuelCons > 0) ? gameState.fuelCons : 3.65;
-    const safeTank = (gameState.tankCapacity > 0) ? gameState.tankCapacity : 105;
+    const safeTank = (gameState.telemetry.fuel.max > 0) ? gameState.telemetry.fuel.max : 105; // UTILISE LA MAX TANK DE LA TÉLÉMÉTRIE
     const safeVECons = (gameState.veCons > 0) ? gameState.veCons : 2.5;
     
     // Calcul de l'autonomie Fuel
@@ -872,7 +898,7 @@ const RaceStrategyApp = () => {
         teamId={selectedTeam} 
         teamName={selectedTeam === 'hypercar' ? 'HYPERCAR' : 'LMP2'}
         teamColor={selectedTeam === 'hypercar' ? 'bg-red-600' : 'bg-blue-600'}
-        onTeamSelect={setSelectedTeam} // <-- Passage de la fonction setSelectedTeam
+        onTeamSelect={setSelectedTeam} 
       />
     </>
   );
