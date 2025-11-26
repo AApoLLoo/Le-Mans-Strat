@@ -2,14 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   AlertTriangle, Fuel, RotateCcw, Activity, Users, Flag, 
   Share2, Clock, Zap, BarChart3, Timer, Phone, 
-  FileText, Plus, X, Save, AlertOctagon, Settings
+  FileText, Plus, X, Save, AlertOctagon, Settings, ChevronRight
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, onSnapshot, updateDoc, setDoc } from "firebase/firestore";
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
+import { getAuth } from "firebase/auth";
 
 // --- CONFIG INITIALE ---
-// Garde ta logique Firebase ici (simplifiée pour l'affichage)
 let app, auth, db, isFirebaseAvailable = false;
 try {
   if (typeof __firebase_config !== 'undefined' && __firebase_config) {
@@ -21,12 +20,8 @@ try {
   }
 } catch (e) { console.warn("Mode Local"); }
 
-const SESSION_ID = "team-lemans-2025-v4-pro";
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default';
-
 const RaceStrategyApp = () => {
   // --- STATE ---
-  const [user, setUser] = useState(null);
   const [syncStatus, setSyncStatus] = useState("Init..."); 
   
   // Paramètres Course
@@ -37,23 +32,21 @@ const RaceStrategyApp = () => {
   const [currentLap, setCurrentLap] = useState(0); 
   const [lapTarget] = useState(372); 
   
-  // NOUVEAU : Incidents & Notes & Settings
+  // UI & Data
   const [showSettings, setShowSettings] = useState(false);
-  const [incidents, setIncidents] = useState([]); // [{id, lap, time, note}]
-  const [stintNotes, setStintNotes] = useState({}); // { 1: "Change Tires", 2: "Push" }
+  const [incidents, setIncidents] = useState([]); 
+  const [stintNotes, setStintNotes] = useState({}); 
   
-  // NOUVEAU : Drivers éditables avec Téléphone
   const [drivers, setDrivers] = useState([
-    { id: 1, name: "Antoine", phone: "06 00 00 00 00", color: "from-blue-600 to-blue-700", border: "border-blue-500", text: "text-blue-400" },
-    { id: 2, name: "Enzo", phone: "06 00 00 00 00", color: "from-emerald-600 to-emerald-700", border: "border-emerald-500", text: "text-emerald-400" },
-    { id: 3, name: "Ewan", phone: "06 00 00 00 00", color: "from-purple-600 to-purple-700", border: "border-purple-500", text: "text-purple-400" }
+    { id: 1, name: "Antoine", phone: "06 00 00 00 00", color: "from-blue-600 to-blue-700", border: "border-blue-500", text: "text-blue-400", bg: "bg-blue-500/20" },
+    { id: 2, name: "Enzo", phone: "06 00 00 00 00", color: "from-emerald-600 to-emerald-700", border: "border-emerald-500", text: "text-emerald-400", bg: "bg-emerald-500/20" },
+    { id: 3, name: "Ewan", phone: "06 00 00 00 00", color: "from-purple-600 to-purple-700", border: "border-purple-500", text: "text-purple-400", bg: "bg-purple-500/20" }
   ]);
 
-  // --- SYNC FIREBASE (Partielle pour l'exemple) ---
+  // --- SYNC FIREBASE ---
   useEffect(() => {
-    // ... (Garde ta logique d'auth ici)
     if(isFirebaseAvailable) setSyncStatus("LIVE"); 
-    else setSyncStatus("Local Mode");
+    else setSyncStatus("LOCAL");
   }, []);
 
   // --- LOGIQUE METIER ---
@@ -102,7 +95,7 @@ const RaceStrategyApp = () => {
         fuelNeeded: (lapsThisStint * safeCons).toFixed(2),
         driver: currentDriver,
         notes: isLastStint ? "FINISH" : (stintCountForDriver + 1 === stintsPerDriver ? "DRIVER SWAP" : "FUEL ONLY"),
-        customNote: stintNotes[i+1] || "", // Récupère la note perso
+        customNote: stintNotes[i+1] || "",
         isActive
       });
 
@@ -125,54 +118,57 @@ const RaceStrategyApp = () => {
     return `${h}h ${m.toString().padStart(2, '0')}`;
   };
 
+  // --- STYLES CSS (Scrollbars) ---
+  const css = `
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.8); border-radius: 3px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.8); }
+    .glass-panel { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+  `;
+
   // --- UI COMPONENTS ---
   return (
-    <div className="min-h-screen bg-[#0f172a] font-sans text-slate-200 selection:bg-indigo-500 selection:text-white overflow-hidden flex flex-col">
+    <div className="h-screen bg-[#0b0f19] font-sans text-slate-200 overflow-hidden flex flex-col selection:bg-indigo-500/30">
+      <style>{css}</style>
       
-      {/* ARRIÈRE PLAN DYNAMIQUE */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-20%] left-[20%] w-[60%] h-[60%] bg-blue-600/10 rounded-full blur-[150px]"></div>
-        <div className="absolute bottom-[-20%] right-[20%] w-[60%] h-[60%] bg-indigo-600/10 rounded-full blur-[150px]"></div>
-        {isEmergencyMode && <div className="absolute inset-0 bg-red-900/10 animate-pulse z-0"></div>}
+      {/* BACKGROUND FX */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute top-[-10%] left-[10%] w-[40%] h-[40%] bg-indigo-900/20 rounded-full blur-[120px]"></div>
+        <div className="absolute bottom-[-10%] right-[10%] w-[40%] h-[40%] bg-blue-900/20 rounded-full blur-[120px]"></div>
+        {isEmergencyMode && <div className="absolute inset-0 bg-red-900/10 animate-pulse"></div>}
       </div>
 
-      {/* HEADER TOP BAR */}
-      <div className="relative z-50 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 h-16 flex items-center justify-between px-6">
+      {/* HEADER (Fixe, hauteur 64px) */}
+      <div className="relative z-50 glass-panel h-16 flex items-center justify-between px-6 shadow-xl shrink-0">
         <div className="flex items-center gap-4">
-          <div className="bg-gradient-to-br from-indigo-600 to-blue-600 p-2 rounded-lg shadow-lg shadow-indigo-500/20">
-            <Flag className="text-white fill-white" size={20} />
+          <div className="bg-indigo-600 p-2 rounded-lg shadow-lg shadow-indigo-500/20">
+            <Flag className="text-white" size={20} fill="currentColor" />
           </div>
           <div>
-            <h1 className="font-bold text-lg tracking-tight text-white leading-none">STRATEGY <span className="text-indigo-500">PRO</span></h1>
-            <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400">
-               <span className={`w-1.5 h-1.5 rounded-full ${syncStatus.includes('LIVE') ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-slate-600'}`}></span>
-               {syncStatus}
+            <h1 className="font-bold text-lg tracking-tight text-white leading-none">STRATEGY <span className="text-indigo-400">PRO</span></h1>
+            <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 mt-0.5">
+               <span className={`w-1.5 h-1.5 rounded-full ${syncStatus === 'LIVE' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-slate-600'}`}></span>
+               {syncStatus} MODE
             </div>
           </div>
         </div>
 
         {/* HUD CENTRAL */}
-        <div className="hidden md:flex items-center gap-8 bg-black/20 px-6 py-2 rounded-full border border-white/5">
+        <div className="hidden lg:flex items-center gap-8 bg-slate-900/50 px-8 py-2 rounded-full border border-white/5 shadow-inner">
            <div className="flex flex-col items-center">
-              <span className="text-[10px] text-slate-500 font-bold uppercase">RACE TIME</span>
-              <span className="font-mono text-xl font-bold text-white leading-none">{formatTime(currentLap * 3.7)}</span>
+              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</span>
+              <span className="font-mono text-xl font-bold text-white leading-none tracking-tight">{formatTime(currentLap * 3.7)}</span>
            </div>
-           <div className="w-px h-8 bg-slate-800"></div>
-           <div className="flex flex-col items-center cursor-pointer hover:text-white transition-colors" onClick={() => setShowSettings(true)}>
-              <span className="text-[10px] text-slate-500 font-bold uppercase">DRIVERS</span>
-              <div className="flex -space-x-2 mt-1">
-                 {drivers.map(d => (
-                   <div key={d.id} className={`w-6 h-6 rounded-full border-2 border-slate-900 bg-gradient-to-br ${d.color}`}></div>
-                 ))}
-              </div>
+           <div className="w-px h-6 bg-slate-700"></div>
+           <div className="flex flex-col items-center">
+              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">LAP</span>
+              <span className="font-mono text-xl font-bold text-white leading-none tracking-tight">{currentLap} <span className="text-slate-500 text-sm">/ {lapTarget}</span></span>
            </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <button 
-             onClick={() => setShowSettings(!showSettings)}
-             className="p-2.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all border border-transparent hover:border-slate-700"
-          >
+          <button onClick={() => setShowSettings(!showSettings)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all">
             <Settings size={20} />
           </button>
           <button 
@@ -180,89 +176,112 @@ const RaceStrategyApp = () => {
              className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 px-4 py-2 rounded-lg font-bold transition-all active:scale-95 group"
           >
             <AlertOctagon size={18} className="group-hover:animate-ping" />
-            <span className="hidden sm:inline">REPORT INCIDENT</span>
-            <span className="ml-1 bg-red-600 text-white text-xs px-1.5 rounded">{incidents.length}</span>
+            <span className="hidden sm:inline">INCIDENT</span>
+            {incidents.length > 0 && <span className="ml-1 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{incidents.length}</span>}
           </button>
         </div>
       </div>
 
-      {/* MAIN CONTENT GRID */}
-      <div className="relative z-10 flex-1 p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden">
+      {/* MAIN LAYOUT (Grid System) */}
+      <div className="relative z-10 flex-1 p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden h-[calc(100vh-64px)]">
         
-        {/* LEFT PANEL: ACTIVE CONTEXT (4 COLS) */}
-        <div className="lg:col-span-4 flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar pr-2">
+        {/* --- LEFT PANEL: DRIVER & CONTROLS (col-span-4) --- */}
+        <div className="lg:col-span-4 flex flex-col gap-4 h-full overflow-hidden">
           
-          {/* DRIVER CARD */}
-          <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-6 relative overflow-hidden group">
-            <div className={`absolute top-0 left-0 w-1 h-full bg-gradient-to-b ${activeStint.driver.color}`}></div>
-            <div className="flex justify-between items-start mb-4">
+          {/* DRIVER WIDGET (Main Focus) */}
+          <div className="glass-panel rounded-2xl p-6 relative overflow-hidden group shrink-0 shadow-2xl">
+            <div className={`absolute top-0 right-0 w-[60%] h-full bg-gradient-to-l ${activeStint.driver.color} opacity-10 transform skew-x-12`}></div>
+            
+            <div className="flex justify-between items-start mb-6">
                <div>
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">DRIVER ON TRACK</span>
-                  <h2 className="text-4xl font-black text-white mt-1">{activeStint.driver.name}</h2>
-                  <div className="flex items-center gap-2 mt-2 text-indigo-300 bg-indigo-500/10 w-fit px-2 py-1 rounded text-xs font-mono">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">CURRENTLY DRIVING</span>
+                  </div>
+                  <h2 className="text-5xl font-black text-white tracking-tighter">{activeStint.driver.name}</h2>
+                  <div className="flex items-center gap-2 mt-3 text-indigo-300 bg-slate-900/50 border border-slate-700/50 w-fit px-3 py-1.5 rounded-full text-xs font-mono">
                     <Phone size={12} /> {activeStint.driver.phone}
                   </div>
                </div>
-               <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${activeStint.driver.color} flex items-center justify-center shadow-lg transform group-hover:rotate-12 transition-transform duration-500`}>
-                  <Users size={28} className="text-white" />
+               
+               {/* Driver Icon Box */}
+               <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${activeStint.driver.color} flex items-center justify-center shadow-lg shadow-indigo-900/20 border border-white/10`}>
+                  <Users size={32} className="text-white" />
                </div>
             </div>
             
-            {/* PROGRESS */}
-            <div className="mb-6">
-               <div className="flex justify-between text-xs font-mono text-slate-400 mb-2">
-                 <span>LAP {currentLap}</span>
-                 <span className="text-white font-bold">BOX IN {activeStint.endLap - currentLap} LAPS</span>
-               </div>
-               <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden border border-slate-700">
-                  <div className={`h-full bg-gradient-to-r ${activeStint.driver.color} transition-all duration-700`} style={{ width: `${progressPercent}%` }}></div>
-               </div>
-            </div>
+            {/* FUEL & STINT PROGRESS */}
+            <div className="space-y-4">
+                <div className="bg-slate-950/40 rounded-xl p-4 border border-slate-800">
+                    <div className="flex justify-between text-xs font-mono text-slate-400 mb-2">
+                        <span>STINT PROGRESS</span>
+                        <span className="text-white font-bold">BOX: LAP {activeStint.endLap}</span>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-4 overflow-hidden border border-slate-700/50 relative">
+                        <div className={`absolute top-0 bottom-0 left-0 bg-gradient-to-r ${activeStint.driver.color} transition-all duration-700`} style={{ width: `${progressPercent}%` }}>
+                            <div className="absolute right-0 top-0 bottom-0 w-px bg-white/50 shadow-[0_0_10px_white]"></div>
+                        </div>
+                    </div>
+                    <div className="flex justify-between mt-2 text-[10px] text-slate-500 font-mono uppercase">
+                        <span>Laps done: {currentLap - activeStint.startLap}</span>
+                        <span>To go: {activeStint.endLap - currentLap}</span>
+                    </div>
+                </div>
 
-            {/* CONTROLS */}
-            <div className="grid grid-cols-2 gap-3">
-               <button onClick={() => setCurrentLap(Math.max(0, currentLap - 1))} className="py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold border border-slate-700">- 1 LAP</button>
-               <button onClick={() => setCurrentLap(currentLap + 1)} className="py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-indigo-900/50 border border-indigo-400">+ 1 LAP</button>
+                <div className="grid grid-cols-2 gap-2">
+                   <button onClick={() => setCurrentLap(Math.max(0, currentLap - 1))} className="h-12 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold border border-slate-700 transition-colors">- 1 LAP</button>
+                   <button onClick={() => setCurrentLap(currentLap + 1)} className="h-12 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-indigo-900/20 border border-indigo-400/50 transition-colors">+ 1 LAP</button>
+                </div>
             </div>
           </div>
 
-          {/* QUICK STATS */}
-          <div className="grid grid-cols-2 gap-4">
-             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                <div className="text-slate-500 text-xs font-bold uppercase mb-1">FUEL CONS</div>
-                <div className="flex items-baseline gap-1">
-                   <span className="text-2xl font-mono font-bold text-white">{fuelCons}</span>
-                   <span className="text-xs text-slate-400">L/Lap</span>
+          {/* SECONDARY STATS (Grid 2x1) */}
+          <div className="grid grid-cols-2 gap-4 shrink-0">
+             <div className="glass-panel rounded-xl p-4 flex flex-col justify-between">
+                <div className="text-slate-500 text-[10px] font-bold uppercase flex items-center gap-1"><Fuel size={12}/> CONSUMPTION</div>
+                <div className="flex items-end justify-between mt-2">
+                   <span className="text-3xl font-mono font-bold text-white tracking-tighter">{fuelCons}</span>
+                   <span className="text-[10px] text-slate-400 mb-1">L/Lap</span>
                 </div>
-                <input type="range" min="5" max="8" step="0.05" value={fuelCons} onChange={(e) => setFuelCons(Number(e.target.value))} className="w-full mt-2 h-1 bg-slate-700 rounded-full appearance-none accent-indigo-500"/>
+                <input type="range" min="5" max="8" step="0.05" value={fuelCons} onChange={(e) => setFuelCons(Number(e.target.value))} className="w-full mt-3 h-1.5 bg-slate-800 rounded-full appearance-none accent-indigo-500 cursor-pointer"/>
              </div>
-             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                <div className="text-slate-500 text-xs font-bold uppercase mb-1">LAPS / TANK</div>
-                <div className={`text-2xl font-mono font-bold ${strategyData.lapsPerTank < 8 ? 'text-red-500' : 'text-emerald-400'}`}>
-                   {strategyData.lapsPerTank}
+             
+             <div className="glass-panel rounded-xl p-4 flex flex-col justify-between">
+                <div className="text-slate-500 text-[10px] font-bold uppercase flex items-center gap-1"><RotateCcw size={12}/> AUTONOMY</div>
+                <div className="flex items-end justify-between mt-2">
+                   <span className={`text-3xl font-mono font-bold tracking-tighter ${strategyData.lapsPerTank < 8 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {strategyData.lapsPerTank}
+                   </span>
+                   <span className="text-[10px] text-slate-400 mb-1">Laps</span>
                 </div>
-                <div className="text-[10px] text-slate-500 mt-1">Stops: {strategyData.totalStops}</div>
+                <div className="mt-2 text-[10px] text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-center">
+                    {strategyData.totalStops} Pitstops total
+                </div>
              </div>
           </div>
 
-          {/* INCIDENT LOG */}
-          <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-2xl p-4 flex flex-col min-h-[200px]">
-             <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
-                <h3 className="font-bold text-slate-300 text-sm flex items-center gap-2">
-                   <AlertTriangle size={14} className="text-amber-500"/> INCIDENT LOG
+          {/* INCIDENT LOG (Fills remaining height) */}
+          <div className="glass-panel rounded-2xl flex flex-col flex-1 overflow-hidden min-h-[150px]">
+             <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
+                <h3 className="font-bold text-slate-300 text-xs flex items-center gap-2">
+                   <AlertTriangle size={14} className="text-amber-500"/> RACE CONTROL LOG
                 </h3>
-                <span className="text-xs font-mono text-slate-500">{incidents.length} EVENTS</span>
              </div>
-             <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
-                {incidents.length === 0 && <div className="text-center text-slate-600 text-xs py-4">No incidents reported yet. Drive safe!</div>}
+             <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
+                {incidents.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-50">
+                        <Flag size={24} className="mb-2"/>
+                        <span className="text-xs">Race clean.</span>
+                    </div>
+                )}
                 {incidents.map((inc) => (
-                   <div key={inc.id} className="bg-slate-950/50 p-2 rounded border border-slate-800 flex items-center gap-3 animate-in slide-in-from-left-2">
-                      <div className="bg-red-500/20 text-red-500 p-1.5 rounded">
-                         <AlertOctagon size={14} />
+                   <div key={inc.id} className="bg-slate-950/80 p-3 rounded-lg border border-slate-800 flex gap-3 group hover:border-red-500/30 transition-colors">
+                      <div className="bg-red-500/10 text-red-500 w-8 h-8 rounded flex items-center justify-center shrink-0">
+                         <AlertOctagon size={16} />
                       </div>
                       <div>
-                         <div className="text-xs font-bold text-red-300">INCIDENT REPORTED</div>
-                         <div className="text-[10px] text-slate-500 font-mono">LAP {inc.lap} • {inc.time}</div>
+                         <div className="text-xs font-bold text-red-200">INCIDENT REPORTED</div>
+                         <div className="text-[10px] text-slate-500 font-mono mt-0.5">LAP {inc.lap} • {inc.time}</div>
                       </div>
                    </div>
                 ))}
@@ -270,52 +289,82 @@ const RaceStrategyApp = () => {
           </div>
         </div>
 
-        {/* RIGHT PANEL: STRATEGY TABLE (8 COLS) */}
-        <div className="lg:col-span-8 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden h-full">
-           <div className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center">
-              <h3 className="font-bold text-white flex items-center gap-2">
-                 <Timer className="text-indigo-500"/> MASTER STRATEGY
-              </h3>
-              <div className="flex gap-2">
-                 <button onClick={() => setIsEmergencyMode(!isEmergencyMode)} className={`px-3 py-1.5 rounded text-xs font-bold border ${isEmergencyMode ? 'bg-red-500 text-white border-red-600' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
-                    {isEmergencyMode ? 'EMERGENCY ON' : 'NORMAL OP'}
-                 </button>
+        {/* --- RIGHT PANEL: STRATEGY TABLE (col-span-8) --- */}
+        <div className="lg:col-span-8 glass-panel rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+           
+           {/* Table Toolbar */}
+           <div className="p-4 border-b border-slate-800 bg-slate-900/40 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                 <h3 className="font-bold text-white flex items-center gap-2 text-sm">
+                    <Timer className="text-indigo-500" size={18}/> MASTER STRATEGY
+                 </h3>
+                 <div className="h-4 w-px bg-slate-700"></div>
+                 <div className="flex gap-2">
+                     <span className="flex items-center gap-1 text-[10px] uppercase text-slate-400"><span className="w-2 h-2 rounded-sm bg-blue-500/20 border border-blue-500/50"></span> Swap</span>
+                     <span className="flex items-center gap-1 text-[10px] uppercase text-slate-400"><span className="w-2 h-2 rounded-sm bg-slate-800 border border-slate-600"></span> Fuel</span>
+                 </div>
               </div>
+              
+              <button onClick={() => setIsEmergencyMode(!isEmergencyMode)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${isEmergencyMode ? 'bg-red-500 text-white border-red-600 animate-pulse' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>
+                 {isEmergencyMode ? '⚠ EMERGENCY MODE' : 'NORMAL OPERATION'}
+              </button>
            </div>
            
-           <div className="flex-1 overflow-auto custom-scrollbar">
+           {/* Table Content (Scrollable) */}
+           <div className="flex-1 overflow-auto custom-scrollbar bg-slate-900/20">
               <table className="w-full text-left text-sm border-collapse">
-                 <thead className="sticky top-0 bg-slate-950 z-10 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                 <thead className="sticky top-0 bg-[#0f172a] z-10 text-[10px] font-bold text-slate-500 uppercase tracking-wider shadow-md">
                     <tr>
-                       <th className="p-4 border-b border-slate-800">Stint</th>
+                       <th className="p-4 border-b border-slate-800 w-16 text-center">#</th>
                        <th className="p-4 border-b border-slate-800">Driver</th>
-                       <th className="p-4 border-b border-slate-800">Window (Laps)</th>
-                       <th className="p-4 border-b border-slate-800 text-right">Fuel</th>
-                       <th className="p-4 border-b border-slate-800">Action</th>
-                       <th className="p-4 border-b border-slate-800 w-1/4">Notes</th>
+                       <th className="p-4 border-b border-slate-800">Laps Window</th>
+                       <th className="p-4 border-b border-slate-800 text-right">Fuel (L)</th>
+                       <th className="p-4 border-b border-slate-800">Pit Action</th>
+                       <th className="p-4 border-b border-slate-800 w-1/3">Engineer Notes</th>
                     </tr>
                  </thead>
-                 <tbody className="divide-y divide-slate-800">
+                 <tbody className="divide-y divide-slate-800/50">
                     {strategyData.stints.map((stint) => (
-                       <tr key={stint.id} className={`group hover:bg-slate-800/30 transition-colors ${stint.isActive ? 'bg-indigo-900/10' : ''}`}>
-                          <td className="p-4 font-mono font-bold text-slate-400">
-                             #{stint.stopNum}
-                             {stint.isActive && <span className="ml-2 inline-block w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></span>}
-                          </td>
-                          <td className="p-4">
-                             <div className="flex items-center gap-2">
-                                <div className={`w-2 h-2 rounded-full ${stint.driver.text.replace('text-', 'bg-')}`}></div>
-                                <span className={`font-bold ${stint.driver.text}`}>{stint.driver.name}</span>
+                       <tr key={stint.id} className={`group transition-all hover:bg-white/[0.02] ${stint.isActive ? 'bg-indigo-500/10 hover:bg-indigo-500/15' : ''}`}>
+                          
+                          {/* Stint Number */}
+                          <td className="p-4 text-center">
+                             <div className={`font-mono font-bold ${stint.isActive ? 'text-indigo-400 scale-110' : 'text-slate-600'} transition-transform`}>
+                                {stint.stopNum}
                              </div>
                           </td>
-                          <td className="p-4 font-mono text-slate-300">
-                             {stint.startLap} <span className="text-slate-600">→</span> {stint.endLap}
-                          </td>
-                          <td className="p-4 font-mono text-right text-slate-300">
-                             {stint.fuelNeeded}<span className="text-slate-600 text-xs ml-0.5">L</span>
-                          </td>
+
+                          {/* Driver */}
                           <td className="p-4">
-                             <span className={`text-[10px] font-bold px-2 py-1 rounded border uppercase ${
+                             <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${stint.driver.bg} ${stint.driver.text} border ${stint.driver.border} border-opacity-30`}>
+                                   {stint.driver.name.charAt(0)}
+                                </div>
+                                <div className="flex flex-col">
+                                   <span className={`font-bold text-sm ${stint.isActive ? 'text-white' : 'text-slate-400'}`}>{stint.driver.name}</span>
+                                   {stint.isActive && <span className="text-[9px] text-indigo-400 uppercase font-bold animate-pulse">On Track</span>}
+                                </div>
+                             </div>
+                          </td>
+
+                          {/* Windows */}
+                          <td className="p-4">
+                             <div className="flex items-center gap-2 font-mono text-sm text-slate-300">
+                                <span className={stint.isActive ? 'text-white font-bold' : ''}>{stint.startLap}</span>
+                                <ChevronRight size={12} className="text-slate-600"/>
+                                <span className={stint.isActive ? 'text-white font-bold' : ''}>{stint.endLap}</span>
+                             </div>
+                             <div className="text-[10px] text-slate-500 mt-0.5">{stint.laps} laps stint</div>
+                          </td>
+
+                          {/* Fuel */}
+                          <td className="p-4 text-right font-mono text-slate-300">
+                             {stint.fuelNeeded}
+                          </td>
+
+                          {/* Action Tag */}
+                          <td className="p-4">
+                             <span className={`text-[10px] font-bold px-2 py-1 rounded border uppercase inline-flex items-center gap-1 ${
                                 stint.notes.includes('SWAP') ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 
                                 stint.notes.includes('FINISH') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
                                 'bg-slate-800 text-slate-400 border-slate-700'
@@ -323,16 +372,18 @@ const RaceStrategyApp = () => {
                                 {stint.notes}
                              </span>
                           </td>
+
+                          {/* Notes Input */}
                           <td className="p-4">
                              <div className="relative group/input">
                                 <input 
                                   type="text" 
-                                  placeholder="Add note..." 
+                                  placeholder="Strategy note..." 
                                   value={stint.customNote}
                                   onChange={(e) => handleStintNoteChange(stint.stopNum, e.target.value)}
-                                  className="bg-transparent border-b border-transparent focus:border-indigo-500 w-full text-xs py-1 text-slate-300 placeholder-slate-600 focus:outline-none transition-colors hover:border-slate-700"
+                                  className="bg-transparent border-b border-slate-800 focus:border-indigo-500 w-full text-xs py-1.5 text-slate-300 placeholder-slate-600 focus:outline-none transition-colors"
                                 />
-                                <FileText size={12} className="absolute right-0 top-1.5 text-slate-600 opacity-0 group-hover/input:opacity-100 transition-opacity pointer-events-none" />
+                                <FileText size={12} className="absolute right-0 top-2 text-slate-600 opacity-0 group-hover/input:opacity-100 transition-opacity pointer-events-none" />
                              </div>
                           </td>
                        </tr>
@@ -344,11 +395,11 @@ const RaceStrategyApp = () => {
 
       </div>
 
-      {/* MODAL SETTINGS (DRIVERS) */}
+      {/* --- MODAL SETTINGS (Identique mais z-index corrigé) --- */}
       {showSettings && (
-        <div className="fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
-              <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900">
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+           <div className="glass-panel bg-[#0f172a] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 border-slate-700">
+              <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
                     <Users className="text-indigo-500" /> TEAM MANAGEMENT
                  </h2>
@@ -356,49 +407,32 @@ const RaceStrategyApp = () => {
                     <X size={20} />
                  </button>
               </div>
-              <div className="p-6 space-y-6">
+              <div className="p-6 space-y-4">
                  {drivers.map((driver) => (
-                    <div key={driver.id} className="flex flex-col md:flex-row gap-4 items-start md:items-center bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                       <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${driver.color} flex items-center justify-center shrink-0`}>
-                          <span className="font-bold text-white text-lg">{driver.name.charAt(0)}</span>
+                    <div key={driver.id} className="flex flex-col md:flex-row gap-4 items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                       <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${driver.color} flex items-center justify-center shrink-0 shadow-lg`}>
+                          <span className="font-bold text-white">{driver.name.charAt(0)}</span>
                        </div>
                        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                          <div>
-                             <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Driver Name</label>
-                             <input 
-                                type="text" 
-                                value={driver.name} 
-                                onChange={(e) => handleDriverUpdate(driver.id, 'name', e.target.value)}
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-indigo-500 focus:outline-none text-sm font-bold"
-                             />
-                          </div>
-                          <div>
-                             <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Phone Number</label>
-                             <div className="relative">
-                                <Phone size={14} className="absolute left-3 top-2.5 text-slate-500" />
-                                <input 
-                                   type="text" 
-                                   value={driver.phone} 
-                                   onChange={(e) => handleDriverUpdate(driver.id, 'phone', e.target.value)}
-                                   className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-slate-300 focus:border-indigo-500 focus:outline-none text-sm font-mono"
-                                />
-                             </div>
-                          </div>
+                          <input 
+                             type="text" value={driver.name} 
+                             onChange={(e) => handleDriverUpdate(driver.id, 'name', e.target.value)}
+                             className="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-white text-sm focus:border-indigo-500 outline-none"
+                             placeholder="Name"
+                          />
+                          <input 
+                             type="text" value={driver.phone} 
+                             onChange={(e) => handleDriverUpdate(driver.id, 'phone', e.target.value)}
+                             className="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-300 text-sm font-mono focus:border-indigo-500 outline-none"
+                             placeholder="Phone"
+                          />
                        </div>
                     </div>
                  ))}
-                 
-                 <div className="bg-amber-900/10 border border-amber-500/20 p-4 rounded-xl flex gap-3 items-start">
-                    <AlertTriangle className="text-amber-500 shrink-0 mt-0.5" size={18} />
-                    <div className="text-xs text-amber-200/80">
-                       <p className="font-bold text-amber-500 mb-1">Configuration Note</p>
-                       Changes made here are applied locally immediately. Ensure all phone numbers are formatted internationally if using SMS integration later.
-                    </div>
-                 </div>
               </div>
-              <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-end">
-                 <button onClick={() => setShowSettings(false)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2">
-                    <Save size={16} /> SAVE CHANGES
+              <div className="p-4 bg-slate-950/50 border-t border-slate-800 flex justify-end">
+                 <button onClick={() => setShowSettings(false)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 shadow-lg shadow-indigo-900/20">
+                    <Save size={16} /> SAVE
                  </button>
               </div>
            </div>
