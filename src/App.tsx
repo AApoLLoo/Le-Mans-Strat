@@ -2,24 +2,27 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Fuel, RotateCcw, Users, Flag, Timer, X, Save, AlertOctagon, 
   Settings, Play, Pause, CloudRain, Sun, Cloud, Wifi, 
-  Calculator, StopCircle, Clock, FileText, ChevronRight
+  Calculator, StopCircle, Clock, FileText, ChevronRight, Phone, Trash2, Edit3
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE ---
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 
-// 👇 --- TA CONFIGURATION FIREBASE (Ne touche pas si ça marche déjà) --- 👇
+// 👇 --- TA CONFIGURATION FIREBASE --- 👇
 const firebaseConfig = {
-  // ... tes infos apiKey, etc ...
-  // Si tu les as déjà dans un autre fichier, importe db directement
+  apiKey: "AIzaSyAezT5Np6-v18OBR1ICV3uHoFViQB555sg",
+  authDomain: "le-mans-strat.firebaseapp.com",
+  projectId: "le-mans-strat",
+  storageBucket: "le-mans-strat.firebasestorage.app",
+  messagingSenderId: "1063156323054",
+  appId: "1:1063156323054:web:81e74528a75ffb770099ff",
 };
-// 👆 ---------------------------------------------------------------- 👆
+// 👆 --------------------------------- 👆
 
-// Initialisation Safe
+// Initialisation
 let db;
 try {
-  // Vérification simple pour éviter le crash si config vide
   if (firebaseConfig.apiKey) {
       const app = initializeApp(firebaseConfig);
       db = getFirestore(app);
@@ -34,11 +37,11 @@ const RaceStrategyApp = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showFuelCalc, setShowFuelCalc] = useState(false);
   
-  // Fuel Calculator Inputs
+  // Fuel Calc
   const [calcLaps, setCalcLaps] = useState("");
   const [calcFuel, setCalcFuel] = useState("");
 
-  // Timers locaux (pour affichage fluide)
+  // Timers locaux
   const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
   const [localStintTime, setLocalStintTime] = useState(0);
   const [pitStopTimer, setPitStopTimer] = useState(0);
@@ -57,22 +60,19 @@ const RaceStrategyApp = () => {
     lapsTarget: 380,
     isEmergency: false,
     drivers: [
-      { id: 1, name: "Antoine", color: "from-blue-600 to-blue-700", text: "text-blue-400" },
-      { id: 2, name: "Enzo", color: "from-emerald-600 to-emerald-700", text: "text-emerald-400" },
-      { id: 3, name: "Ewan", color: "from-purple-600 to-purple-700", text: "text-purple-400" },
-      { id: 4, name: "Pilote 4", color: "from-amber-600 to-amber-700", text: "text-amber-400" }
+      { id: 1, name: "Antoine", phone: "06 00 00 00 00", color: "from-blue-600 to-blue-700", text: "text-blue-400" },
+      { id: 2, name: "Enzo", phone: "06 00 00 00 00", color: "from-emerald-600 to-emerald-700", text: "text-emerald-400" },
+      { id: 3, name: "Ewan", phone: "06 00 00 00 00", color: "from-purple-600 to-purple-700", text: "text-purple-400" },
+      { id: 4, name: "Pilote 4", phone: "00 00 00 00 00", color: "from-amber-600 to-amber-700", text: "text-amber-400" }
     ],
     activeDriverIndex: 0,
-    incidents: [],
+    incidents: [], // Structure: { id, lap, time, text }
     stintNotes: {}
   });
 
   // --- SYNC ENGINE ---
   useEffect(() => {
-    if (!db) {
-        setStatus("OFFLINE (No DB)");
-        return;
-    }
+    if (!db) { setStatus("OFFLINE (No DB)"); return; }
     const docRef = doc(db, "strategies", SESSION_ID);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -88,17 +88,14 @@ const RaceStrategyApp = () => {
   // --- LOCAL TIMERS LOOP ---
   useEffect(() => {
     const interval = setInterval(() => {
-      // Race Timer
       if (gameState.isRaceRunning) setLocalRaceTime(prev => Math.max(0, prev - 1));
       else setLocalRaceTime(gameState.raceTime);
 
-      // Stint Timer
       if (gameState.isRaceRunning) {
         const duration = Math.floor((Date.now() - gameState.stintStartTime) / 1000);
         setLocalStintTime(duration);
       }
 
-      // Pit Timer
       if (gameState.isPitStopActive) {
         const pitDuration = Math.floor((Date.now() - gameState.pitStopStartTime) / 1000);
         setPitStopTimer(pitDuration);
@@ -111,23 +108,41 @@ const RaceStrategyApp = () => {
 
   // --- ACTIONS ---
   const syncUpdate = (data) => {
-    if (!db) {
-        // Fallback local si pas de DB pour tester l'UI
-        setGameState(prev => ({...prev, ...data}));
-        return;
-    }
+    if (!db) { setGameState(prev => ({...prev, ...data})); return; }
     updateDoc(doc(db, "strategies", SESSION_ID), data);
+  };
+
+  // Gestion Incidents
+  const addIncident = () => {
+    const newInc = { id: Date.now(), lap: gameState.currentLap, time: formatTime(localRaceTime), text: "" };
+    syncUpdate({ incidents: [newInc, ...gameState.incidents] });
+  };
+
+  const deleteIncident = (id) => {
+    const newIncidents = gameState.incidents.filter(inc => inc.id !== id);
+    syncUpdate({ incidents: newIncidents });
+  };
+
+  const updateIncidentInfo = (id, newText) => {
+    const newIncidents = gameState.incidents.map(inc => 
+      inc.id === id ? { ...inc, text: newText } : inc
+    );
+    syncUpdate({ incidents: newIncidents });
+  };
+
+  // Gestion Pilotes
+  const updateDriverInfo = (index, field, value) => {
+    const newDrivers = [...gameState.drivers];
+    newDrivers[index] = { ...newDrivers[index], [field]: value };
+    syncUpdate({ drivers: newDrivers });
   };
 
   const handleDriverSwap = () => {
     const nextIndex = (gameState.activeDriverIndex + 1) % gameState.drivers.length;
-    syncUpdate({
-      activeDriverIndex: nextIndex,
-      stintStartTime: Date.now(),
-      isPitStopActive: false
-    });
+    syncUpdate({ activeDriverIndex: nextIndex, stintStartTime: Date.now(), isPitStopActive: false });
   };
 
+  // Utilitaires
   const togglePitStop = () => {
     if (!gameState.isPitStopActive) syncUpdate({ isPitStopActive: true, pitStopStartTime: Date.now() });
     else syncUpdate({ isPitStopActive: false });
@@ -138,12 +153,10 @@ const RaceStrategyApp = () => {
     const f = parseFloat(calcFuel);
     if (l > 0 && f > 0) {
         syncUpdate({ fuelCons: parseFloat((f / l).toFixed(3)) });
-        setShowFuelCalc(false);
-        setCalcLaps(""); setCalcFuel("");
+        setShowFuelCalc(false); setCalcLaps(""); setCalcFuel("");
     }
   };
 
-  // --- HELPERS ---
   const formatTime = (s) => {
     if(isNaN(s)) return "00:00";
     const h = Math.floor(s / 3600).toString().padStart(2,'0');
@@ -157,30 +170,21 @@ const RaceStrategyApp = () => {
     const safeCons = gameState.fuelCons || 3.5;
     const lapsPerTank = Math.floor(gameState.tankCapacity / safeCons);
     const totalStops = Math.max(0, Math.ceil(gameState.lapsTarget / lapsPerTank) - 1);
-    
     const stints = [];
     let lapCounter = 0;
     
-    // Calcul prévisionnel simple
     for (let i = 0; i <= totalStops; i++) {
       const isLast = i === totalStops;
       const lapsThisStint = isLast ? (gameState.lapsTarget - lapCounter) : lapsPerTank;
       const endLap = lapCounter + lapsThisStint;
-      
-      // Rotation théorique des pilotes
       const driverIdx = (gameState.activeDriverIndex + i) % gameState.drivers.length;
       const driver = gameState.drivers[driverIdx];
-      
       const isActive = gameState.currentLap >= lapCounter && gameState.currentLap < endLap;
 
       stints.push({
-        id: i,
-        stopNum: i + 1,
-        startLap: lapCounter,
-        endLap: endLap,
+        id: i, stopNum: i + 1, startLap: lapCounter, endLap: endLap,
         fuel: (lapsThisStint * safeCons).toFixed(1),
-        driver: driver,
-        isActive,
+        driver: driver, isActive,
         note: isActive ? "CURRENT" : (isLast ? "FINISH" : "BOX")
       });
       lapCounter += lapsThisStint;
@@ -192,7 +196,7 @@ const RaceStrategyApp = () => {
   const activeDriver = gameState.drivers[gameState.activeDriverIndex] || gameState.drivers[0];
   const progressPercent = Math.min(100, Math.max(0, ((gameState.currentLap - activeStint.startLap) / (activeStint.endLap - activeStint.startLap || 1)) * 100));
 
-  // --- CSS STYLE (IMPORTANT: Ceci assure le fond noir si Tailwind n'est pas chargé via CDN) ---
+  // --- CSS ---
   const css = `
     body { background-color: #020408; margin: 0; font-family: sans-serif; }
     .custom-scrollbar::-webkit-scrollbar { width: 6px; }
@@ -218,7 +222,7 @@ const RaceStrategyApp = () => {
           </div>
         </div>
 
-        {/* TIMER CENTRAL */}
+        {/* TIMER */}
         <div className="hidden md:flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5">
            <div className="text-right">
               <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div>
@@ -233,10 +237,7 @@ const RaceStrategyApp = () => {
 
         <div className="flex gap-2">
           <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-white/10 rounded text-slate-400"><Settings size={20}/></button>
-          <button onClick={() => {
-             const inc = { id: Date.now(), lap: gameState.currentLap, time: formatTime(localRaceTime) };
-             syncUpdate({ incidents: [inc, ...gameState.incidents] });
-          }} className="flex items-center gap-2 bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-500/30 px-3 py-2 rounded font-bold text-xs uppercase">
+          <button onClick={addIncident} className="flex items-center gap-2 bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-500/30 px-3 py-2 rounded font-bold text-xs uppercase">
             <AlertOctagon size={16}/> <span className="hidden sm:inline">Incident</span>
           </button>
         </div>
@@ -245,7 +246,7 @@ const RaceStrategyApp = () => {
       {/* MAIN CONTENT */}
       <div className="flex-1 p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden">
         
-        {/* --- LEFT COLUMN (DRIVER & CONTROLS) --- */}
+        {/* --- LEFT COLUMN --- */}
         <div className="lg:col-span-4 flex flex-col gap-4 h-full">
           
           {/* DRIVER CARD */}
@@ -263,7 +264,14 @@ const RaceStrategyApp = () => {
                    </div>
                    <h2 className="text-3xl lg:text-4xl font-black text-white italic uppercase tracking-tighter truncate">{activeDriver.name}</h2>
                    
-                   <div className="flex items-center gap-2 mt-2 text-indigo-300 font-mono text-xs lg:text-sm bg-indigo-500/10 px-2 py-1 rounded w-fit border border-indigo-500/20">
+                   {/* Phone Display */}
+                   {activeDriver.phone && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-1">
+                          <Phone size={10} /> {activeDriver.phone}
+                      </div>
+                   )}
+                   
+                   <div className="flex items-center gap-2 mt-3 text-indigo-300 font-mono text-xs lg:text-sm bg-indigo-500/10 px-2 py-1 rounded w-fit border border-indigo-500/20">
                       <Clock size={14} /> Stint: {formatTime(localStintTime)}
                    </div>
                 </div>
@@ -276,7 +284,7 @@ const RaceStrategyApp = () => {
                 </div>
              </div>
 
-             {/* PROGRESS BAR */}
+             {/* PROGRESS */}
              <div className="mb-5 bg-black/20 p-3 rounded-lg border border-white/5">
                 <div className="flex justify-between text-[10px] font-mono font-bold text-slate-400 mb-2 uppercase">
                    <span>Lap {gameState.currentLap}</span>
@@ -287,13 +295,12 @@ const RaceStrategyApp = () => {
                 </div>
              </div>
 
-             {/* LAP CONTROLS */}
+             {/* CONTROLS */}
              <div className="grid grid-cols-2 gap-3 mb-4">
                 <button onClick={() => syncUpdate({currentLap: Math.max(1, gameState.currentLap - 1)})} className="h-10 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg text-xs font-bold border border-slate-700">- 1 LAP</button>
                 <button onClick={() => syncUpdate({currentLap: gameState.currentLap + 1})} className="h-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-lg font-bold shadow-lg border border-indigo-400/50">+ 1 LAP</button>
              </div>
 
-             {/* WEATHER & PIT BUTTONS */}
              <div className="grid grid-cols-2 gap-2">
                  <div className="bg-black/30 rounded p-1 flex gap-1">
                     {['DRY', 'DAMP', 'WET'].map(w => (
@@ -325,22 +332,39 @@ const RaceStrategyApp = () => {
              </div>
           </div>
           
-          {/* LOG */}
-          <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden min-h-[150px]">
-             <div className="p-2 border-b border-white/5 bg-black/20 text-[9px] font-bold text-slate-500 uppercase tracking-widest px-3">Log</div>
+          {/* LOG INCIDENTS (INTERACTIF) */}
+          <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden min-h-[200px]">
+             <div className="p-2 border-b border-white/5 bg-black/20 text-[9px] font-bold text-slate-500 uppercase tracking-widest px-3 flex justify-between items-center">
+                <span>RACE LOG</span>
+                <span className="text-[9px] opacity-50">{gameState.incidents.length} EVENTS</span>
+             </div>
              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
-                {gameState.incidents.length === 0 && <div className="text-center text-slate-700 text-xs mt-4">No incidents</div>}
+                {gameState.incidents.length === 0 && <div className="text-center text-slate-700 text-xs mt-4">No incidents recorded</div>}
                 {gameState.incidents.map((inc) => (
-                   <div key={inc.id} className="bg-slate-900/50 p-2 rounded border-l-2 border-red-500/50 flex gap-2 items-center">
-                      <span className="text-[9px] font-mono text-slate-500">{inc.time}</span>
-                      <span className="text-[10px] text-slate-300 font-bold uppercase">Incident Lap {inc.lap}</span>
+                   <div key={inc.id} className="bg-slate-900/50 p-2 rounded border-l-2 border-red-500/50 flex flex-col gap-1 group">
+                      <div className="flex justify-between items-start">
+                         <div className="flex gap-2 items-center">
+                            <span className="text-[9px] font-mono text-slate-500">{inc.time}</span>
+                            <span className="text-[10px] text-red-300 font-bold uppercase">Lap {inc.lap}</span>
+                         </div>
+                         <button onClick={() => deleteIncident(inc.id)} className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 size={12} />
+                         </button>
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="Add details (e.g. Collision #51)..." 
+                        value={inc.text || ""}
+                        onChange={(e) => updateIncidentInfo(inc.id, e.target.value)}
+                        className="bg-transparent border-b border-slate-800 hover:border-slate-600 focus:border-indigo-500 w-full text-xs text-slate-300 placeholder-slate-700 outline-none pb-0.5 transition-colors"
+                      />
                    </div>
                 ))}
              </div>
           </div>
         </div>
 
-        {/* --- RIGHT COLUMN (STRATEGY TABLE) --- */}
+        {/* --- RIGHT COLUMN --- */}
         <div className="lg:col-span-8 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500">
            <div className="p-3 border-b border-white/5 bg-slate-900/50 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-white text-sm uppercase flex items-center gap-2"><FileText size={16} className="text-indigo-400"/> Strategy Plan</h3>
@@ -407,6 +431,7 @@ const RaceStrategyApp = () => {
         </div>
       )}
 
+      {/* SETTINGS MODAL (Avec édition Tel) */}
       {showSettings && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
            <div className="glass-panel w-full max-w-lg rounded-xl p-6 border border-slate-700 space-y-4">
@@ -416,11 +441,12 @@ const RaceStrategyApp = () => {
                  <div><label className="text-[10px] text-slate-500 font-bold">TARGET LAPS</label><input type="number" value={gameState.lapsTarget} onChange={(e)=>syncUpdate({lapsTarget: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
               </div>
               <div className="space-y-2 pt-2">
-                 <label className="text-[10px] text-slate-500 font-bold">DRIVERS</label>
+                 <label className="text-[10px] text-slate-500 font-bold">DRIVERS & PHONES</label>
                  {gameState.drivers.map((d, idx) => (
-                    <input key={d.id} type="text" value={d.name} onChange={(e) => {
-                       const newD = [...gameState.drivers]; newD[idx].name = e.target.value; syncUpdate({drivers: newD});
-                    }} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm mb-2"/>
+                    <div key={d.id} className="flex gap-2">
+                       <input type="text" value={d.name} onChange={(e) => updateDriverInfo(idx, 'name', e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm" placeholder="Name"/>
+                       <input type="text" value={d.phone || ""} onChange={(e) => updateDriverInfo(idx, 'phone', e.target.value)} className="w-32 bg-slate-900 border border-slate-700 rounded p-2 text-slate-300 font-mono text-sm" placeholder="Tel"/>
+                    </div>
                  ))}
               </div>
            </div>
