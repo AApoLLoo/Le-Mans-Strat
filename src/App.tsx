@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Fuel, RotateCcw, Users, Flag, Timer, X, Save, AlertOctagon, 
   Settings, Play, Pause, CloudRain, Sun, Cloud, Wifi, 
-  Calculator, StopCircle, Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, AlertTriangle, CheckCircle2, ArrowRight
+  Calculator, StopCircle, Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, AlertTriangle, CheckCircle2
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE ---
@@ -12,11 +12,17 @@ import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "firebase/fires
 // 👇 --- TA CONFIGURATION FIREBASE --- 👇
 const firebaseConfig = {
   apiKey: "AIzaSyAezT5Np6-v18OBR1ICV3uHoFViQB555sg",
+
   authDomain: "le-mans-strat.firebaseapp.com",
+
   projectId: "le-mans-strat",
+
   storageBucket: "le-mans-strat.firebasestorage.app",
+
   messagingSenderId: "1063156323054",
+
   appId: "1:1063156323054:web:81e74528a75ffb770099ff"
+
 };
 // 👆 --------------------------------- 👆
 
@@ -31,7 +37,7 @@ try {
 
 const SESSION_ID = "lemans-2025-race";
 
-// IMPORT IMAGE (Si tu utilises Vite/React standard)
+// IMPORT IMAGE
 import trackMapImg from './assets/track-map.jpg'; 
 
 const getSafeDriver = (driver) => {
@@ -53,7 +59,7 @@ const RaceStrategyApp = () => {
   const [pitStopTimer, setPitStopTimer] = useState(0);
 
   const [gameState, setGameState] = useState({
-    currentStint: 0, // ON COMPTE LES RELAIS MAINTENANT, PLUS LES TOURS
+    currentStint: 0,
     raceTime: 24 * 60 * 60,
     stintStartTime: Date.now(),
     isRaceRunning: false,
@@ -86,18 +92,27 @@ const RaceStrategyApp = () => {
     return () => unsubscribe();
   }, []);
 
-  // --- TIMERS ---
+  // --- SYNC LOCAL TIMER WITH DB (Quand la DB change, on met à jour le timer local) ---
+  useEffect(() => {
+    setLocalRaceTime(gameState.raceTime);
+  }, [gameState.raceTime]);
+
+  // --- TIMERS LOOP (Décrémente localement chaque seconde) ---
   useEffect(() => {
     const interval = setInterval(() => {
-      if (gameState.isRaceRunning) setLocalRaceTime(prev => Math.max(0, prev - 1));
-      else setLocalRaceTime(gameState.raceTime);
-
-      if (gameState.isRaceRunning) setLocalStintTime(Math.floor((Date.now() - gameState.stintStartTime) / 1000));
-      if (gameState.isPitStopActive) setPitStopTimer(Math.floor((Date.now() - gameState.pitStopStartTime) / 1000));
-      else setPitStopTimer(0);
+      if (gameState.isRaceRunning) {
+          setLocalRaceTime(prev => Math.max(0, prev - 1));
+          setLocalStintTime(Math.floor((Date.now() - gameState.stintStartTime) / 1000));
+      }
+      
+      if (gameState.isPitStopActive) {
+          setPitStopTimer(Math.floor((Date.now() - gameState.pitStopStartTime) / 1000));
+      } else {
+          setPitStopTimer(0);
+      }
     }, 1000);
     return () => clearInterval(interval);
-  }, [gameState]);
+  }, [gameState.isRaceRunning, gameState.stintStartTime, gameState.pitStopStartTime, gameState.isPitStopActive]);
 
   // --- ACTIONS ---
   const syncUpdate = (data) => {
@@ -105,6 +120,30 @@ const RaceStrategyApp = () => {
     updateDoc(doc(db, "strategies", SESSION_ID), data);
   };
 
+  // 🔥 NOUVELLE LOGIQUE PLAY/PAUSE/RESET 🔥
+  const toggleRaceTimer = () => {
+    if (gameState.isRaceRunning) {
+        // PAUSE : On sauvegarde le temps local actuel dans la DB pour ne pas le perdre
+        syncUpdate({ 
+            isRaceRunning: false, 
+            raceTime: localRaceTime // <--- C'est ici que la magie opère
+        });
+    } else {
+        // PLAY : On relance juste le booléen
+        syncUpdate({ isRaceRunning: true });
+    }
+  };
+
+  const resetRaceTimer = () => {
+      if(confirm("⚠️ ATTENTION : Voulez-vous remettre le chrono de course à 24h00 ?")) {
+          syncUpdate({ 
+              isRaceRunning: false, 
+              raceTime: 24 * 60 * 60 
+          });
+      }
+  };
+
+  // Autres actions
   const addIncident = () => {
     const newInc = { id: Date.now(), lap: "Stint " + (gameState.currentStint + 1), time: formatTime(localRaceTime), text: "" };
     syncUpdate({ incidents: [newInc, ...gameState.incidents] });
@@ -117,16 +156,14 @@ const RaceStrategyApp = () => {
     syncUpdate({ drivers: newDrivers });
   };
   
-  // --- LOGIQUE CLES : PASSAGE AU PROCHAIN RELAIS ---
   const confirmPitStop = () => {
     const nextStint = gameState.currentStint + 1;
     const nextDriverIndex = (gameState.activeDriverIndex + 1) % gameState.drivers.length;
-    
     syncUpdate({
-        currentStint: nextStint,          // On avance dans le tableau
-        activeDriverIndex: nextDriverIndex, // On change de pilote
-        stintStartTime: Date.now(),       // Reset chrono relais
-        isPitStopActive: false,           // On coupe le chrono des stands
+        currentStint: nextStint,
+        activeDriverIndex: nextDriverIndex,
+        stintStartTime: Date.now(),
+        isPitStopActive: false,
         pitStopStartTime: 0
     });
   };
@@ -134,12 +171,8 @@ const RaceStrategyApp = () => {
   const undoStint = () => {
       if(gameState.currentStint > 0) {
         const prevStint = gameState.currentStint - 1;
-        // On revient en arrière sur le pilote aussi (maths pour éviter index négatif)
         const prevDriverIndex = (gameState.activeDriverIndex - 1 + gameState.drivers.length) % gameState.drivers.length;
-        syncUpdate({
-            currentStint: prevStint,
-            activeDriverIndex: prevDriverIndex
-        });
+        syncUpdate({ currentStint: prevStint, activeDriverIndex: prevDriverIndex });
       }
   };
 
@@ -165,23 +198,15 @@ const RaceStrategyApp = () => {
     for (let i = 0; i <= totalStops; i++) {
       const isLast = i === totalStops, lapsThisStint = isLast ? (gameState.lapsTarget - lapCounter) : lapsPerTank;
       const endLap = lapCounter + lapsThisStint;
-      const driver = getSafeDriver(gameState.drivers[(gameState.activeDriverIndex + (i - gameState.currentStint)) % gameState.drivers.length]); 
-      // Note: La logique de pilote ci-dessus est une projection. Elle s'ajuste quand on change 'currentStint'.
-      
+      const driver = getSafeDriver(gameState.drivers[(gameState.activeDriverIndex + (i - gameState.currentStint)) % gameState.drivers.length]);
       const isCurrent = i === gameState.currentStint;
       const isNext = i === gameState.currentStint + 1;
       const isDone = i < gameState.currentStint;
 
       stints.push({ 
-          id: i, 
-          stopNum: i+1, 
-          startLap: lapCounter, 
-          endLap, 
+          id: i, stopNum: i+1, startLap: lapCounter, endLap, 
           fuel: (lapsThisStint * safeCons).toFixed(1), 
-          driver, 
-          isCurrent, 
-          isNext,
-          isDone,
+          driver, isCurrent, isNext, isDone, 
           note: isLast ? "FINISH" : "BOX" 
       });
       lapCounter += lapsThisStint;
@@ -192,7 +217,6 @@ const RaceStrategyApp = () => {
   const activeStint = strategyData.stints.find(s => s.isCurrent) || strategyData.stints[0];
   const activeDriver = getSafeDriver(gameState.drivers[gameState.activeDriverIndex]);
   
-  // CSS
   const css = `
     :root, body, #root { width: 100vw; height: 100vh; margin: 0; padding: 0; max-width: none !important; overflow: hidden; background-color: #020408; }
     .custom-scrollbar::-webkit-scrollbar { width: 6px; }
@@ -223,8 +247,15 @@ const RaceStrategyApp = () => {
               <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div>
               <div className={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div>
            </div>
-           <button onClick={() => syncUpdate({ isRaceRunning: !gameState.isRaceRunning })} className={`p-2 rounded-full border transition-all ${gameState.isRaceRunning ? 'border-amber-500 text-amber-500 bg-amber-900/10' : 'border-emerald-500 text-emerald-500 bg-emerald-900/10'}`}>
+           
+           {/* BOUTON PLAY / PAUSE */}
+           <button onClick={toggleRaceTimer} className={`p-2 rounded-full border transition-all ${gameState.isRaceRunning ? 'border-amber-500 text-amber-500 bg-amber-900/10' : 'border-emerald-500 text-emerald-500 bg-emerald-900/10'}`}>
               {gameState.isRaceRunning ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}
+           </button>
+
+           {/* BOUTON RESET */}
+           <button onClick={resetRaceTimer} className="p-2 rounded-full border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 transition-all" title="Reset Timer">
+              <RotateCcw size={16}/>
            </button>
         </div>
         <div className="flex gap-2">
@@ -251,14 +282,9 @@ const RaceStrategyApp = () => {
                 </div>
              </div>
              
-             {/* BOUTON PIT STOP CONFIRM */}
              <div className="mb-4">
-                <button 
-                    onClick={confirmPitStop}
-                    className="w-full h-16 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl font-black text-xl uppercase shadow-lg shadow-indigo-900/50 border border-indigo-400/50 flex items-center justify-center gap-3 active:scale-[0.98] transition-all"
-                >
-                    <CheckCircle2 size={28} />
-                    Pit Stop Done
+                <button onClick={confirmPitStop} className="w-full h-16 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl font-black text-xl uppercase shadow-lg shadow-indigo-900/50 border border-indigo-400/50 flex items-center justify-center gap-3 active:scale-[0.98] transition-all">
+                    <CheckCircle2 size={28} /> Pit Stop Done
                 </button>
                 <div className="flex justify-between mt-2 px-1">
                     <button onClick={undoStint} className="text-[10px] text-slate-500 hover:text-red-400 underline">Mistake? Undo Stop</button>
@@ -344,7 +370,7 @@ const RaceStrategyApp = () => {
         </div>
       </div>
 
-      {/* MODALS (Settings & Calc - Idem précédent) */}
+      {/* MODALS */}
       {showFuelCalc && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
            <div className="glass-panel w-full max-w-sm rounded-xl p-5 border border-slate-700">
