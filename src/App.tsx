@@ -217,10 +217,10 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               
               // Mise à jour des Pneus (le bridge envoie un pourcentage d'usure moyen, que nous mappons sur les 4 roues pour l'affichage)
               tires: {
-                  fl: data.tireWearAvgPct ?? gameState.telemetry.tires.fl,
-                  fr: data.tireWearAvgPct ?? gameState.telemetry.tires.fr,
-                  rl: data.tireWearAvgPct ?? gameState.telemetry.tires.rl,
-                  rr: data.tireWearAvgPct ?? gameState.telemetry.tires.rr,
+                  fl: data.tireWearFLPct ?? gameState.telemetry.tires.fl,
+                  fr: data.tireWearFRPct ?? gameState.telemetry.tires.fr,
+                  rl: data.tireWearRLPct ?? gameState.telemetry.tires.rl,
+                  rr: data.tireWearRRPct ?? gameState.telemetry.tires.rr,
               },
               // La VE reste la valeur mockée (ou mise à jour si le bridge commence à l'envoyer)
               virtualEnergy: data.virtualEnergy ?? gameState.telemetry.virtualEnergy,
