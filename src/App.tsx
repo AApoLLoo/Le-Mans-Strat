@@ -2,14 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Fuel, RotateCcw, Users, Flag, Timer, X, Save, AlertOctagon, 
   Settings, Play, Pause, CloudRain, Sun, Cloud, Wifi, 
-  Calculator, StopCircle, Clock, FileText, ChevronRight, Phone, Trash2, Edit3, AlertTriangle
+  Calculator, StopCircle, Clock, FileText, ChevronRight, Phone, Trash2, Map as MapIcon, AlertTriangle
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE ---
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 
-// 👇 --- COLLE TA CONFIGURATION FIREBASE ICI --- 👇
+// 👇 --- TA CONFIGURATION FIREBASE --- 👇
 const firebaseConfig = {
   apiKey: "AIzaSyAezT5Np6-v18OBR1ICV3uHoFViQB555sg",
   authDomain: "le-mans-strat.firebaseapp.com",
@@ -17,7 +17,6 @@ const firebaseConfig = {
   storageBucket: "le-mans-strat.firebasestorage.app",
   messagingSenderId: "1063156323054",
   appId: "1:1063156323054:web:81e74528a75ffb770099ff"
-
 };
 // 👆 --------------------------------- 👆
 
@@ -32,11 +31,22 @@ try {
 
 const SESSION_ID = "lemans-2025-race";
 
+// 🛡️ FONCTION DE SÉCURITÉ (Empêche le crash si un pilote manque)
+const getSafeDriver = (driver) => {
+  return driver || { 
+    name: "---", 
+    phone: "", 
+    color: "from-slate-700 to-slate-800", 
+    text: "text-slate-500" 
+  };
+};
+
 const RaceStrategyApp = () => {
   // --- STATE LOCAL ---
   const [status, setStatus] = useState("CONNECTING...");
   const [showSettings, setShowSettings] = useState(false);
   const [showFuelCalc, setShowFuelCalc] = useState(false);
+  const [viewMode, setViewMode] = useState("STRATEGY");
   
   // Fuel Calc
   const [calcLaps, setCalcLaps] = useState("");
@@ -113,7 +123,6 @@ const RaceStrategyApp = () => {
     updateDoc(doc(db, "strategies", SESSION_ID), data);
   };
 
-  // Gestion Incidents
   const addIncident = () => {
     const newInc = { id: Date.now(), lap: gameState.currentLap, time: formatTime(localRaceTime), text: "" };
     syncUpdate({ incidents: [newInc, ...gameState.incidents] });
@@ -131,7 +140,6 @@ const RaceStrategyApp = () => {
     syncUpdate({ incidents: newIncidents });
   };
 
-  // Gestion Pilotes
   const updateDriverInfo = (index, field, value) => {
     const newDrivers = [...gameState.drivers];
     newDrivers[index] = { ...newDrivers[index], [field]: value };
@@ -143,7 +151,6 @@ const RaceStrategyApp = () => {
     syncUpdate({ activeDriverIndex: nextIndex, stintStartTime: Date.now(), isPitStopActive: false });
   };
 
-  // Utilitaires
   const togglePitStop = () => {
     if (!gameState.isPitStopActive) syncUpdate({ isPitStopActive: true, pitStopStartTime: Date.now() });
     else syncUpdate({ isPitStopActive: false });
@@ -168,18 +175,26 @@ const RaceStrategyApp = () => {
 
   // --- STRATEGY CALC ---
   const strategyData = useMemo(() => {
+    // 🛡️ SÉCURITÉ : Si pas de pilotes, on retourne une liste vide pour éviter le crash
+    if (!gameState.drivers || gameState.drivers.length === 0) return { stints: [], lapsPerTank: 0 };
+
     const safeCons = gameState.fuelCons || 3.5;
     const lapsPerTank = Math.floor(gameState.tankCapacity / safeCons);
     const totalStops = Math.max(0, Math.ceil(gameState.lapsTarget / lapsPerTank) - 1);
     const stints = [];
     let lapCounter = 0;
     
+    const driverCount = gameState.drivers.length;
+
     for (let i = 0; i <= totalStops; i++) {
       const isLast = i === totalStops;
       const lapsThisStint = isLast ? (gameState.lapsTarget - lapCounter) : lapsPerTank;
       const endLap = lapCounter + lapsThisStint;
-      const driverIdx = (gameState.activeDriverIndex + i) % gameState.drivers.length;
-      const driver = gameState.drivers[driverIdx];
+      
+      // 🛡️ SÉCURITÉ : Utilisation de getSafeDriver ici
+      const driverIdx = (gameState.activeDriverIndex + i) % driverCount;
+      const driver = getSafeDriver(gameState.drivers[driverIdx]);
+      
       const isActive = gameState.currentLap >= lapCounter && gameState.currentLap < endLap;
 
       stints.push({
@@ -194,8 +209,13 @@ const RaceStrategyApp = () => {
   }, [gameState]);
 
   const activeStint = strategyData.stints.find(s => s.isActive) || strategyData.stints[0];
-  const activeDriver = gameState.drivers[gameState.activeDriverIndex] || gameState.drivers[0];
-  const progressPercent = Math.min(100, Math.max(0, ((gameState.currentLap - activeStint.startLap) / (activeStint.endLap - activeStint.startLap || 1)) * 100));
+  
+  // 🛡️ SÉCURITÉ : Utilisation de getSafeDriver ici aussi
+  const activeDriver = getSafeDriver(gameState.drivers[gameState.activeDriverIndex]);
+  
+  const progressPercent = activeStint 
+    ? Math.min(100, Math.max(0, ((gameState.currentLap - activeStint.startLap) / (activeStint.endLap - activeStint.startLap || 1)) * 100))
+    : 0;
 
   // --- CSS ---
   const css = `
@@ -203,6 +223,7 @@ const RaceStrategyApp = () => {
     .custom-scrollbar::-webkit-scrollbar { width: 6px; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
     .glass-panel { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
+    .map-invert { filter: invert(1) hue-rotate(180deg) contrast(0.9); opacity: 0.9; }
   `;
 
   return (
@@ -244,7 +265,7 @@ const RaceStrategyApp = () => {
         </div>
       </div>
 
-      {/* MAIN CONTENT (FLEXBOX FIX) */}
+      {/* MAIN CONTENT (FLEXBOX) */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden p-4 lg:p-6 gap-6">
         
         {/* --- LEFT COLUMN (FIXED WIDTH) --- */}
@@ -265,7 +286,6 @@ const RaceStrategyApp = () => {
                    </div>
                    <h2 className="text-3xl lg:text-4xl font-black text-white italic uppercase tracking-tighter truncate max-w-[250px]">{activeDriver.name}</h2>
                    
-                   {/* Phone Display */}
                    {activeDriver.phone && (
                       <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-1">
                           <Phone size={10} /> {activeDriver.phone}
@@ -289,7 +309,7 @@ const RaceStrategyApp = () => {
              <div className="mb-5 bg-black/20 p-3 rounded-lg border border-white/5">
                 <div className="flex justify-between text-[10px] font-mono font-bold text-slate-400 mb-2 uppercase">
                    <span>Lap {gameState.currentLap}</span>
-                   <span className="text-indigo-400">Box Lap: {activeStint.endLap}</span>
+                   {activeStint && <span className="text-indigo-400">Box Lap: {activeStint.endLap}</span>}
                 </div>
                 <div className="w-full bg-slate-800/50 rounded-full h-2.5 overflow-hidden">
                    <div className={`h-full bg-gradient-to-r ${activeDriver.color}`} style={{ width: `${progressPercent}%` }}></div>
@@ -359,7 +379,7 @@ const RaceStrategyApp = () => {
                       </div>
                       <input 
                         type="text" 
-                        placeholder="Add details (e.g. Collision #51)..." 
+                        placeholder="Add details..." 
                         value={inc.text || ""}
                         onChange={(e) => updateIncidentInfo(inc.id, e.target.value)}
                         className="bg-transparent border-b border-slate-800 hover:border-slate-600 focus:border-indigo-500 w-full text-xs text-slate-300 placeholder-slate-700 outline-none pb-0.5 transition-colors"
@@ -371,52 +391,78 @@ const RaceStrategyApp = () => {
         </div>
 
         {/* --- RIGHT COLUMN (TAKES ALL REMAINING SPACE) --- */}
-        <div className="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500">
+        <div className="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500 relative">
+           
+           {/* HEADER WITH TABS */}
            <div className="p-3 border-b border-white/5 bg-slate-900/50 flex justify-between items-center shrink-0">
-              <h3 className="font-bold text-white text-sm uppercase flex items-center gap-2"><FileText size={16} className="text-indigo-400"/> Strategy Plan</h3>
+              <div className="flex gap-1 p-1 bg-black/30 rounded-lg">
+                 <button 
+                   onClick={() => setViewMode("STRATEGY")}
+                   className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "STRATEGY" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                 >
+                    <FileText size={14}/> Strategy
+                 </button>
+                 <button 
+                   onClick={() => setViewMode("MAP")}
+                   className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "MAP" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                 >
+                    <MapIcon size={14}/> Map
+                 </button>
+              </div>
+
               <button onClick={() => syncUpdate({isEmergency: !gameState.isEmergency})} className={`px-2 py-1 rounded text-[9px] font-bold border ${gameState.isEmergency ? 'bg-red-600 text-white border-red-600 animate-pulse' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
                  {gameState.isEmergency ? '⚠ SAFETY CAR' : 'GREEN FLAG'}
               </button>
            </div>
            
-           <div className="flex-1 overflow-auto custom-scrollbar bg-[#050a10]">
-              <table className="w-full text-left text-sm border-collapse">
-                 <thead className="sticky top-0 bg-[#050a10] z-10 text-[9px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800">
-                    <tr>
-                       <th className="p-3 w-10 text-center">#</th>
-                       <th className="p-3">Driver</th>
-                       <th className="p-3">Window</th>
-                       <th className="p-3 text-right">Fuel</th>
-                       <th className="p-3 text-center">Action</th>
-                       <th className="p-3">Notes</th>
-                    </tr>
-                 </thead>
-                 <tbody className="divide-y divide-white/5">
-                    {strategyData.stints.map((stint) => (
-                       <tr key={stint.id} className={`group hover:bg-white/[0.02] ${stint.isActive ? 'bg-indigo-500/10' : ''}`}>
-                          <td className="p-3 text-center font-mono font-bold text-xs text-slate-600">{stint.stopNum}</td>
-                          <td className="p-3">
-                             <div className="flex items-center gap-2">
-                                <span className={`font-bold text-xs uppercase ${stint.isActive ? 'text-white' : 'text-slate-400'}`}>{stint.driver.name}</span>
-                             </div>
-                          </td>
-                          <td className="p-3 font-mono text-xs text-slate-300 flex items-center gap-1">{stint.startLap} <ChevronRight size={10} className="text-slate-600"/> {stint.endLap}</td>
-                          <td className="p-3 text-right font-mono text-xs text-slate-300">{stint.fuel}</td>
-                          <td className="p-3 text-center">
-                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${stint.isActive ? 'border-indigo-500/30 text-indigo-300' : 'border-slate-700 text-slate-500'}`}>{stint.note}</span>
-                          </td>
-                          <td className="p-3">
-                             <input type="text" value={gameState.stintNotes[stint.stopNum] || ""} 
-                               onChange={(e) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stint.stopNum]: e.target.value }})}
-                               className="bg-transparent border-b border-transparent focus:border-indigo-500 w-full text-xs text-slate-300 outline-none font-mono placeholder-slate-800"
-                               placeholder="..."
-                             />
-                          </td>
-                       </tr>
-                    ))}
-                 </tbody>
-              </table>
-           </div>
+           {/* CONTENT: STRATEGY OR MAP */}
+           {viewMode === "STRATEGY" ? (
+             <div className="flex-1 overflow-auto custom-scrollbar bg-[#050a10]">
+                <table className="w-full text-left text-sm border-collapse">
+                   <thead className="sticky top-0 bg-[#050a10] z-10 text-[9px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800">
+                      <tr>
+                         <th className="p-3 w-10 text-center">#</th>
+                         <th className="p-3">Driver</th>
+                         <th className="p-3">Window</th>
+                         <th className="p-3 text-right">Fuel</th>
+                         <th className="p-3 text-center">Action</th>
+                         <th className="p-3">Notes</th>
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y divide-white/5">
+                      {strategyData.stints.map((stint) => (
+                         <tr key={stint.id} className={`group hover:bg-white/[0.02] ${stint.isActive ? 'bg-indigo-500/10' : ''}`}>
+                            <td className="p-3 text-center font-mono font-bold text-xs text-slate-600">{stint.stopNum}</td>
+                            <td className="p-3">
+                               <div className="flex items-center gap-2">
+                                  <span className={`font-bold text-xs uppercase ${stint.isActive ? 'text-white' : 'text-slate-400'}`}>{stint.driver.name}</span>
+                               </div>
+                            </td>
+                            <td className="p-3 font-mono text-xs text-slate-300 flex items-center gap-1">{stint.startLap} <ChevronRight size={10} className="text-slate-600"/> {stint.endLap}</td>
+                            <td className="p-3 text-right font-mono text-xs text-slate-300">{stint.fuel}</td>
+                            <td className="p-3 text-center">
+                               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${stint.isActive ? 'border-indigo-500/30 text-indigo-300' : 'border-slate-700 text-slate-500'}`}>{stint.note}</span>
+                            </td>
+                            <td className="p-3">
+                               <input type="text" value={gameState.stintNotes[stint.stopNum] || ""} 
+                                 onChange={(e) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stint.stopNum]: e.target.value }})}
+                                 className="bg-transparent border-b border-transparent focus:border-indigo-500 w-full text-xs text-slate-300 outline-none font-mono placeholder-slate-800"
+                                 placeholder="..."
+                               />
+                            </td>
+                         </tr>
+                      ))}
+                   </tbody>
+                </table>
+             </div>
+           ) : (
+             <div className="flex-1 bg-[#e5e5e5] flex items-center justify-center p-8 overflow-hidden relative">
+                 <img src="/track-map.jpg" alt="Track Map" className="max-w-full max-h-full object-contain map-invert drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]" />
+                 <div className="absolute bottom-4 right-4 text-black font-bold text-xs opacity-50">
+                    LE MANS 13.626 KM
+                 </div>
+             </div>
+           )}
         </div>
       </div>
 
@@ -437,7 +483,7 @@ const RaceStrategyApp = () => {
         </div>
       )}
 
-      {/* SETTINGS MODAL (Avec édition Tel) */}
+      {/* SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
            <div className="glass-panel w-full max-w-lg rounded-xl p-6 border border-slate-700 space-y-4">
@@ -448,8 +494,8 @@ const RaceStrategyApp = () => {
               </div>
               <div className="space-y-2 pt-2">
                  <label className="text-[10px] text-slate-500 font-bold">DRIVERS & PHONES</label>
-                 {gameState.drivers.map((d, idx) => (
-                    <div key={d.id} className="flex gap-2">
+                 {gameState.drivers && gameState.drivers.map((d, idx) => (
+                    <div key={d.id || idx} className="flex gap-2">
                        <input type="text" value={d.name} onChange={(e) => updateDriverInfo(idx, 'name', e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm" placeholder="Name"/>
                        <input type="text" value={d.phone || ""} onChange={(e) => updateDriverInfo(idx, 'phone', e.target.value)} className="w-32 bg-slate-900 border border-slate-700 rounded p-2 text-slate-300 font-mono text-sm" placeholder="Tel"/>
                     </div>
