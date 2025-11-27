@@ -49,6 +49,9 @@ export const useRaceData = (teamId: string) => {
             laps: 0,
             fuel: { current: 100, max: 105, lastLapCons: 0, averageCons: 0 },
             virtualEnergy: 100,
+            batterySoc: 100,
+            virtualEnergyLastLapCons: 0,
+            virtualEnergyAvgCons: 0,
             tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
             currentLapTimeSeconds: 0,
             last3LapAvgSeconds: 0,
@@ -83,7 +86,10 @@ export const useRaceData = (teamId: string) => {
                             averageCons: data.averageConsumptionFuel ?? prev.telemetry.fuel.averageCons,
                             lastLapCons: data.fuelConsumptionLastLapL ?? prev.telemetry.fuel.lastLapCons,
                         },
-                        virtualEnergy: data.engineMode === 3 ? 99 : (data.engineMode === 2 ? 1 : (data.virtualEnergy ?? prev.telemetry.virtualEnergy)),
+                        virtualEnergy: data.virtualEnergyRemainingPct ?? prev.telemetry.virtualEnergy,
+                        batterySoc: data.batterySoc ?? prev.telemetry.batterySoc,
+                        virtualEnergyLastLapCons: data.virtualEnergyConsumptionLastLap ?? prev.telemetry.virtualEnergyLastLapCons,
+                        virtualEnergyAvgCons: data.virtualEnergyAverageConsumption ?? prev.telemetry.virtualEnergyAvgCons,
                         tires: {
                             fl: data.tireWearFL ?? prev.telemetry.tires.fl,
                             fr: data.tireWearFR ?? prev.telemetry.tires.fr,
@@ -151,23 +157,24 @@ export const useRaceData = (teamId: string) => {
         return () => clearInterval(interval);
     }, [gameState.isRaceRunning]);
 
-    // --- STRATÉGIE (CORRIGÉE) ---
+    // --- STRATÉGIE ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
         
-        // SÉCURITÉ 1: Eviter la division par zéro sur le temps au tour
         const activeLapTime = Math.max(1, gameState.telemetry.last3LapAvgSeconds || gameState.avgLapTimeSeconds || 210);
-        
-        // SÉCURITÉ 2: Eviter la division par zéro sur la conso
         const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
-        const activeVECons = Math.max(0.1, gameState.veCons);
+        
+        // Utilisation de la conso VE réelle si disponible, sinon la valeur par défaut
+        const activeVECons = Math.max(0.1, gameState.telemetry.virtualEnergyAvgCons || gameState.veCons);
         const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
 
         const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
         const lapsPerVE = Math.floor(100 / activeVECons);
         
-        // SÉCURITÉ 3: lapsPerStint doit être au moins 1 pour éviter la boucle infinie
-        const rawLapsPerStint = isHypercar ? Math.min(lapsPerVE, lapsPerTank) : lapsPerTank;
+        // --- MODIFICATION ICI : STRATÉGIE BASÉE SUR VE POUR HYPERCAR ---
+        // Si Hypercar : on ignore le fuel et on se base uniquement sur l'énergie virtuelle (100% / conso)
+        // Sinon (LMP2) : on reste sur le fuel
+        const rawLapsPerStint = isHypercar ? lapsPerVE : lapsPerTank;
         const lapsPerStint = Math.max(1, rawLapsPerStint);
         
         const lapsRemaining = Math.max(1, Math.ceil(localRaceTime / activeLapTime));
@@ -202,7 +209,6 @@ export const useRaceData = (teamId: string) => {
         let lapCounter = currentLap + lapsPerStint;
         let nextIdx = currentStintIndex + 1;
         
-        // SÉCURITÉ BOUCLE: Limite arbitraire de 200 relais pour éviter le crash si totalLapsTarget est aberrant
         let safetyBreak = 0;
         while(lapCounter < totalLapsTarget && safetyBreak < 200) {
             let dId = gameState.stintAssignments[nextIdx];
@@ -216,12 +222,12 @@ export const useRaceData = (teamId: string) => {
             const isLast = (lapCounter + lapsPerStint) >= totalLapsTarget;
             const lapsThisStint = isLast ? (totalLapsTarget - lapCounter) : lapsPerStint;
             
-            // Protection supplémentaire : si lapsThisStint est < 1, on force 1 pour avancer
             const safeLapsThisStint = Math.max(1, lapsThisStint);
 
             stints.push({
                 id: nextIdx, stopNum: nextIdx + 1, startLap: lapCounter, endLap: lapCounter + safeLapsThisStint,
-                fuel: isLast ? ((safeLapsThisStint+1)*activeFuelCons).toFixed(1)+"L" : "FULL", 
+                // Si c'est le dernier relais, on peut calculer le fuel précis, sinon c'est "FULL" (ou "RESET NRG")
+                fuel: isLast ? ((safeLapsThisStint+1)*activeFuelCons).toFixed(1)+"L" : (isHypercar ? "NRG RESET" : "FULL"), 
                 driver: d, driverId: dId, isCurrent: false, isNext: nextIdx === currentStintIndex + 1, isDone: false, note: isLast ? "FINISH" : "BOX", lapsCount: safeLapsThisStint
             });
             lapCounter += safeLapsThisStint;

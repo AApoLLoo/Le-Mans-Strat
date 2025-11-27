@@ -18,7 +18,11 @@ export interface FuelData {
 export interface TelemetryData {
   laps: number;
   fuel: FuelData;
-  virtualEnergy: number;
+  virtualEnergy: number; // Le pourcentage restant (NRG)
+  batterySoc: number;    // La batterie physique (SoC)
+  virtualEnergyLastLapCons: number; // Conso tour précédent (%/tour)
+  virtualEnergyAvgCons: number;     // Conso moyenne (%/tour)
+  
   tires: { fl: number; fr: number; rl: number; rr: number };
   brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
   tireTemps: { flc: number; frc: number; rlc: number; rrc: number };

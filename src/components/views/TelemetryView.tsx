@@ -1,21 +1,20 @@
 import React, { useState } from 'react';
 import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame, Droplet, RefreshCw } from 'lucide-react';
 
-// Fonction utilitaire pour la couleur des pneus
-const getTireColor = (wear) => {
+const getTireColor = (wear: number) => {
   if (wear > 70) return 'bg-emerald-500 shadow-emerald-500/50';
   if (wear > 40) return 'bg-amber-500 shadow-amber-500/50';
   return 'bg-red-600 shadow-red-600/50 animate-pulse';
 };
 
-const formatLapTime = (s) => {
+const formatLapTime = (s: number) => {
     if (isNaN(s) || s <= 0) return "---";
     const minutes = Math.floor(s / 60);
     const seconds = s % 60;
     return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`; 
 };
 
-const getWeatherIcon = (weather) => {
+const getWeatherIcon = (weather: string) => {
     switch (weather) {
       case 'SUNNY': return <Sun size={20} className="text-yellow-400"/>;
       case 'CLOUDY': return <Cloud size={20} className="text-slate-400"/>;
@@ -25,23 +24,22 @@ const getWeatherIcon = (weather) => {
     }
 };
 
-const getTireTempColor = (temp) => {
+const getTireTempColor = (temp: number) => {
   if (temp >= 90 && temp <= 100) return 'text-indigo-400 font-bold';
   if (temp >= 80 && temp < 90 || temp > 100 && temp <= 110) return 'text-amber-400';
   return 'text-red-500 font-black animate-pulse';
 };
 
-const getBrakeTempColor = (temp) => {
+const getBrakeTempColor = (temp: number) => {
   if (temp >= 500 && temp <= 650) return 'text-emerald-400 font-bold'; 
   if (temp < 500 && temp >= 300) return 'text-amber-400';
   if (temp > 650) return 'text-red-500 font-black animate-pulse';
   return 'text-slate-500';
 };
 
-const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds, weather, airTemp, trackWetness }) => { 
-  const { tires, fuel, laps, virtualEnergy, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
+const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds, weather, airTemp, trackWetness }: any) => { 
+  const { tires, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
 
-  // --- NOUVEAU STATE POUR L'ANIMATION ---
   const [showVirtualEnergy, setShowVirtualEnergy] = useState(false);
 
   // Logique d'affichage dynamique (Fuel ou VE)
@@ -54,7 +52,6 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
   const icon = isVE ? <Zap size={14} className="text-yellow-300 fill-yellow-300"/> : <Fuel size={14}/>;
   const labelColor = isVE ? 'text-cyan-400' : 'text-slate-500';
 
-  // Calcul du delta
   const delta = last3LapAvgSeconds - avgLapTimeSeconds;
   let deltaColorClass = 'text-white';
   let deltaSign = '';
@@ -100,7 +97,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
       {/* MAIN CONTENT */}
       <div className="flex flex-col lg:flex-row gap-6 h-full overflow-hidden">
         
-        {/* PNEUS */}
+        {/* PNEUS (Gauche) */}
         <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center relative">
             <h3 className="absolute top-4 left-4 text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
                 <Disc size={14}/> Tire Wear
@@ -180,14 +177,13 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                 <div className="text-6xl font-black text-white tracking-tighter font-mono">{formatLapTime(currentLapTimeSeconds)}</div>
             </div>
 
-            {/* --- NOUVEAU BLOC ÉNERGIE UNIFIÉ --- */}
+            {/* --- BLOC ÉNERGIE --- */}
             <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col justify-center relative group">
                 <div className="flex items-center justify-between mb-4">
                     <h3 className={`text-xs font-bold uppercase flex items-center gap-2 transition-colors duration-300 ${labelColor}`}>
                         {icon} {label}
                     </h3>
                     
-                    {/* LE BOUTON MAGIQUE */}
                     {isHypercar && (
                         <button 
                             onClick={() => setShowVirtualEnergy(!showVirtualEnergy)}
@@ -200,7 +196,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                     )}
                 </div>
 
-                {/* BARRE ANIMÉE */}
+                {/* BARRE PRINCIPALE (FUEL ou VE) */}
                 <div className="w-full bg-slate-800 h-10 rounded-full overflow-hidden border border-slate-700 relative shadow-inner">
                     <div 
                         className={`h-full flex items-center justify-end px-3 transition-all duration-700 ease-out ${barColor}`} 
@@ -212,18 +208,40 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                     </span>
                 </div>
 
-                <div className="mt-2 flex justify-between text-[10px] text-slate-400 font-mono h-4">
+                {/* INFOS DETAILLÉES SOUS LA BARRE */}
+                <div className="mt-3 flex justify-between text-[10px] text-slate-400 font-mono h-4 items-center">
                     {!isVE && (
                         <>
                             <span>Last Lap: {fuel.lastLapCons.toFixed(2)} L</span>
                             <span>Avg: {fuel.averageCons.toFixed(2)} L</span>
                         </>
                     )}
-                    {isVE && <span className="w-full text-center text-cyan-500/50 font-bold tracking-widest">HYPERCAR HYBRID SYSTEM</span>}
+                    {isVE && (
+                        <>
+                            <span className="text-cyan-300">Last: {virtualEnergyLastLapCons?.toFixed(2)} %</span>
+                            <span className="text-cyan-300 font-bold">Avg: {virtualEnergyAvgCons?.toFixed(2)} %/Lap</span>
+                        </>
+                    )}
                 </div>
+
+                {/* BATTERIE PHYSIQUE */}
+                {isHypercar && (
+                    <div className="mt-4 pt-3 border-t border-slate-800 flex items-center gap-3">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                            <Battery size={10}/> BAT
+                        </div>
+                        <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">
+                            <div 
+                                className="h-full bg-green-500 transition-all duration-500" 
+                                style={{width: `${batterySoc}%`}}
+                            ></div>
+                        </div>
+                        <div className="text-[10px] font-mono text-white font-bold">{batterySoc}%</div>
+                    </div>
+                )}
             </div>
 
-            {/* MOTEUR */}
+            {/* MOTEUR & PÉDALES */}
             <div className="flex gap-4 h-40"> 
                 <div className="flex-[2] bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex flex-col relative overflow-hidden">
                     <div className="flex justify-between items-start z-10">
