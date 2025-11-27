@@ -144,9 +144,9 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
   const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
   const [localStintTime, setLocalStintTime] = useState(0);
   
-  // Pour détecter le changement d'état PIT
-  // Initialisé à NULL pour gérer le premier chargement
+  // Refs pour détections
   const prevInPitLane = useRef(null); 
+  const prevLapRef = useRef(0); // Pour détecter le reset de session
 
   const [gameState, setGameState] = useState({
     currentStint: 0,
@@ -189,38 +189,29 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     stintVirtualEnergy: {} 
   });
 
-  // --- ACTIONS (Définies avant usage) ---
+  // --- ACTIONS ---
   const syncUpdate = (data) => {
     if (!db) { setGameState(prev => ({...prev, ...data})); return; }
     updateDoc(doc(db, "strategies", SESSION_ID), data).catch(e => console.error("Update Error", e));
   };
 
-  // --- Fonction pour confirmer le pit stop (changement de stint) ---
   const confirmPitStop = () => {
     const currentStintIndex = gameState.currentStint || 0;
     const nextStintIndex = currentStintIndex + 1;
     
-    // 1. Sauvegarder le pilote du stint qui VIENT de se terminer (pour l'historique)
-    // On utilise activeDriverId car c'est lui qui conduisait
     const driverFinished = gameState.activeDriverId;
-    
-    // 2. Déterminer le pilote du PROCHAIN stint
     let nextDriverId = gameState.stintAssignments[nextStintIndex];
     
-    // Si pas de driver assigné pour le suivant, on fait une rotation automatique
     if (!nextDriverId && gameState.drivers.length > 0) {
         const currentDriverIdx = gameState.drivers.findIndex(d => d.id === driverFinished);
-        // On prend le suivant dans la liste (modulo pour boucler au début)
         nextDriverId = gameState.drivers[(currentDriverIdx + 1) % gameState.drivers.length].id;
     }
-    // Fallback sécurité si la liste est vide ou bugguée
     if (!nextDriverId && gameState.drivers.length > 0) nextDriverId = gameState.drivers[0].id;
 
-    // 3. Mise à jour de TOUTES les données dans Firebase
     const newAssignments = { 
         ...gameState.stintAssignments, 
-        [currentStintIndex]: driverFinished, // On fige le pilote pour le stint passé
-        [nextStintIndex]: nextDriverId       // On prépare le pilote pour le stint actuel (futur)
+        [currentStintIndex]: driverFinished, 
+        [nextStintIndex]: nextDriverId       
     };
 
     syncUpdate({ 
@@ -302,6 +293,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               ...data,      
               drivers: data.drivers || [],
               stintAssignments: data.stintAssignments || {},
+              stintNotes: data.stintNotes || {},
               currentStint: typeof data.currentStint === 'number' ? data.currentStint : 0,
               position: typeof data.position === 'number' ? data.position : gameState.position, 
               raceDurationHours: newRaceDurationHours,
@@ -317,16 +309,11 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
 
           setGameState(safeData); 
           
-          let newLocalRaceTime = safeData.raceTime;
-          if (
-              safeData.isRaceRunning &&
-              typeof data.sessionTimeRemainingSeconds === 'number' && 
-              data.sessionTimeRemainingSeconds >= 0
-          ) {
-              newLocalRaceTime = data.sessionTimeRemainingSeconds;
+          // Sync Race Time if provided by bridge and running
+          if (safeData.isRaceRunning && typeof data.sessionTimeRemainingSeconds === 'number' && data.sessionTimeRemainingSeconds >= 0) {
+              setLocalRaceTime(data.sessionTimeRemainingSeconds); 
           }
           
-          setLocalRaceTime(newLocalRaceTime); 
           setLocalStintTime(safeData.stintDuration || 0);
           setStatus("LIVE SYNC"); 
       } else {
@@ -346,6 +333,18 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
 
     return () => unsubscribe();
   }, [SESSION_ID]);
+
+
+  // --- AUTO RESET : DÉTECTION NOUVELLE SESSION ---
+  useEffect(() => {
+    // Si on était au moins au tour 5 et qu'on repasse au tour 0 ou 1 -> C'est un restart
+    const currentLap = gameState.telemetry.laps;
+    if (prevLapRef.current > 5 && currentLap <= 1) {
+        console.log("🔄 Session Restart Detected! Resetting Strategy Data...");
+        resetRaceTimer(); 
+    }
+    prevLapRef.current = currentLap;
+  }, [gameState.telemetry.laps]);
 
 
   // --- DETECTION AUTOMATIQUE D'ENTRÉE AUX STANDS (Correction) ---
@@ -445,7 +444,9 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
           currentStint: 0, 
           incidents: [], 
           chatMessages: [],
-          stintVirtualEnergy: {}
+          stintVirtualEnergy: {},
+          stintAssignments: {}, // Reset des assignations
+          stintNotes: {}        // Reset des notes
       };
       if (db) { syncUpdate(resetData); }
       setLocalRaceTime(initialRaceTime);
@@ -670,8 +671,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                 </div>
             </div>
             <div className="hidden md:flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5">
-               <div className="text-right"><div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div><div class={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div>
-               </div>
+               <div className="text-right"><div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div><div class={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div></div>
+               {/* <button onClick={toggleRaceTimer} className={`p-2 rounded-full border transition-all ${gameState.isRaceRunning ? 'border-amber-500 text-amber-500 bg-amber-900/10' : 'border-emerald-500 text-emerald-500 bg-emerald-900/10'}`}>{gameState.isRaceRunning ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}</button> */}
             </div>
         </div>
         <div className="flex gap-2">
