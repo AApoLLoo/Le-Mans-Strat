@@ -1,7 +1,5 @@
 // src/hooks/useRaceData.ts
-// src/hooks/useRaceData.ts
 import { useState, useEffect, useMemo, useRef } from 'react'; 
-
 import { doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { db } from '../lib/firebase';
 import type { GameState, StrategyData, Stint } from '../types';
@@ -40,7 +38,6 @@ export const useRaceData = (teamId: string) => {
         stintNotes: {},
         stintAssignments: {},
         position: 4,
-        // Structure de télémétrie par défaut
         telemetry: {
             throttle: 0,
             brake: 0,
@@ -69,7 +66,6 @@ export const useRaceData = (teamId: string) => {
         updateDoc(doc(db, "strategies", SESSION_ID), data).catch(e => console.error("Update Error", e));
     };
 
-    // Sync Firebase
     useEffect(() => {
         if (!db) { setStatus("LOCAL MODE"); return; }
         const docRef = doc(db, "strategies", SESSION_ID);
@@ -77,38 +73,29 @@ export const useRaceData = (teamId: string) => {
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                
-                // --- CORRECTION : Reconstruire l'objet telemetry manuellement ---
-                // On utilise une fonction de mise à jour pour avoir accès à 'prev' (l'état précédent)
-                // et éviter d'écraser des données avec des valeurs vides.
                 setGameState(prev => {
                     const liveTelemetry = {
-                        ...prev.telemetry, // On garde les anciennes valeurs par défaut
+                        ...prev.telemetry,
                         laps: data.currentLap ?? prev.telemetry.laps,
-                        
                         fuel: {
                             current: data.fuelRemainingL ?? prev.telemetry.fuel.current,
                             max: data.fuelTankCapacityL ?? prev.telemetry.fuel.max,
                             averageCons: data.averageConsumptionFuel ?? prev.telemetry.fuel.averageCons,
                             lastLapCons: data.fuelConsumptionLastLapL ?? prev.telemetry.fuel.lastLapCons,
                         },
-                        
                         virtualEnergy: data.engineMode === 3 ? 99 : (data.engineMode === 2 ? 1 : (data.virtualEnergy ?? prev.telemetry.virtualEnergy)),
-                        
                         tires: {
                             fl: data.tireWearFL ?? prev.telemetry.tires.fl,
                             fr: data.tireWearFR ?? prev.telemetry.tires.fr,
                             rl: data.tireWearRL ?? prev.telemetry.tires.rl,
                             rr: data.tireWearRR ?? prev.telemetry.tires.rr,
                         },
-                        
                         brakeTemps: {
                             flc: data.brakeTempFLC ?? prev.telemetry.brakeTemps.flc,
                             frc: data.brakeTempFRC ?? prev.telemetry.brakeTemps.frc,
                             rlc: data.brakeTempRLC ?? prev.telemetry.brakeTemps.rlc,
                             rrc: data.brakeTempRRC ?? prev.telemetry.brakeTemps.rrc,
                         },
-                        
                         tireTemps: {
                             flc: data.tireTempCenterFLC ?? prev.telemetry.tireTemps.flc,
                             frc: data.tireTempCenterFRC ?? prev.telemetry.tireTemps.frc,
@@ -130,9 +117,8 @@ export const useRaceData = (teamId: string) => {
 
                     return {
                         ...prev,
-                        ...data, // On fusionne les champs racines (comme raceTime, weather...)
-                        telemetry: liveTelemetry, // On injecte notre objet telemetry bien rangé
-                        // Sécurités pour les objets
+                        ...data,
+                        telemetry: liveTelemetry,
                         stintAssignments: data.stintAssignments || prev.stintAssignments || {},
                         stintNotes: data.stintNotes || prev.stintNotes || {},
                         drivers: data.drivers || prev.drivers
@@ -147,7 +133,6 @@ export const useRaceData = (teamId: string) => {
                 }
                 setStatus("LIVE SYNC");
             } else {
-                // Création du document s'il n'existe pas
                 const initialData = { ...gameState, raceTime: 24 * 3600 };
                 setDoc(docRef, initialData).then(() => setStatus("CREATED"));
             }
@@ -155,7 +140,6 @@ export const useRaceData = (teamId: string) => {
         return () => unsubscribe();
     }, [teamId]);
 
-    // Timer
     useEffect(() => {
         let interval: any = null;
         if (gameState.isRaceRunning && localRaceTime > 0) {
@@ -167,17 +151,24 @@ export const useRaceData = (teamId: string) => {
         return () => clearInterval(interval);
     }, [gameState.isRaceRunning]);
 
-    // --- STRATÉGIE ---
+    // --- STRATÉGIE (CORRIGÉE) ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
-        const activeLapTime = gameState.telemetry.last3LapAvgSeconds || gameState.avgLapTimeSeconds;
-        const activeFuelCons = gameState.telemetry.fuel.averageCons || gameState.fuelCons;
-        const activeVECons = gameState.veCons;
-        const tankCapacity = gameState.telemetry.fuel.max || gameState.tankCapacity;
+        
+        // SÉCURITÉ 1: Eviter la division par zéro sur le temps au tour
+        const activeLapTime = Math.max(1, gameState.telemetry.last3LapAvgSeconds || gameState.avgLapTimeSeconds || 210);
+        
+        // SÉCURITÉ 2: Eviter la division par zéro sur la conso
+        const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
+        const activeVECons = Math.max(0.1, gameState.veCons);
+        const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
 
         const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
         const lapsPerVE = Math.floor(100 / activeVECons);
-        const lapsPerStint = isHypercar ? Math.min(lapsPerVE, lapsPerTank) : lapsPerTank;
+        
+        // SÉCURITÉ 3: lapsPerStint doit être au moins 1 pour éviter la boucle infinie
+        const rawLapsPerStint = isHypercar ? Math.min(lapsPerVE, lapsPerTank) : lapsPerTank;
+        const lapsPerStint = Math.max(1, rawLapsPerStint);
         
         const lapsRemaining = Math.max(1, Math.ceil(localRaceTime / activeLapTime));
         const currentLap = gameState.telemetry.laps;
@@ -210,7 +201,10 @@ export const useRaceData = (teamId: string) => {
         // 3. Stints Futurs
         let lapCounter = currentLap + lapsPerStint;
         let nextIdx = currentStintIndex + 1;
-        while(lapCounter < totalLapsTarget) {
+        
+        // SÉCURITÉ BOUCLE: Limite arbitraire de 200 relais pour éviter le crash si totalLapsTarget est aberrant
+        let safetyBreak = 0;
+        while(lapCounter < totalLapsTarget && safetyBreak < 200) {
             let dId = gameState.stintAssignments[nextIdx];
             if (!dId) {
                 const prevDId = stints[stints.length-1].driverId;
@@ -222,20 +216,23 @@ export const useRaceData = (teamId: string) => {
             const isLast = (lapCounter + lapsPerStint) >= totalLapsTarget;
             const lapsThisStint = isLast ? (totalLapsTarget - lapCounter) : lapsPerStint;
             
+            // Protection supplémentaire : si lapsThisStint est < 1, on force 1 pour avancer
+            const safeLapsThisStint = Math.max(1, lapsThisStint);
+
             stints.push({
-                id: nextIdx, stopNum: nextIdx + 1, startLap: lapCounter, endLap: lapCounter + lapsThisStint,
-                fuel: isLast ? ((lapsThisStint+1)*activeFuelCons).toFixed(1)+"L" : "FULL", 
-                driver: d, driverId: dId, isCurrent: false, isNext: nextIdx === currentStintIndex + 1, isDone: false, note: isLast ? "FINISH" : "BOX", lapsCount: lapsThisStint
+                id: nextIdx, stopNum: nextIdx + 1, startLap: lapCounter, endLap: lapCounter + safeLapsThisStint,
+                fuel: isLast ? ((safeLapsThisStint+1)*activeFuelCons).toFixed(1)+"L" : "FULL", 
+                driver: d, driverId: dId, isCurrent: false, isNext: nextIdx === currentStintIndex + 1, isDone: false, note: isLast ? "FINISH" : "BOX", lapsCount: safeLapsThisStint
             });
-            lapCounter += lapsThisStint;
+            lapCounter += safeLapsThisStint;
             nextIdx++;
+            safetyBreak++;
         }
 
         return { stints, totalLaps: totalLapsTarget, lapsPerTank: lapsPerStint, activeCons: activeFuelCons, activeLapTime, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex) };
     }, [gameState, localRaceTime, isHypercar]);
 
     // --- ACTIONS ---
-
     const confirmPitStop = () => {
         const nextStint = gameState.currentStint + 1;
         const newAssignments = { ...gameState.stintAssignments, [gameState.currentStint]: gameState.activeDriverId };
@@ -283,22 +280,19 @@ export const useRaceData = (teamId: string) => {
         setLocalRaceTime(initialRaceTime);
         setLocalStintTime(0);
     };
+
     const prevInPitLaneRef = useRef(gameState.telemetry.inPitLane);
 
     useEffect(() => {
         const isPitting = gameState.telemetry.inPitLane;
         const wasPitting = prevInPitLaneRef.current;
-
-        // Si on est au stand (isPitting) ALORS qu'on ne l'était pas juste avant (wasPitting === false)
-        // On vérifie strictement 'false' pour éviter de déclencher au chargement de la page si on est déjà au stand
         if (isPitting && wasPitting === false) {
             console.log("🏎️ PIT ENTRY DETECTED: Auto-confirming Stint Change");
             confirmPitStop();
         }
-
-        // On met à jour la référence pour la prochaine vérification
         prevInPitLaneRef.current = isPitting;
     }, [gameState.telemetry.inPitLane, confirmPitStop]);
+
     return {
         gameState,
         syncUpdate,
