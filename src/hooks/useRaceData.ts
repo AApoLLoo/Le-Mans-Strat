@@ -1,5 +1,7 @@
 // src/hooks/useRaceData.ts
-import { useState, useEffect, useMemo } from 'react';
+// src/hooks/useRaceData.ts
+import { useState, useEffect, useMemo, useRef } from 'react'; 
+
 import { doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { db } from '../lib/firebase';
 import type { GameState, StrategyData, Stint } from '../types';
@@ -265,7 +267,22 @@ export const useRaceData = (teamId: string) => {
         setLocalRaceTime(initialRaceTime);
         setLocalStintTime(0);
     };
+    const prevInPitLaneRef = useRef(gameState.telemetry.inPitLane);
 
+    useEffect(() => {
+        const isPitting = gameState.telemetry.inPitLane;
+        const wasPitting = prevInPitLaneRef.current;
+
+        // Si on est au stand (isPitting) ALORS qu'on ne l'était pas juste avant (wasPitting === false)
+        // On vérifie strictement 'false' pour éviter de déclencher au chargement de la page si on est déjà au stand
+        if (isPitting && wasPitting === false) {
+            console.log("🏎️ PIT ENTRY DETECTED: Auto-confirming Stint Change");
+            confirmPitStop();
+        }
+
+        // On met à jour la référence pour la prochaine vérification
+        prevInPitLaneRef.current = isPitting;
+    }, [gameState.telemetry.inPitLane, confirmPitStop]);
     return {
         gameState,
         syncUpdate,
