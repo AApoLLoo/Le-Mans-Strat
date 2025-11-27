@@ -8,10 +8,10 @@ import {
 } from 'lucide-react';
 
 // --- IMPORT NOUVEAUX COMPOSANTS ---
-import StrategyView from './components/StrategyView';
-import MapView from './components/MapView';
-import ChatView from './components/ChatView';
-import TelemetryView from './components/TelemetryView'; 
+import StrategyView from './components/views/StrategyView';
+import MapView from './components/views/MapView';
+import ChatView from './components/views/ChatView';
+import TelemetryView from './components/views/TelemetryView'; 
 
 // --- IMPORT FIREBASE ---
 import { initializeApp } from "firebase/app";
