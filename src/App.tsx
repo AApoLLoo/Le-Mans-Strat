@@ -53,7 +53,7 @@ const globalCss = `
   .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
   .glass-panel { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
   .map-invert { filter: invert(1) hue-rotate(180deg) contrast(0.9); opacity: 0.9; }
-  .row-done { opacity: 0.3; }
+  .row-done { opacity: 0.4; filter: grayscale(0.8); }
   .row-current { background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; }
   .row-next { background: rgba(245, 158, 11, 0.1); border-left: 3px solid #f59e0b; animation: pulse-row 2s infinite; }
   @keyframes pulse-row { 0% { background: rgba(245, 158, 11, 0.05); } 50% { background: rgba(245, 158, 11, 0.15); } 100% { background: rgba(245, 158, 11, 0.05); } }
@@ -114,6 +114,7 @@ const getLapTimeDelta = (estimatedTime, realTimeAvg) => {
         deltaSign = '+';
     } else if (delta < -0.5) { // Plus rapide
         colorClass = 'text-emerald-500';
+        deltaSign = '-'; 
     } else if (delta !== 0) { // Léger décalage
         colorClass = 'text-amber-500';
         deltaSign = delta > 0 ? '+' : '';
@@ -142,26 +143,28 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
   // Démarre le Race Time en fonction de la durée de course (24h par défaut)
   const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
   const [localStintTime, setLocalStintTime] = useState(0);
+  
+  // Pour détecter le changement d'état PIT
+  // Initialisé à NULL pour gérer le premier chargement
+  const prevInPitLane = useRef(null); 
 
   const [gameState, setGameState] = useState({
     currentStint: 0,
-    raceTime: 24 * 60 * 60, // Durée TOTALE stockée. C'est la valeur de reset.
+    raceTime: 24 * 60 * 60, 
     stintDuration: 0,
     stintStartTime: Date.now(),
     isRaceRunning: false,
     
-    // Météo et état de la piste - MOCK DATA
-    weather: "caca", 
+    weather: "SUNNY", 
     airTemp: 25,     
     trackWetness: 0, 
     
-    fuelCons: 3.65, // Consommation pour LMP2 (L/Lap)
-    veCons: 2.5,    // Consommation pour Hypercar (%/Lap)
-    tankCapacity: 105, // Capacité du réservoir.
+    fuelCons: 3.65, 
+    veCons: 2.5,    
+    tankCapacity: 105,
     
-    // Paramètres basés sur la durée
     raceDurationHours: 24, 
-    avgLapTimeSeconds: 210, // Temps ESTIMÉ pour la stratégie
+    avgLapTimeSeconds: 210, 
     
     isEmergency: false,
     drivers: [],
@@ -172,20 +175,65 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     stintAssignments: {},
     position: 4, 
     telemetry: {
-        laps: 124,
-        fuel: { current: 45.5, max: 105, lastLapCons: 3.62, averageCons: 3.65 },
-        virtualEnergy: 88, 
-        tires: { fl: 92, fr: 89, rl: 95, rr: 94 },
-        currentLapTimeSeconds: 212.5, 
-        last3LapAvgSeconds: 211.2,
-        // NOUVEAU: Données de Températures et Freins
-        brakeTemps: { flc: 550, frc: 545, rlc: 320, rrc: 315 }, // C = Center
-        tireTemps: { flc: 95, frc: 93, rlc: 98, rrc: 96 }, // C = Center
-        // ---
+        laps: 0,
+        fuel: { current: 100, max: 105, lastLapCons: 0, averageCons: 0 },
+        virtualEnergy: 100, 
+        tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
+        currentLapTimeSeconds: 0, 
+        last3LapAvgSeconds: 0,
+        brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 }, 
+        tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
+        strategyEstPitTime: 0,
+        inPitLane: null // Initialisé à null pour le premier chargement
     },
-    // Données spécifiques à la stratégie VE (si Hypercar)
-    stintVirtualEnergy: { 1: 90, 2: 85, 3: 92 } 
+    stintVirtualEnergy: {} 
   });
+
+  // --- ACTIONS (Définies avant usage) ---
+  const syncUpdate = (data) => {
+    if (!db) { setGameState(prev => ({...prev, ...data})); return; }
+    updateDoc(doc(db, "strategies", SESSION_ID), data).catch(e => console.error("Update Error", e));
+  };
+
+  // --- Fonction pour confirmer le pit stop (changement de stint) ---
+  const confirmPitStop = () => {
+    const currentStintIndex = gameState.currentStint || 0;
+    const nextStintIndex = currentStintIndex + 1;
+    
+    // 1. Sauvegarder le pilote du stint qui VIENT de se terminer (pour l'historique)
+    // On utilise activeDriverId car c'est lui qui conduisait
+    const driverFinished = gameState.activeDriverId;
+    
+    // 2. Déterminer le pilote du PROCHAIN stint
+    let nextDriverId = gameState.stintAssignments[nextStintIndex];
+    
+    // Si pas de driver assigné pour le suivant, on fait une rotation automatique
+    if (!nextDriverId && gameState.drivers.length > 0) {
+        const currentDriverIdx = gameState.drivers.findIndex(d => d.id === driverFinished);
+        // On prend le suivant dans la liste (modulo pour boucler au début)
+        nextDriverId = gameState.drivers[(currentDriverIdx + 1) % gameState.drivers.length].id;
+    }
+    // Fallback sécurité si la liste est vide ou bugguée
+    if (!nextDriverId && gameState.drivers.length > 0) nextDriverId = gameState.drivers[0].id;
+
+    // 3. Mise à jour de TOUTES les données dans Firebase
+    const newAssignments = { 
+        ...gameState.stintAssignments, 
+        [currentStintIndex]: driverFinished, // On fige le pilote pour le stint passé
+        [nextStintIndex]: nextDriverId       // On prépare le pilote pour le stint actuel (futur)
+    };
+
+    syncUpdate({ 
+        currentStint: nextStintIndex, 
+        activeDriverId: nextDriverId, 
+        stintDuration: 0,
+        stintAssignments: newAssignments 
+    });
+    
+    setLocalStintTime(0);
+    console.log("PIT STOP CONFIRMED: Stint advanced to", nextStintIndex, "Driver:", nextDriverId);
+  };
+
 
   // --- SYNC ENGINE (STRATÉGIE) ---
   useEffect(() => {
@@ -204,34 +252,29 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
           const newRaceDurationHours = typeof data.raceDurationHours === 'number' ? data.raceDurationHours : gameState.raceDurationHours;
           const totalRaceSeconds = newRaceDurationHours * 3600;
 
-          // --- CORRECTION: MAPPING DES DONNÉES LIVE DU BRIDGE VERS L'OBJET TELEMETRY ---
           const liveTelemetry = {
               ...gameState.telemetry, 
               laps: data.currentLap ?? gameState.telemetry.laps,
               
-              // Mise à jour du Fuel
               fuel: {
                   ...gameState.telemetry.fuel,
                   current: data.fuelRemainingL ?? gameState.telemetry.fuel.current,
-                  max: data.fuelTankCapacityL ?? gameState.telemetry.fuel.max, // NOUVEAU: Capacité du réservoir
+                  max: data.fuelTankCapacityL ?? gameState.telemetry.fuel.max, 
                   averageCons: data.averageConsumptionFuel ?? gameState.telemetry.fuel.averageCons,
                   lastLapCons: data.fuelConsumptionLastLapL ?? gameState.telemetry.fuel.lastLapCons,
               },
               
-              // Mise à jour des Pneus (USURE RESTANTE)
               tires: {
                   fl: data.tireWearFL ?? gameState.telemetry.tires.fl,
                   fr: data.tireWearFR ?? gameState.telemetry.tires.fr,
                   rl: data.tireWearRL ?? gameState.telemetry.tires.rl,
                   rr: data.tireWearRR ?? gameState.telemetry.tires.rr,
               },
-              // Mise à jour conso/usure par tour (données brutes pour StrategyView)
               avgWearPerLapFL: data.avgWearPerLapFL ?? 0,
               avgWearPerLapFR: data.avgWearPerLapFR ?? 0,
               avgWearPerLapRL: data.avgWearPerLapRL ?? 0,
               avgWearPerLapRR: data.avgWearPerLapRR ?? 0,
               
-              // NOUVEAU MAPPING POUR LES TEMPÉRATURES ET FREINS
               brakeTemps: {
                   flc: data.brakeTempFLC ?? gameState.telemetry.brakeTemps.flc,
                   frc: data.brakeTempFRC ?? gameState.telemetry.brakeTemps.frc,
@@ -244,16 +287,15 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                   rlc: data.tireTempCenterRLC ?? gameState.telemetry.tireTemps.rlc,
                   rrc: data.tireTempCenterRRC ?? gameState.telemetry.tireTemps.rrc,
               },
-              // --- FIN DU NOUVEAU MAPPING
               
-              // Temps du dernier tour
-              // MODIFIÉ: LapTimeLast est mappé à currentLapTimeSeconds (grand chrono) ET last3LapAvgSeconds (chrono réel du delta)
               currentLapTimeSeconds: data.lapTimeLast ?? gameState.telemetry.currentLapTimeSeconds,
               last3LapAvgSeconds: data.averageLapTime ?? gameState.telemetry.last3LapAvgSeconds, 
               
-              virtualEnergy: data.engineMode === 3 ? 99 : (data.engineMode === 2 ? 1 : gameState.telemetry.virtualEnergy), // MAPPING SIMPLIFIÉ ERS -> VE (Regen=99, Propulse=1)
+              virtualEnergy: data.engineMode === 3 ? 99 : (data.engineMode === 2 ? 1 : gameState.telemetry.virtualEnergy),
+              
+              strategyEstPitTime: data.strategyEstPitTime ?? 0,
+              inPitLane: data.inPitLane ?? false 
           };
-          // --- FIN DE LA CORRECTION ---
 
           const safeData = {
               ...gameState, 
@@ -275,12 +317,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
 
           setGameState(safeData); 
           
-          // --- DÉBUT SYNCHRONISATION TEMPS RESTANT LIVE ---
           let newLocalRaceTime = safeData.raceTime;
-          
-          // 1. Si la course est en cours (safeData.isRaceRunning)
-          // 2. ET si le bridge envoie un temps restant (sessionTimeRemainingSeconds) 
-          // On utilise la valeur live pour forcer le compteur local, même si ce n'est pas le mode "Race" officiel.
           if (
               safeData.isRaceRunning &&
               typeof data.sessionTimeRemainingSeconds === 'number' && 
@@ -289,15 +326,11 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               newLocalRaceTime = data.sessionTimeRemainingSeconds;
           }
           
-          setLocalRaceTime(newLocalRaceTime); // <- Utilisation de la source déterminée
-          // --- FIN SYNCHRONISATION TEMPS RESTANT LIVE ---
-
+          setLocalRaceTime(newLocalRaceTime); 
           setLocalStintTime(safeData.stintDuration || 0);
           setStatus("LIVE SYNC"); 
       } else {
-          // Si le document n'existe pas, on l'initialise
           const initialRaceTime = gameState.raceDurationHours * 3600;
-
           const initialData = { 
               ...gameState, 
               drivers: [{id: 1, name: "Driver 1", color: teamId === 'hypercar' ? '#ef4444' : '#3b82f6', phone: ""}],
@@ -314,10 +347,32 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     return () => unsubscribe();
   }, [SESSION_ID]);
 
-  // --- HOOK pour synchroniser localRaceTime quand raceDurationHours change (dans les settings) ---
+
+  // --- DETECTION AUTOMATIQUE D'ENTRÉE AUX STANDS (Correction) ---
   useEffect(() => {
-    // Cette logique ne devrait s'appliquer que si la course n'a pas commencé ou si la source LIVE n'est pas active.
-    // L'ajout de "sessionTimeRemainingSeconds" ci-dessus prime.
+      const currentInPit = gameState.telemetry.inPitLane;
+
+      // 1. Si c'est le premier chargement (prev est null), on synchronise juste l'état sans déclencher
+      if (prevInPitLane.current === null) {
+          // Si currentInPit est aussi null (valeur par défaut), on attend
+          if (currentInPit !== null) {
+              prevInPitLane.current = currentInPit;
+          }
+          return;
+      }
+
+      // 2. Détection du passage de False (Piste) à True (Pit)
+      if (currentInPit === true && prevInPitLane.current === false) {
+          confirmPitStop();
+      }
+
+      // Mise à jour de l'état précédent
+      prevInPitLane.current = currentInPit;
+  }, [gameState.telemetry.inPitLane]);
+
+
+  // --- HOOK pour synchroniser localRaceTime ---
+  useEffect(() => {
     if (!gameState.isRaceRunning) {
         const totalSeconds = gameState.raceDurationHours * 3600;
         if (localRaceTime !== totalSeconds) {
@@ -342,7 +397,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     return () => unsubChat();
   }, []);
 
-  // --- TIMERS LOOP (Le compte à rebours local qui continue si la source live s'arrête) ---
+  // --- TIMERS LOOP ---
   useEffect(() => {
     let interval = null;
     if (gameState.isRaceRunning && localRaceTime > 0) {
@@ -360,13 +415,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     return () => clearInterval(interval);
   }, [gameState.isRaceRunning, localRaceTime]); 
 
-
-  // --- ACTIONS ---
-  const syncUpdate = (data) => {
-    if (!db) { setGameState(prev => ({...prev, ...data})); return; }
-    updateDoc(doc(db, "strategies", SESSION_ID), data).catch(e => console.error("Update Error", e));
-  };
-
   const updateStintVE = (stintId, value) => {
       syncUpdate({ stintVirtualEnergy: { ...gameState.stintVirtualEnergy, [stintId]: value } });
   };
@@ -374,7 +422,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
   const sendMessage = () => {
       if (!chatInput.trim()) return;
       if (!db) return;
-
       const newMessage = {
           id: Date.now(),
           user: username || "Anon",
@@ -383,26 +430,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
           text: chatInput,
           time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
       };
-
       const chatRef = doc(db, "strategies", CHAT_ID);
       updateDoc(chatRef, { messages: arrayUnion(newMessage) }).catch(e => console.error("Chat Error", e));
       setChatInput("");
   };
 
-  const toggleRaceTimer = () => {
-    // Quand on démarre/arrête la course, on met à jour la valeur persistée (raceTime) 
-    // avec la valeur actuelle du compteur (localRaceTime)
-    if (gameState.isRaceRunning) {
-        syncUpdate({ isRaceRunning: false, raceTime: localRaceTime, stintDuration: localStintTime });
-    } else {
-        syncUpdate({ isRaceRunning: true });
-    }
-  };
-
   const resetRaceTimer = () => {
       console.log("WARNING: RESET COMPLET DE LA COURSE DEMANDÉ.");
       const initialRaceTime = gameState.raceDurationHours * 3600;
-      
       const resetData = { 
           isRaceRunning: false, 
           raceTime: initialRaceTime, 
@@ -412,10 +447,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
           chatMessages: [],
           stintVirtualEnergy: {}
       };
-      
-      if (db) {
-          syncUpdate(resetData);
-      }
+      if (db) { syncUpdate(resetData); }
       setLocalRaceTime(initialRaceTime);
       setLocalStintTime(0);
   };
@@ -436,23 +468,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
   const assignDriverToStint = (stintIndex, driverId) => {
       const id = Number(driverId);
       const newAssignments = { ...gameState.stintAssignments, [stintIndex]: id };
-      // Mise à jour du pilote actif si l'assignation concerne le stint actuel
       if (stintIndex === gameState.currentStint) syncUpdate({ stintAssignments: newAssignments, activeDriverId: id });
       else syncUpdate({ stintAssignments: newAssignments });
-  };
-
-  const confirmPitStop = () => {
-    const nextStint = (gameState.currentStint || 0) + 1;
-    let nextDriverId = gameState.stintAssignments[nextStint];
-    
-    if (!nextDriverId && gameState.drivers.length > 0) {
-        const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
-        nextDriverId = gameState.drivers[(currentIdx + 1) % gameState.drivers.length].id;
-    }
-    if (!nextDriverId && gameState.drivers.length > 0) nextDriverId = gameState.drivers[0].id;
-
-    syncUpdate({ currentStint: nextStint, activeDriverId: nextDriverId, stintDuration: 0 });
-    setLocalStintTime(0);
   };
 
   const undoStint = () => {
@@ -463,7 +480,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
       }
   };
 
-  // Mise à jour de la conso pour l'élément actif (Fuel ou VE)
   const updateCons = (delta) => {
       if (isHypercar) {
           syncUpdate({ veCons: Number((gameState.veCons + delta).toFixed(2)) });
@@ -479,101 +495,162 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
   const deleteIncident = (id) => syncUpdate({ incidents: gameState.incidents.filter(inc => inc.id !== id) });
   const updateIncidentInfo = (id, txt) => syncUpdate({ incidents: gameState.incidents.map(inc => inc.id === id ? { ...inc, text: txt } : inc) });
 
-
-  const strategyData = useMemo(() => {
-    if (!gameState.drivers || gameState.drivers.length === 0) return { stints: [], totalLaps: 0, lapsPerTank: 0, lapsPerVE: 0 };
-    
-    // --- CALCUL DU NOMBRE TOTAL DE TOURS (TARGET) basé sur le temps ---
-    const totalRaceSeconds = (gameState.raceDurationHours || 24) * 3600;
-    const calculatedTotalLaps = Math.max(1, Math.floor(totalRaceSeconds / (gameState.avgLapTimeSeconds || 210)));
-    const totalLapsTarget = calculatedTotalLaps; 
-    // --------------------------------------------------------
-
-    const safeCons = (gameState.fuelCons > 0) ? gameState.fuelCons : 3.65;
-    const safeTank = (gameState.telemetry.fuel.max > 0) ? gameState.telemetry.fuel.max : 105; // UTILISE LA MAX TANK DE LA TÉLÉMÉTRIE
-    const safeVECons = (gameState.veCons > 0) ? gameState.veCons : 2.5;
-    
-    // Calcul de l'autonomie Fuel
-    const lapsPerTank = Math.floor(safeTank / safeCons);
-    
-    // Calcul de l'autonomie VE (basé sur 100%)
-    const lapsPerVE = Math.floor(100 / safeVECons); 
-
-    const safeLapsPerStint = isHypercar ? lapsPerVE : lapsPerTank; // L'autonomie est définie par la VE pour les Hypercars
-    
-    // Le nombre de stops est basé sur l'autonomie la plus critique
-    const finalLapsPerStint = Math.max(1, safeLapsPerStint);
-
-    const totalStops = Math.max(0, Math.ceil(totalLapsTarget / finalLapsPerStint) - 1);
-    const stints = [];
-    let lapCounter = 0;
-    
-    for (let i = 0; i <= totalStops; i++) {
-      const isLast = i === totalStops;
-      const lapsThisStint = isLast ? (totalLapsTarget - lapCounter) : finalLapsPerStint;
-      const endLap = lapCounter + lapsThisStint;
-      let driverId = gameState.stintAssignments[i];
-      if (!driverId && gameState.drivers.length > 0) driverId = gameState.drivers[i % gameState.drivers.length].id;
-      const driver = getSafeDriver(gameState.drivers.find(d => d.id === driverId));
-      
-      let fuelDisplay = "";
-      if (isLast) {
-          fuelDisplay = (lapsThisStint * safeCons).toFixed(1) + " L";
-      } else {
-          fuelDisplay = "FULL (" + safeTank + " L)";
-      }
-
-      stints.push({ 
-          id: i, stopNum: i+1, startLap: lapCounter, endLap, 
-          fuel: fuelDisplay, 
-          veTarget: (lapsThisStint * safeVECons).toFixed(1) + "%", // VE consommée pour ce stint
-          driver, driverId, isCurrent: i === gameState.currentStint, isNext: i === gameState.currentStint + 1, isDone: i < gameState.currentStint, 
-          note: isLast ? "FINISH" : "BOX" 
-      });
-      lapCounter += lapsThisStint;
-    }
-    // On retourne le nombre total de tours calculé
-    return { stints, lapsPerTank: finalLapsPerStint, totalLaps: totalLapsTarget }; 
-  }, [gameState]);
-
+  // ✅ ACTIVE DRIVER DEFINITION
   const activeDriver = useMemo(() => {
       if (!gameState.drivers || gameState.drivers.length === 0) return getSafeDriver(null);
       return getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
   }, [gameState.drivers, gameState.activeDriverId]);
 
-  // 🏎️ CORRECTION : On récupère le pilote directement depuis les données du tableau (Next Stint)
+  // ✅ STRATEGY CALCULATION (Reconstruction des stints passés + calcul des futurs)
+  const strategyData = useMemo(() => {
+    if (!gameState.drivers || gameState.drivers.length === 0) {
+        return { stints: [], totalLaps: 0, lapsPerTank: 0, lapsPerVE: 0, totalStops: 0, estRaceTime: 0, activeCons: 0, activeLapTime: 0, pitStopsRemaining: 0 };
+    }
+    
+    const activeLapTime = (gameState.telemetry.last3LapAvgSeconds > 0) ? gameState.telemetry.last3LapAvgSeconds : (gameState.avgLapTimeSeconds || 210);
+    const activeFuelCons = (gameState.telemetry.fuel.averageCons > 0) ? gameState.telemetry.fuel.averageCons : (gameState.fuelCons || 3.65);
+    const activeVECons = (gameState.veCons > 0) ? gameState.veCons : 2.5;
+    const tankCapacity = (gameState.telemetry.fuel.max > 0) ? gameState.telemetry.fuel.max : 105;
+
+    const timeRemainingSeconds = gameState.isRaceRunning && localRaceTime > 0 ? localRaceTime : (gameState.raceDurationHours || 24) * 3600;
+    const lapsRemaining = Math.max(1, Math.ceil(timeRemainingSeconds / activeLapTime));
+    const currentLap = gameState.telemetry.laps || 0;
+    const totalLapsTarget = currentLap + lapsRemaining;
+
+    const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
+    const lapsPerVE = Math.floor(100 / activeVECons); 
+    const safeLapsPerStint = isHypercar ? Math.min(lapsPerVE, lapsPerTank) : lapsPerTank;
+    const finalLapsPerStint = Math.max(1, safeLapsPerStint);
+
+    const stints = [];
+    const currentStintIndex = gameState.currentStint || 0;
+
+    const currentFuel = gameState.telemetry.fuel.current;
+    const estimatedLapsDoneInStint = Math.max(0, (tankCapacity - currentFuel) / activeFuelCons);
+    const startLapCurrent = Math.max(0, Math.floor(currentLap - estimatedLapsDoneInStint));
+    
+    // 1. STINTS PASSÉS
+    if (currentStintIndex > 0) {
+        const avgPastStintLen = startLapCurrent / currentStintIndex;
+        
+        for (let i = 0; i < currentStintIndex; i++) {
+            // ICI : On récupère le pilote qui était assigné et sauvegardé
+            let driverId = gameState.stintAssignments[i];
+            if (!driverId) driverId = gameState.drivers[i % gameState.drivers.length].id;
+            const driver = getSafeDriver(gameState.drivers.find(d => d.id === driverId));
+
+            stints.push({
+                id: i,
+                stopNum: i + 1,
+                startLap: Math.floor(i * avgPastStintLen),
+                endLap: Math.floor((i + 1) * avgPastStintLen),
+                fuel: "DONE",
+                driver: driver,
+                driverId: driverId,
+                isCurrent: false,
+                isNext: false,
+                isDone: true,
+                note: "Completed",
+                lapsCount: Math.floor(avgPastStintLen)
+            });
+        }
+    }
+
+    // 2. STINT ACTUEL
+    const actualCurrentStintEnd = Math.min(startLapCurrent + finalLapsPerStint, totalLapsTarget);
+    
+    stints.push({
+        id: currentStintIndex,
+        stopNum: currentStintIndex + 1,
+        startLap: startLapCurrent,
+        endLap: actualCurrentStintEnd,
+        fuel: "CURRENT",
+        driver: activeDriver, 
+        driverId: activeDriver.id, 
+        isCurrent: true,
+        isNext: false,
+        isDone: false,
+        note: "NOW",
+        lapsCount: actualCurrentStintEnd - startLapCurrent
+    });
+
+    // 3. STINTS FUTURS
+    let lapCounter = actualCurrentStintEnd;
+    let nextStintIndex = currentStintIndex + 1;
+
+    while (lapCounter < totalLapsTarget) {
+        const isLastStint = (lapCounter + finalLapsPerStint) >= totalLapsTarget;
+        const lapsThisStint = isLastStint ? (totalLapsTarget - lapCounter) : finalLapsPerStint;
+        const endLap = lapCounter + lapsThisStint;
+
+        let driverId = gameState.stintAssignments[nextStintIndex];
+        if (!driverId) driverId = gameState.drivers[nextStintIndex % gameState.drivers.length].id;
+        const driver = getSafeDriver(gameState.drivers.find(d => d.id === driverId));
+
+        let fuelToLoad = 0;
+        let fuelDisplay = "";
+        
+        if (isLastStint) {
+            fuelToLoad = (lapsThisStint + 1) * activeFuelCons;
+            fuelDisplay = `${fuelToLoad.toFixed(1)} L (END)`;
+        } else {
+            fuelToLoad = tankCapacity;
+            fuelDisplay = "FULL";
+        }
+
+        stints.push({ 
+            id: nextStintIndex, 
+            stopNum: nextStintIndex + 1, 
+            startLap: lapCounter, 
+            endLap: endLap, 
+            fuel: fuelDisplay, 
+            fuelLoad: fuelToLoad,
+            lapsCount: lapsThisStint,
+            driver, 
+            driverId, 
+            isCurrent: false, 
+            isNext: nextStintIndex === currentStintIndex + 1, 
+            isDone: false, 
+            note: isLastStint ? "FINISH" : "BOX" 
+        });
+
+        lapCounter = endLap;
+        nextStintIndex++;
+    }
+
+    const pitStopsRemaining = Math.max(0, stints.length - 1 - currentStintIndex);
+
+    return { 
+        stints, 
+        lapsPerTank: finalLapsPerStint, 
+        totalLaps: totalLapsTarget,
+        activeCons: activeFuelCons,
+        activeLapTime: activeLapTime,
+        pitStopsRemaining
+    }; 
+  }, [gameState, localRaceTime, activeDriver, isHypercar]);
+
+
   const nextDriverInfo = useMemo(() => {
       const nextStintIndex = (gameState.currentStint || 0) + 1;
       const nextStintObj = strategyData.stints.find(s => s.id === nextStintIndex);
-
-      if (nextStintObj && nextStintObj.driver) {
-          return nextStintObj.driver;
-      }
+      if (nextStintObj && nextStintObj.driver) return nextStintObj.driver;
       return getSafeDriver(null);
   }, [gameState.currentStint, strategyData]);
 
-  // Utilisation du delta de temps réel/estimé pour l'affichage
   const lapTimeDeltaInfo = getLapTimeDelta(gameState.avgLapTimeSeconds, gameState.telemetry.last3LapAvgSeconds);
 
-  // Fonction pour afficher l'icône météo
   const getWeatherIcon = (weather) => {
     switch (weather) {
-      case 'SUNNY':
-        return <Sun size={14} className="text-yellow-400"/>;
-      case 'CLOUDY':
-        return <Cloud size={14} className="text-slate-400"/>;
-      case 'RAIN':
-      case 'WET':
-        return <CloudRain size={14} className="text-blue-400"/>;
-      default:
-        return <Sun size={14} className="text-yellow-400"/>;
+      case 'SUNNY': return <Sun size={14} className="text-yellow-400"/>;
+      case 'CLOUDY': return <Cloud size={14} className="text-slate-400"/>;
+      case 'RAIN': case 'WET': return <CloudRain size={14} className="text-blue-400"/>;
+      default: return <Sun size={14} className="text-yellow-400"/>;
     }
   };
 
-
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-[#020408] text-slate-200 font-sans">
-      
       {/* HEADER */}
       <div className="h-16 glass-panel flex items-center justify-between px-6 sticky top-0 z-50 shrink-0 w-full">
         <div className="flex items-center gap-4">
@@ -585,7 +662,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
           </div>
         </div>
         
-        {/* AFFICHAGE DE LA POSITION DANS LE HEADER */}
         <div className="flex items-center gap-6">
             <div className="flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5">
                 <div className="text-right">
@@ -618,18 +694,12 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                        DRIVER (STINT {(gameState.currentStint || 0) + 1})
                      </span>
                    </div>
-                   
-                   {/* Affichage de la position et du nom du pilote */}
                    <div className="flex items-center gap-4">
-                       {/* Position stylisée */}
                        <div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-black text-xl italic shadow-lg shadow-indigo-900/50">
                            {gameState.position}
                        </div>
-                       {/* Nom du pilote (grande taille) */}
                        <h2 className="text-3xl lg:text-4xl font-black text-white italic uppercase tracking-tighter truncate max-w-[250px]">{activeDriver.name}</h2>
                    </div>
-                   {/* FIN DE LA CORRECTION */}
-                   
                    {activeDriver.phone && <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-1"><Phone size={10} /> {activeDriver.phone}</div>}
                    <div className="flex items-center gap-2 mt-3 text-indigo-300 font-mono text-xs lg:text-sm bg-indigo-500/10 px-2 py-1 rounded w-fit border border-indigo-500/20"><Clock size={14} /> Stint: {formatTime(localStintTime)}</div>
                 </div>
@@ -641,7 +711,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                 <div className="flex justify-between mt-2 px-1"><button onClick={undoStint} className="text-[10px] text-slate-500 hover:text-red-400 underline">Mistake? Undo Stop</button></div>
              </div>
              
-             {/* NOUVEAU BLOC COMPARATIF TEMPS */}
              <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700 shadow-lg relative mb-4">
                 <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase">
                     <span>Lap Time Comparatif moyen</span>
@@ -654,7 +723,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                 <div className="text-[9px] text-slate-600 pt-1">Time difference vs. current strategy estimate.</div>
              </div>
 
-             {/* BLOC INFO "NEXT DRIVER" */}
              <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700 flex items-center justify-between mb-4 shadow-lg relative overflow-hidden">
                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-500"></div>
                 <div>
@@ -671,7 +739,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                 )}
              </div>
 
-             {/* AFFICHAGE MÉTÉO (Remplaçant les boutons supprimés) */}
              <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700 flex justify-between items-center text-sm font-bold shadow-lg">
                 <div className="flex items-center gap-2 text-slate-400">
                     {getWeatherIcon(gameState.weather)}
@@ -684,12 +751,9 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                     <span className="text-slate-500 font-normal">Wet</span>
                 </div>
              </div>
-             {/* FIN AFFICHAGE MÉTÉO */}
-
           </div>
 
           <div className="grid grid-cols-2 gap-4 shrink-0">
-             {/* CONSO / VE CONS */}
              <div className="glass-panel rounded-xl p-3 flex flex-col justify-between h-24">
                 <div className="flex justify-between items-center">
                     <div className={`${isHypercar ? 'text-cyan-500' : 'text-slate-500'} text-[9px] font-bold uppercase flex items-center gap-1`}>
@@ -710,7 +774,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                     {isHypercar ? '% / Lap' : 'L / Lap'}
                 </div>
              </div>
-             {/* TOTAL LAPS (Autonomie basée sur l'élément critique) */}
              <div className="glass-panel rounded-xl p-3 flex flex-col justify-between h-24">
                 <div className="text-slate-500 text-[9px] font-bold uppercase"><Trophy size={12} className="inline mr-1"/> TOTAL LAPS (EST.)</div>
                 <div className="text-2xl lg:text-3xl font-mono font-bold text-emerald-400 tracking-tighter">{strategyData.totalLaps}</div>
@@ -740,10 +803,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
            <div className="p-3 border-b border-white/5 bg-slate-900/50 flex justify-between items-center shrink-0">
               <div className="flex gap-1 p-1 bg-black/30 rounded-lg">
                  <button onClick={() => setViewMode("STRATEGY")} className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "STRATEGY" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><FileText size={14}/> Strategy</button>
-                 
-                 {/* NOUVEAU BOUTON TELEMETRY */}
                  <button onClick={() => setViewMode("TELEMETRY")} className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "TELEMETRY" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Activity size={14}/> Telemetry</button>
-                 
                  <button onClick={() => setViewMode("MAP")} className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "MAP" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><MapIcon size={14}/> Map</button>
                  <button onClick={() => setViewMode("CHAT")} className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-2 transition-all ${viewMode === "CHAT" ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><MessageSquare size={14}/> Chat</button>
               </div>
@@ -758,12 +818,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                stintNotes={gameState.stintNotes}
                onAssignDriver={assignDriverToStint}
                onUpdateNote={(stopNum, val) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
-               
-               // PROPS DE TEMPS
-               estimatedTime={gameState.avgLapTimeSeconds}
-               realTimeAvg={gameState.telemetry.last3LapAvgSeconds}
-               
-               // PROPS VIRTUAL ENERGY
                isHypercar={isHypercar}
                telemetryData={gameState.telemetry}
              />
@@ -775,16 +829,13 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                 isHypercar={isHypercar}
                 position={gameState.position} 
                 avgLapTimeSeconds={gameState.avgLapTimeSeconds} 
-                // PASSAGE DES NOUVELLES DONNÉES MÉTÉO
                 weather={gameState.weather}
                 airTemp={gameState.airTemp}
                 trackWetness={gameState.trackWetness}
              />
            )}
 
-           {viewMode === "MAP" && (
-             <MapView />
-           )}
+           {viewMode === "MAP" && <MapView />}
 
            {viewMode === "CHAT" && (
              <ChatView 
@@ -805,23 +856,13 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
            <div className="glass-panel w-full max-w-lg rounded-xl p-6 border border-slate-700 space-y-4">
               <div className="flex justify-between items-center"><h2 className="text-lg font-bold text-white">SETTINGS</h2><button onClick={()=>setShowSettings(false)}><X className="text-slate-400"/></button></div>
               <div className="grid grid-cols-2 gap-4">
-                 
-                 {/* CHAMP DURÉE DE COURSE */}
                  <div><label className="text-[10px] text-slate-500 font-bold">RACE DURATION (Hours)</label><input type="number" value={gameState.raceDurationHours} onChange={(e)=>syncUpdate({raceDurationHours: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
-                 
-                 {/* CHAMP TEMPS MOYEN AU TOUR */}
                  <div><label className="text-[10px] text-slate-500 font-bold">AVG LAP TIME (Seconds)</label><input type="number" value={gameState.avgLapTimeSeconds} onChange={(e)=>syncUpdate({avgLapTimeSeconds: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
-                 
-                 {/* Reste des champs de réglage */}
                  <div><label className="text-[10px] text-slate-500 font-bold">TANK (L)</label><input type="number" value={gameState.tankCapacity} onChange={(e)=>syncUpdate({tankCapacity: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
-                 
-                 {/* CHAMP CONSO CONDITIONNEL DANS LES RÉGLAGES */}
                  <div>
-                    {/* Le label s'adapte */}
                     <label className={`${isHypercar ? 'text-cyan-500' : 'text-slate-500'} text-[10px] font-bold`}>
                         {isHypercar ? 'VE CONS (%/Lap)' : 'FUEL CONS (L/Lap)'}
                     </label>
-                    {/* L'input lit et écrit la variable appropriée */}
                     <input 
                         type="number" 
                         step="0.01" 
@@ -832,7 +873,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                  </div>
               </div>
               <div className="space-y-2 pt-2">
-                 {/* Nouveaux champs de réglages Météo/Piste pour le test */}
                  <div className="grid grid-cols-3 gap-2">
                     <div><label className="text-[10px] text-slate-500 font-bold">MÉTÉO (SUNNY/RAIN/CLOUDY)</label><input type="text" value={gameState.weather} onChange={(e)=>syncUpdate({weather: e.target.value.toUpperCase()})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
                     <div><label className="text-[10px] text-slate-500 font-bold">TEMP AIR (°C)</label><input type="number" value={gameState.airTemp} onChange={(e)=>syncUpdate({airTemp: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
@@ -850,9 +890,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                         </div>
                     ))}
                  </div>
-                 {/* Champ pour modifier la position dans les réglages pour le test */}
                  <div className="pt-2"><label className="text-[10px] text-slate-500 font-bold">CURRENT POSITION</label><input type="number" value={gameState.position} onChange={(e)=>syncUpdate({position: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
-                 {/* Utilisation de console.log au lieu de confirm() pour le reset */}
                  <button onClick={resetRaceTimer} className="w-full py-2 border border-red-900 text-red-500 hover:bg-red-900/20 rounded text-xs uppercase font-bold mt-4 flex items-center justify-center gap-2"><RotateCcw size={14}/> RESET RACE</button>
               </div>
            </div>
@@ -862,7 +900,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
   );
 };
 
-// --- MAIN COMPONENT : SÉLECTION DE L'ÉQUIPE ---
 const RaceStrategyApp = () => {
   const [selectedTeam, setSelectedTeam] = useState(null); 
 
