@@ -28,6 +28,10 @@ export interface TelemetryData {
   throttle: number;
   brake: number;
   speed: number;
+  rpm: number;
+  maxRpm :number;
+  waterTemp: number;
+  oilTemp: number;
   inPitLane: boolean | null;
   inGarage : boolean,
   avgWearPerLapFL?: number;

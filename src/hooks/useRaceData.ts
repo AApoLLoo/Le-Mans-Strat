@@ -18,9 +18,6 @@ export const useRaceData = (teamId: string) => {
     
     // État initial
     const [gameState, setGameState] = useState<GameState>({
-        throttle: 0,
-        brake: 0,
-        speed: 0,
         currentStint: 0,
         raceTime: 24 * 60 * 60,
         stintDuration: 0,
@@ -45,6 +42,13 @@ export const useRaceData = (teamId: string) => {
         position: 4,
         // Structure de télémétrie par défaut
         telemetry: {
+            throttle: 0,
+            brake: 0,
+            speed: 0,
+            rpm: 0,
+            maxRpm: 8000,
+            waterTemp: 0,
+            oilTemp: 0,
             laps: 0,
             fuel: { current: 100, max: 105, lastLapCons: 0, averageCons: 0 },
             virtualEnergy: 100,
@@ -54,7 +58,8 @@ export const useRaceData = (teamId: string) => {
             brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             strategyEstPitTime: 0,
-            inPitLane: null
+            inPitLane: null,
+            inGarage: true,
         },
         stintVirtualEnergy: {}
     });
@@ -113,6 +118,10 @@ export const useRaceData = (teamId: string) => {
                         throttle: data.throttle ?? prev.telemetry.throttle,
                         brake: data.brake ?? prev.telemetry.brake,
                         speed: data.speedKmh ?? prev.telemetry.speed,
+                        rpm: data.rpm ?? prev.telemetry.rpm,
+                        maxRpm: data.maxRpm ?? prev.telemetry.maxRpm,
+                        waterTemp: data.waterTemp ?? prev.telemetry.waterTemp,
+                        oilTemp: data.oilTemp ?? prev.telemetry.oilTemp,
                         currentLapTimeSeconds: data.lapTimeLast ?? prev.telemetry.currentLapTimeSeconds,
                         last3LapAvgSeconds: data.averageLapTime ?? prev.telemetry.last3LapAvgSeconds,
                         strategyEstPitTime: data.strategyEstPitTime ?? prev.telemetry.strategyEstPitTime,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame } from 'lucide-react';
+import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame, Droplet } from 'lucide-react';
 
 // Fonction utilitaire pour la couleur des pneus selon l'usure
 const getTireColor = (wear) => {
@@ -58,7 +58,7 @@ const getBrakeTempColor = (temp) => {
 
 
 const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds, weather, airTemp, trackWetness }) => { 
-  const { tires, fuel, laps, virtualEnergy, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed } = telemetryData;
+  const { tires, fuel, laps, virtualEnergy, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
 
   // Calcul du delta pour le style
   const estimatedTime = avgLapTimeSeconds;
@@ -257,39 +257,66 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                     </div>
                 </div>
             )}
-            <div className="flex gap-4 h-32">
+{/* --- BLOC : PHYSIQUE & MOTEUR --- */}
+<div className="flex gap-4 h-40"> {/* Hauteur augmentée un peu pour aérer */}
                 
-                {/* VITESSE */}
-                <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex flex-col items-center justify-center relative overflow-hidden">
-                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">SPEED</div>
-                    <div className="flex items-baseline gap-1">
-                        <span className="text-6xl font-black text-white italic tracking-tighter">{Math.round(speed)}</span>
-                        <span className="text-sm font-bold text-slate-500">KM/H</span>
+                {/* PANEL PRINCIPAL : VITESSE & RPM */}
+                <div className="flex-[2] bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex flex-col relative overflow-hidden">
+                    <div className="flex justify-between items-start z-10">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">TELEMETRY</div>
+                        
+                        {/* TEMPERATURES */}
+                        <div className="flex gap-4">
+                            <div className="flex items-center gap-1.5">
+                                <Thermometer size={14} className={waterTemp > 105 ? "text-red-500 animate-pulse" : "text-blue-400"}/>
+                                <div className="flex flex-col leading-none">
+                                    <span className="text-[9px] text-slate-500 font-bold">WATER</span>
+                                    <span className="text-xs font-mono font-bold text-white">{waterTemp}°</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                <Droplet size={14} className={oilTemp > 110 ? "text-red-500 animate-pulse" : "text-amber-500"}/>
+                                <div className="flex flex-col leading-none">
+                                    <span className="text-[9px] text-slate-500 font-bold">OIL</span>
+                                    <span className="text-xs font-mono font-bold text-white">{oilTemp}°</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* VITESSE */}
+                    <div className="flex-1 flex items-center justify-center z-10 mt-2">
+                        <span className="text-6xl font-black text-white italic tracking-tighter tabular-nums">{Math.round(speed)}</span>
+                        <span className="text-sm font-bold text-slate-500 ml-2 self-end mb-4">KM/H</span>
+                    </div>
+
+                    {/* BARRE RPM */}
+                    <div className="w-full bg-slate-800 h-3 rounded-full mt-auto overflow-hidden border border-slate-700 relative z-10">
+                        <div 
+                            className={`h-full transition-all duration-75 ease-linear ${rpm > maxRpm * 0.95 ? 'bg-red-500' : 'bg-indigo-500'}`} 
+                            style={{ width: `${(rpm / maxRpm) * 100}%` }}
+                        ></div>
+                    </div>
+                    <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1 z-10">
+                        <span>0</span>
+                        <span className={rpm > maxRpm * 0.95 ? "text-red-500 font-bold" : ""}>{rpm} RPM</span>
+                        <span>{maxRpm}</span>
                     </div>
                 </div>
 
-                {/* PÉDALES (Jauges verticales) */}
-                <div className="w-32 bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex justify-center gap-4">
-                    {/* FREIN (Rouge) */}
+                {/* PÉDALES (Inchangé mais réintégré proprement) */}
+                <div className="w-24 bg-slate-900/50 border border-slate-800 rounded-xl p-3 flex justify-center gap-2">
+                    {/* FREIN */}
                     <div className="flex flex-col items-center gap-1 h-full w-full">
-                        <div className="flex-1 w-4 bg-slate-800 rounded-full overflow-hidden relative border border-slate-700">
-                            <div 
-                                className="absolute bottom-0 left-0 right-0 bg-red-600 transition-all duration-75 ease-out" 
-                                style={{ height: `${brake}%` }}
-                            ></div>
+                        <div className="flex-1 w-full bg-slate-800 rounded overflow-hidden relative border border-slate-700">
+                            <div className="absolute bottom-0 left-0 right-0 bg-red-600 transition-all duration-75" style={{ height: `${brake}%` }}></div>
                         </div>
-                        <span className="text-[9px] font-bold text-slate-500">BRK</span>
                     </div>
-
-                    {/* ACCÉLÉRATEUR (Vert) */}
+                    {/* ACCEL */}
                     <div className="flex flex-col items-center gap-1 h-full w-full">
-                        <div className="flex-1 w-4 bg-slate-800 rounded-full overflow-hidden relative border border-slate-700">
-                            <div 
-                                className="absolute bottom-0 left-0 right-0 bg-emerald-500 transition-all duration-75 ease-out" 
-                                style={{ height: `${throttle}%` }}
-                            ></div>
+                        <div className="flex-1 w-full bg-slate-800 rounded overflow-hidden relative border border-slate-700">
+                            <div className="absolute bottom-0 left-0 right-0 bg-emerald-500 transition-all duration-75" style={{ height: `${throttle}%` }}></div>
                         </div>
-                        <span className="text-[9px] font-bold text-slate-500">THR</span>
                     </div>
                 </div>
             </div>
