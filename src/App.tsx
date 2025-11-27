@@ -211,7 +211,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                   current: data.fuelRemainingL ?? gameState.telemetry.fuel.current,
                   max: data.fuelTankCapacityL ?? gameState.telemetry.fuel.max, // NOUVEAU: Capacité du réservoir
                   averageCons: data.fuelConsumptionPerLapL ?? gameState.telemetry.fuel.averageCons,
-                  lastLapCons: data.fuelConsumptionPerLapL ?? gameState.telemetry.fuel.lastLapCons,
+                  lastLapCons: data.fuelConsumptionLastLapL ?? gameState.telemetry.fuel.lastLapCons,
               },
               
               // Mise à jour des Pneus (USURE RESTANTE)
@@ -228,7 +228,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               avgWearPerLapRR: data.avgWearPerLapRR ?? 0,
               
               // Temps du dernier tour
-              lastLapTimeSeconds: data.lapTimeLast ?? 0,
+              lastLapTimeSeconds: data.lapTimeLast ?? gameState.telemetry.currentLapTimeSeconds,
               
               virtualEnergy: data.engineMode === 3 ? 99 : (data.engineMode === 2 ? 1 : gameState.telemetry.virtualEnergy), // MAPPING SIMPLIFIÉ ERS -> VE (Regen=99, Propulse=1)
           };
