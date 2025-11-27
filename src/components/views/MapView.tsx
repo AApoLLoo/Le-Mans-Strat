@@ -1,6 +1,6 @@
 import React from 'react';
 // Assure-toi que le chemin vers l'image est correct depuis ce dossier
-import trackMapImg from '../assets/track-map.jpg'; 
+import trackMapImg from '../../assets/track-map.jpg'; 
 
 const MapView = () => {
   return (
