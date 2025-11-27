@@ -1,5 +1,5 @@
 import React from 'react';
-import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer } from 'lucide-react';
+import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame } from 'lucide-react';
 
 // Fonction utilitaire pour la couleur des pneus selon l'usure
 const getTireColor = (wear) => {
@@ -35,8 +35,30 @@ const getWeatherIcon = (weather) => {
     }
 };
 
+// Fonction utilitaire pour la couleur des températures des pneus
+const getTireTempColor = (temp) => {
+  // Optimal: 90-100 C
+  if (temp >= 90 && temp <= 100) return 'text-indigo-400 font-bold';
+  // Chaude/Froide: 80-89 C ou 101-110 C
+  if (temp >= 80 && temp < 90 || temp > 100 && temp <= 110) return 'text-amber-400';
+  // Critique (Trop Froid ou Trop Chaud)
+  return 'text-red-500 font-black animate-pulse';
+};
+
+// Fonction utilitaire pour la couleur des freins (exemple basé sur des freins carbone)
+const getBrakeTempColor = (temp) => {
+  // Optimal: 500-650 C (Carbone)
+  if (temp >= 500 && temp <= 650) return 'text-emerald-400 font-bold'; 
+  // Trop froid ou Hors Plage (300-499 C)
+  if (temp < 500 && temp >= 300) return 'text-amber-400';
+  // Surchauffe
+  if (temp > 650) return 'text-red-500 font-black animate-pulse';
+  return 'text-slate-500';
+};
+
+
 const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds, weather, airTemp, trackWetness }) => { 
-  const { tires, fuel, laps, virtualEnergy, currentLapTimeSeconds, last3LapAvgSeconds } = telemetryData;
+  const { tires, fuel, laps, virtualEnergy, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps } = telemetryData;
 
   // Calcul du delta pour le style
   const estimatedTime = avgLapTimeSeconds;
@@ -109,24 +131,50 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
             <h3 className="absolute top-4 left-4 text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
                 <Disc size={14}/> Tire Wear (Remaining Life)
             </h3>
+
+            {/* Légende des nouvelles données */}
+            <div className="absolute top-4 right-4 text-[9px] font-bold text-slate-500 uppercase flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1">
+                    <Flame size={10} className="text-red-400"/>
+                    <span>Brake Temp (C)</span>
+                </div>
+                <div className="flex items-center gap-1">
+                    <Thermometer size={10} className="text-indigo-400"/>
+                    <span>Tire Center Temp (C)</span>
+                </div>
+            </div>
             
             {/* Représentation de la voiture */}
-            <div className="flex gap-8">
+            <div className="flex gap-8 mt-10"> {/* Adjusted top margin due to legend */}
                 {/* GAUCHE */}
                 <div className="flex flex-col gap-12">
+                    {/* FL */}
                     <div className="flex flex-col items-center gap-1">
                         <span className="text-[10px] text-slate-500 font-bold">FL</span>
                         <div className={`w-16 h-24 rounded-lg border-2 border-slate-700 flex items-end justify-center overflow-hidden relative bg-slate-800`}>
                             <div className={`w-full transition-all duration-500 ${getTireColor(tires.fl)}`} style={{ height: `${tires.fl}%` }}></div>
                             <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 font-black text-lg text-white drop-shadow-md">{tires.fl}%</span>
                         </div>
+                         {/* NOUVELLES DONNÉES */}
+                        <div className="mt-1 flex flex-col items-center text-xs font-mono">
+                            <span className={getBrakeTempColor(brakeTemps.flc)}><Flame size={10} className="inline mr-1"/>{brakeTemps.flc}°</span>
+                            <span className={getTireTempColor(tireTemps.flc)}><Thermometer size={10} className="inline mr-1"/>{tireTemps.flc}°</span>
+                        </div>
+                        {/* --- */}
                     </div>
+                    {/* RL */}
                     <div className="flex flex-col items-center gap-1">
                         <span className="text-[10px] text-slate-500 font-bold">RL</span>
                         <div className={`w-16 h-24 rounded-lg border-2 border-slate-700 flex items-end justify-center overflow-hidden relative bg-slate-800`}>
                             <div className={`w-full transition-all duration-500 ${getTireColor(tires.rl)}`} style={{ height: `${tires.rl}%` }}></div>
                             <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 font-black text-lg text-white drop-shadow-md">{tires.rl}%</span>
                         </div>
+                        {/* NOUVELLES DONNÉES */}
+                        <div className="mt-1 flex flex-col items-center text-xs font-mono">
+                            <span className={getBrakeTempColor(brakeTemps.rlc)}><Flame size={10} className="inline mr-1"/>{brakeTemps.rlc}°</span>
+                            <span className={getTireTempColor(tireTemps.rlc)}><Thermometer size={10} className="inline mr-1"/>{tireTemps.rlc}°</span>
+                        </div>
+                        {/* --- */}
                     </div>
                 </div>
 
@@ -137,19 +185,33 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
 
                 {/* DROITE */}
                 <div className="flex flex-col gap-12">
+                    {/* FR */}
                     <div className="flex flex-col items-center gap-1">
                         <span className="text-[10px] text-slate-500 font-bold">FR</span>
                         <div className={`w-16 h-24 rounded-lg border-2 border-slate-700 flex items-end justify-center overflow-hidden relative bg-slate-800`}>
                             <div className={`w-full transition-all duration-500 ${getTireColor(tires.fr)}`} style={{ height: `${tires.fr}%` }}></div>
                             <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 font-black text-lg text-white drop-shadow-md">{tires.fr}%</span>
                         </div>
+                         {/* NOUVELLES DONNÉES */}
+                        <div className="mt-1 flex flex-col items-center text-xs font-mono">
+                            <span className={getBrakeTempColor(brakeTemps.frc)}><Flame size={10} className="inline mr-1"/>{brakeTemps.frc}°</span>
+                            <span className={getTireTempColor(tireTemps.frc)}><Thermometer size={10} className="inline mr-1"/>{tireTemps.frc}°</span>
+                        </div>
+                        {/* --- */}
                     </div>
+                    {/* RR */}
                     <div className="flex flex-col items-center gap-1">
                         <span className="text-[10px] text-slate-500 font-bold">RR</span>
                         <div className={`w-16 h-24 rounded-lg border-2 border-slate-700 flex items-end justify-center overflow-hidden relative bg-slate-800`}>
                             <div className={`w-full transition-all duration-500 ${getTireColor(tires.rr)}`} style={{ height: `${tires.rr}%` }}></div>
                             <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 font-black text-lg text-white drop-shadow-md">{tires.rr}%</span>
                         </div>
+                        {/* NOUVELLES DONNÉES */}
+                        <div className="mt-1 flex flex-col items-center text-xs font-mono">
+                            <span className={getBrakeTempColor(brakeTemps.rrc)}><Flame size={10} className="inline mr-1"/>{brakeTemps.rrc}°</span>
+                            <span className={getTireTempColor(tireTemps.rrc)}><Thermometer size={10} className="inline mr-1"/>{tireTemps.rrc}°</span>
+                        </div>
+                        {/* --- */}
                     </div>
                 </div>
             </div>

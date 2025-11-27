@@ -151,7 +151,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
     isRaceRunning: false,
     
     // Météo et état de la piste - MOCK DATA
-    weather: "SUNNY", 
+    weather: "caca", 
     airTemp: 25,     
     trackWetness: 0, 
     
@@ -177,7 +177,11 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
         virtualEnergy: 88, 
         tires: { fl: 92, fr: 89, rl: 95, rr: 94 },
         currentLapTimeSeconds: 212.5, 
-        last3LapAvgSeconds: 211.2 
+        last3LapAvgSeconds: 211.2,
+        // NOUVEAU: Données de Températures et Freins
+        brakeTemps: { flc: 550, frc: 545, rlc: 320, rrc: 315 }, // C = Center
+        tireTemps: { flc: 95, frc: 93, rlc: 98, rrc: 96 }, // C = Center
+        // ---
     },
     // Données spécifiques à la stratégie VE (si Hypercar)
     stintVirtualEnergy: { 1: 90, 2: 85, 3: 92 } 
@@ -210,7 +214,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                   ...gameState.telemetry.fuel,
                   current: data.fuelRemainingL ?? gameState.telemetry.fuel.current,
                   max: data.fuelTankCapacityL ?? gameState.telemetry.fuel.max, // NOUVEAU: Capacité du réservoir
-                  averageCons: data.fuelConsumptionPerLapL ?? gameState.telemetry.fuel.averageCons,
+                  averageCons: data.averageConsumptionFuel ?? gameState.telemetry.fuel.averageCons,
                   lastLapCons: data.fuelConsumptionLastLapL ?? gameState.telemetry.fuel.lastLapCons,
               },
               
@@ -227,8 +231,25 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
               avgWearPerLapRL: data.avgWearPerLapRL ?? 0,
               avgWearPerLapRR: data.avgWearPerLapRR ?? 0,
               
+              // NOUVEAU MAPPING POUR LES TEMPÉRATURES ET FREINS
+              brakeTemps: {
+                  flc: data.brakeTempFLC ?? gameState.telemetry.brakeTemps.flc,
+                  frc: data.brakeTempFRC ?? gameState.telemetry.brakeTemps.frc,
+                  rlc: data.brakeTempRLC ?? gameState.telemetry.brakeTemps.rlc,
+                  rrc: data.brakeTempRRC ?? gameState.telemetry.brakeTemps.rrc,
+              },
+              tireTemps: {
+                  flc: data.tireTempCenterFLC ?? gameState.telemetry.tireTemps.flc,
+                  frc: data.tireTempCenterFRC ?? gameState.telemetry.tireTemps.frc,
+                  rlc: data.tireTempCenterRLC ?? gameState.telemetry.tireTemps.rlc,
+                  rrc: data.tireTempCenterRRC ?? gameState.telemetry.tireTemps.rrc,
+              },
+              // --- FIN DU NOUVEAU MAPPING
+              
               // Temps du dernier tour
-              lastLapTimeSeconds: data.lapTimeLast ?? gameState.telemetry.currentLapTimeSeconds,
+              // MODIFIÉ: LapTimeLast est mappé à currentLapTimeSeconds (grand chrono) ET last3LapAvgSeconds (chrono réel du delta)
+              currentLapTimeSeconds: data.lapTimeLast ?? gameState.telemetry.currentLapTimeSeconds,
+              last3LapAvgSeconds: data.averageLapTime ?? gameState.telemetry.last3LapAvgSeconds, 
               
               virtualEnergy: data.engineMode === 3 ? 99 : (data.engineMode === 2 ? 1 : gameState.telemetry.virtualEnergy), // MAPPING SIMPLIFIÉ ERS -> VE (Regen=99, Propulse=1)
           };
@@ -623,7 +644,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
              {/* NOUVEAU BLOC COMPARATIF TEMPS */}
              <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700 shadow-lg relative mb-4">
                 <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase">
-                    <span>Lap Time Comparatif (Avg 3 Laps)</span>
+                    <span>Lap Time Comparatif moyen</span>
                     <span className={lapTimeDeltaInfo.colorClass}>{lapTimeDeltaInfo.displayDelta}</span>
                 </div>
                 <div className="flex justify-between items-center mt-2 font-mono text-lg font-black text-white">
@@ -696,8 +717,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }) => {
                 <div className="text-[9px] text-slate-500">Based on {gameState.raceDurationHours}H @ {gameState.avgLapTimeSeconds}s</div>
              </div>
           </div>
-
-          {/* Le bloc VIRTUAL ENERGY a été supprimé ici, comme demandé. */}
 
           <div className="glass-panel rounded-xl flex-1 flex flex-col overflow-hidden min-h-[150px]">
              <div className="p-2 border-b border-white/5 bg-black/20 text-[9px] font-bold text-slate-500 uppercase tracking-widest px-3 flex justify-between items-center shrink-0"><span>RACE LOG</span><span className="text-[9px] opacity-50">{gameState.incidents.length} EVENTS</span></div>
