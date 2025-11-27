@@ -94,6 +94,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
         </div>
         
         <div className="flex items-center gap-6">
+        <div className="hidden md:flex flex-col items-end mr-2">
+               <span className="text-white font-black text-sm uppercase tracking-wide">
+                 {gameState.trackName || "UNKNOWN TRACK"}
+               </span>
+               <span className="text-indigo-400 text-[10px] font-bold tracking-widest uppercase bg-indigo-900/30 px-2 py-0.5 rounded border border-indigo-500/30">
+                 {gameState.sessionType || "SESSION"}
+               </span>
+            </div>
             <div className="hidden md:flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5 shadow-inner">
                <div className="text-right">
                  <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div>

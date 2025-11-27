@@ -58,7 +58,7 @@ const getBrakeTempColor = (temp) => {
 
 
 const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds, weather, airTemp, trackWetness }) => { 
-  const { tires, fuel, laps, virtualEnergy, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps } = telemetryData;
+  const { tires, fuel, laps, virtualEnergy, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed } = telemetryData;
 
   // Calcul du delta pour le style
   const estimatedTime = avgLapTimeSeconds;
@@ -257,6 +257,42 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                     </div>
                 </div>
             )}
+            <div className="flex gap-4 h-32">
+                
+                {/* VITESSE */}
+                <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex flex-col items-center justify-center relative overflow-hidden">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">SPEED</div>
+                    <div className="flex items-baseline gap-1">
+                        <span className="text-6xl font-black text-white italic tracking-tighter">{Math.round(speed)}</span>
+                        <span className="text-sm font-bold text-slate-500">KM/H</span>
+                    </div>
+                </div>
+
+                {/* PÉDALES (Jauges verticales) */}
+                <div className="w-32 bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex justify-center gap-4">
+                    {/* FREIN (Rouge) */}
+                    <div className="flex flex-col items-center gap-1 h-full w-full">
+                        <div className="flex-1 w-4 bg-slate-800 rounded-full overflow-hidden relative border border-slate-700">
+                            <div 
+                                className="absolute bottom-0 left-0 right-0 bg-red-600 transition-all duration-75 ease-out" 
+                                style={{ height: `${brake}%` }}
+                            ></div>
+                        </div>
+                        <span className="text-[9px] font-bold text-slate-500">BRK</span>
+                    </div>
+
+                    {/* ACCÉLÉRATEUR (Vert) */}
+                    <div className="flex flex-col items-center gap-1 h-full w-full">
+                        <div className="flex-1 w-4 bg-slate-800 rounded-full overflow-hidden relative border border-slate-700">
+                            <div 
+                                className="absolute bottom-0 left-0 right-0 bg-emerald-500 transition-all duration-75 ease-out" 
+                                style={{ height: `${throttle}%` }}
+                            ></div>
+                        </div>
+                        <span className="text-[9px] font-bold text-slate-500">THR</span>
+                    </div>
+                </div>
+            </div>
              {/* TOURS EFFECTUÉS (DÉPLACÉ) */}
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col justify-center relative overflow-hidden">
                 <div className="absolute right-0 top-0 p-4 opacity-10"><Flag size={100}/></div> 

@@ -25,6 +25,9 @@ export interface TelemetryData {
   currentLapTimeSeconds: number;
   last3LapAvgSeconds: number;
   strategyEstPitTime: number;
+  throttle: number;
+  brake: number;
+  speed: number;
   inPitLane: boolean | null;
   inGarage : boolean,
   avgWearPerLapFL?: number;
@@ -63,6 +66,8 @@ export interface GameState {
   raceTime: number;
   stintDuration: number;
   isRaceRunning: boolean;
+  trackName: string;
+  sessionType: string;
   weather: string;
   airTemp: number;
   trackWetness: number;

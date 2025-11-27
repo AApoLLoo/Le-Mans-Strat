@@ -18,10 +18,15 @@ export const useRaceData = (teamId: string) => {
     
     // État initial
     const [gameState, setGameState] = useState<GameState>({
+        throttle: 0,
+        brake: 0,
+        speed: 0,
         currentStint: 0,
         raceTime: 24 * 60 * 60,
         stintDuration: 0,
         isRaceRunning: false,
+        trackName: "LE MANS",
+        sessionType: "WAITING...",
         weather: "SUNNY",
         airTemp: 25,
         trackWetness: 0,
@@ -105,7 +110,9 @@ export const useRaceData = (teamId: string) => {
                             rlc: data.tireTempCenterRLC ?? prev.telemetry.tireTemps.rlc,
                             rrc: data.tireTempCenterRRC ?? prev.telemetry.tireTemps.rrc,
                         },
-                        
+                        throttle: data.throttle ?? prev.telemetry.throttle,
+                        brake: data.brake ?? prev.telemetry.brake,
+                        speed: data.speedKmh ?? prev.telemetry.speed,
                         currentLapTimeSeconds: data.lapTimeLast ?? prev.telemetry.currentLapTimeSeconds,
                         last3LapAvgSeconds: data.averageLapTime ?? prev.telemetry.last3LapAvgSeconds,
                         strategyEstPitTime: data.strategyEstPitTime ?? prev.telemetry.strategyEstPitTime,
