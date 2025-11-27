@@ -1,15 +1,13 @@
-import React, { useState, useMemo } from 'react';
-import { Settings, Home, Wifi, Flag, AlertOctagon, Trophy, Pause, Play } from 'lucide-react';
+import React, { useState } from 'react';
+import { Settings, Home, Wifi, Flag, AlertTriangle, ArrowRight, Clock, Plus, Trash2, RotateCcw } from 'lucide-react';
 
-// Imports des composants
 import StrategyView from './components/views/StrategyView';
 import MapView from './components/views/MapView';
 import ChatView from './components/views/ChatView';
 import TelemetryView from './components/views/TelemetryView';
-import LandingPage from './components/LandingPage'; // Créez ce fichier avec le contenu de votre accueil
-import SettingsModal from './components/SettingsModal'; // Créez ce fichier avec le contenu de votre modal
+import LandingPage from './components/LandingPage';
+import SettingsModal from './components/SettingsModal';
 
-// Hooks & Utils
 import { useRaceData } from './hooks/useRaceData';
 import { getSafeDriver, formatTime } from './utils/helpers';
 import { updateDoc, doc, arrayUnion } from "firebase/firestore";
@@ -26,31 +24,58 @@ const globalCss = `
 const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => { 
   const isHypercar = teamId === 'hypercar';
   
-  // Utilisation du Hook personnalisé
   const { 
-      gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData, confirmPitStop, db, CHAT_ID 
+      gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData, 
+      confirmPitStop, undoPitStop, resetRace, // 👇 On récupère les nouvelles fonctions
+      db, CHAT_ID 
   } = useRaceData(teamId);
 
   const [viewMode, setViewMode] = useState("STRATEGY");
   const [showSettings, setShowSettings] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [username, setUsername] = useState("Engineer");
-  const [globalMessages, setGlobalMessages] = useState<any[]>([]); // À connecter avec un hook chat séparé idéalement
+  const [globalMessages, setGlobalMessages] = useState<any[]>([]);
 
   const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
+  const nextStint = strategyData?.stints?.find(s => s.isNext);
+  const nextDriver = nextStint ? nextStint.driver : null;
 
   const sendMessage = () => {
       if (!chatInput.trim() || !db) return;
       const newMessage = {
-          id: Date.now(),
-          user: username,
-          team: teamName, 
-          teamColor: teamColor,
-          text: chatInput,
+          id: Date.now(), user: username, team: teamName, teamColor: teamColor, text: chatInput,
           time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
       };
       updateDoc(doc(db, "strategies", CHAT_ID), { messages: arrayUnion(newMessage) });
       setChatInput("");
+  };
+
+  const addIncident = () => {
+    const text = prompt("Incident details:");
+    if (text) {
+        const newIncident = {
+            id: Date.now(),
+            time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+            lap: gameState.telemetry.laps,
+            text
+        };
+        syncUpdate({ incidents: [newIncident, ...gameState.incidents] });
+    }
+  };
+
+  const addDriver = () => {
+      const newId = Date.now();
+      const newDriver = { id: newId, name: "New Driver", phone: "", color: "#64748b" };
+      syncUpdate({ drivers: [...gameState.drivers, newDriver] });
+  };
+
+  const removeDriver = (id: number | string) => {
+      if (gameState.drivers.length <= 1) return; 
+      syncUpdate({ drivers: gameState.drivers.filter(d => d.id !== id) });
+  };
+
+  const updateDriverInfo = (id: number | string, field: string, val: any) => {
+      syncUpdate({ drivers: gameState.drivers.map(d => d.id === id ? { ...d, [field]: val } : d) });
   };
 
   return (
@@ -58,7 +83,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
       <style>{globalCss}</style>
       
       {/* HEADER */}
-      <div className="h-16 glass-panel flex items-center justify-between px-6 sticky top-0 z-50 shrink-0 w-full">
+      <div className="h-16 glass-panel flex items-center justify-between px-6 sticky top-0 z-50 shrink-0 w-full border-b border-white/10">
         <div className="flex items-center gap-4">
           <button onClick={() => onTeamSelect(null)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition-colors"><Home size={20}/></button>
           <div className={`p-2 rounded transform skew-x-[-10deg] ${teamColor}`}><Flag className="text-white transform skew-x-[10deg]" size={20}/></div>
@@ -69,8 +94,11 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
         </div>
         
         <div className="flex items-center gap-6">
-            <div className="hidden md:flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5">
-               <div className="text-right"><div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div><div className={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div></div>
+            <div className="hidden md:flex items-center gap-4 bg-black/40 px-6 py-1.5 rounded-lg border border-white/5 shadow-inner">
+               <div className="text-right">
+                 <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">RACE TIME</div>
+                 <div className={`font-mono text-2xl lg:text-3xl font-bold leading-none ${localRaceTime < 3600 ? 'text-red-500' : 'text-white'}`}>{formatTime(localRaceTime)}</div>
+               </div>
             </div>
         </div>
         <div className="flex gap-2">
@@ -80,64 +108,114 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
 
       {/* CONTENT */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden p-4 lg:p-6 gap-6 w-full">
-        {/* LEFT PANEL (Sidebar simplifiée pour l'exemple) */}
+        
+        {/* SIDEBAR */}
         <div className="w-full lg:w-[420px] shrink-0 flex flex-col gap-4 h-full overflow-hidden">
-             {/* Vous pouvez extraire ceci dans un composant Sidebar.tsx */}
-             <div className="glass-panel rounded-xl p-6 relative overflow-hidden group shrink-0">
-                 <h2 className="text-3xl font-black text-white italic uppercase">{activeDriver.name}</h2>
-                 <div className="text-indigo-300 font-mono text-sm mt-2">Stint: {formatTime(localStintTime)}</div>
-                 <button onClick={confirmPitStop} className="w-full mt-4 bg-indigo-600 text-white p-3 rounded font-bold">PIT STOP DONE</button>
+             
+             {/* 1. ACTIVE DRIVER */}
+             <div className="glass-panel rounded-xl p-6 relative overflow-hidden group shrink-0 border-l-4 border-l-indigo-500">
+                 <div className="absolute top-2 right-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">CURRENT</div>
+                 <h2 className="text-3xl font-black text-white italic uppercase truncate">{activeDriver.name}</h2>
+                 <div className="text-indigo-300 font-mono text-sm mt-2 flex items-center gap-2">
+                    <Clock size={14}/> Stint: <span className="text-white font-bold">{formatTime(localStintTime)}</span>
+                 </div>
+                 
+                 <div className="flex flex-col gap-2 mt-4">
+                    <button onClick={confirmPitStop} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded font-bold transition-all shadow-lg shadow-indigo-900/20 active:scale-95">
+                        CONFIRM PIT STOP
+                    </button>
+                    {/* 👇 BOUTON UNDO */}
+                    <button onClick={undoPitStop} className="w-full bg-slate-800 hover:bg-slate-700 text-slate-400 p-2 rounded text-xs font-bold flex items-center justify-center gap-2 transition-colors">
+                        <RotateCcw size={12}/> UNDO LAST STOP
+                    </button>
+                 </div>
+             </div>
+
+             {/* 2. NEXT DRIVER */}
+             <div className="glass-panel p-5 rounded-xl shrink-0 flex flex-col gap-2 border-l-4 border-l-slate-600">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <ArrowRight size={12}/> NEXT DRIVER
+                </div>
+                {nextDriver ? (
+                    <div className="flex items-center justify-between">
+                        <span className="font-bold text-2xl text-white truncate">{nextDriver.name}</span>
+                        <div className="h-4 w-4 rounded shadow-sm border border-white/20" style={{background: nextDriver.color}}></div>
+                    </div>
+                ) : (
+                    <span className="text-slate-600 font-mono text-sm italic">-- Check Strategy --</span>
+                )}
+             </div>
+
+             {/* 3. INCIDENTS */}
+             <div className="glass-panel p-4 rounded-xl flex-1 flex flex-col gap-3 min-h-0 border-l-4 border-l-amber-500/50">
+                 <div className="flex items-center justify-between shrink-0">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                        <AlertTriangle size={12} className="text-amber-500"/> RACE LOG
+                    </div>
+                    <button onClick={addIncident} className="text-[10px] bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded text-white font-bold flex items-center gap-1 transition-colors"><Plus size={10}/> ADD</button>
+                 </div>
+                 
+                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                    {gameState.incidents.length === 0 && <div className="text-center text-xs text-slate-700 py-4">No events</div>}
+                    {gameState.incidents.map((inc: any) => (
+                        <div key={inc.id} className="bg-slate-900/80 p-3 rounded border-l-2 border-amber-500 hover:bg-slate-800 transition-colors">
+                            <div className="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
+                                <span className="text-amber-500 font-bold">{inc.time}</span>
+                                <span>Lap {inc.lap}</span>
+                            </div>
+                            <div className="text-xs text-slate-200 font-medium leading-tight">{inc.text}</div>
+                        </div>
+                    ))}
+                 </div>
              </div>
         </div>
 
-        {/* RIGHT PANEL (Main View) */}
+        {/* RIGHT PANEL */}
         <div className="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500 relative w-full">
-           <div className="p-3 border-b border-white/5 bg-slate-900/50 flex gap-2">
+           <div className="p-3 border-b border-white/5 bg-slate-900/50 flex gap-2 shrink-0">
                {["STRATEGY", "TELEMETRY", "MAP", "CHAT"].map(mode => (
-                   <button key={mode} onClick={() => setViewMode(mode)} className={`px-3 py-1 rounded text-xs font-bold ${viewMode === mode ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>{mode}</button>
+                   <button key={mode} onClick={() => setViewMode(mode)} className={`px-4 py-1.5 rounded text-xs font-bold tracking-wide transition-all ${viewMode === mode ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>{mode}</button>
                ))}
            </div>
            
-           {/* VUES AVEC PROPS CORRECTES */}
-           {viewMode === "STRATEGY" && (
-             <StrategyView 
-               strategyData={strategyData}
-               drivers={gameState.drivers}
-               stintNotes={gameState.stintNotes}
-               onAssignDriver={(idx: number, id: any) => {
-                   const newAssign = {...gameState.stintAssignments, [idx]: Number(id)};
-                   syncUpdate({ stintAssignments: newAssign });
-               }}
-               onUpdateNote={(stopNum: any, val: any) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
-               isHypercar={isHypercar}
-               telemetryData={gameState.telemetry}
-             />
-           )}
-
-           {viewMode === "TELEMETRY" && (
-             <TelemetryView 
-                telemetryData={gameState.telemetry}
-                isHypercar={isHypercar}
-                position={gameState.position} 
-                avgLapTimeSeconds={gameState.avgLapTimeSeconds} 
-                weather={gameState.weather}
-                airTemp={gameState.airTemp}
-                trackWetness={gameState.trackWetness}
-             />
-           )}
-
-           {viewMode === "MAP" && <MapView />}
-
-           {viewMode === "CHAT" && (
-             <ChatView 
-                messages={globalMessages}
-                username={username}
-                setUsername={setUsername}
-                chatInput={chatInput}
-                setChatInput={setChatInput}
-                onSendMessage={sendMessage}
-             />
-           )}
+           <div className="flex-1 overflow-hidden relative">
+               {viewMode === "STRATEGY" && (
+                 <StrategyView 
+                   strategyData={strategyData}
+                   drivers={gameState.drivers}
+                   stintNotes={gameState.stintNotes}
+                   onAssignDriver={(idx: number, id: any) => {
+                       const newAssign = {...gameState.stintAssignments, [idx]: Number(id)};
+                       syncUpdate({ stintAssignments: newAssign });
+                   }}
+                   onUpdateNote={(stopNum: any, val: any) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
+                   isHypercar={isHypercar}
+                   telemetryData={gameState.telemetry}
+                 />
+               )}
+               {viewMode === "TELEMETRY" && (
+                 <TelemetryView 
+                    telemetryData={gameState.telemetry}
+                    isHypercar={isHypercar}
+                    position={gameState.position} 
+                    avgLapTimeSeconds={gameState.avgLapTimeSeconds} 
+                    weather={gameState.weather}
+                    airTemp={gameState.airTemp}
+                    trackWetness={gameState.trackWetness}
+                 />
+               )}
+               {viewMode === "MAP" && <MapView />}
+               {viewMode === "CHAT" && (
+                 <ChatView 
+                    messages={globalMessages}
+                    username={username}
+                    setUsername={setUsername}
+                    chatInput={chatInput}
+                    setChatInput={setChatInput}
+                    onSendMessage={sendMessage}
+                 />
+               )}
+           </div>
         </div>
       </div>
 
@@ -148,10 +226,10 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
             syncUpdate={syncUpdate}
             onClose={() => setShowSettings(false)}
             isHypercar={isHypercar}
-            onAddDriver={() => { /* logique add */ }}
-            onRemoveDriver={(id: any) => { /* logique remove */ }}
-            onUpdateDriver={(id: any, f: string, v: any) => { /* logique update */ }}
-            onReset={() => { /* logique reset */ }}
+            onAddDriver={addDriver}
+            onRemoveDriver={removeDriver}
+            onUpdateDriver={updateDriverInfo}
+            onReset={resetRace} // 👇 FONCTION RESET BRANCHÉE ICI
         />
       )}
     </div>
@@ -162,7 +240,6 @@ const RaceStrategyApp = () => {
   const [selectedTeam, setSelectedTeam] = useState(null); 
 
   if (!selectedTeam) {
-    // Assurez-vous d'avoir créé LandingPage.tsx ou copiez le JSX ici
     return <LandingPage onSelectTeam={setSelectedTeam} />;
   }
 

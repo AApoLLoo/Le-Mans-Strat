@@ -26,6 +26,7 @@ export interface TelemetryData {
   last3LapAvgSeconds: number;
   strategyEstPitTime: number;
   inPitLane: boolean | null;
+  inGarage : boolean,
   avgWearPerLapFL?: number;
   avgWearPerLapFR?: number;
   avgWearPerLapRL?: number;

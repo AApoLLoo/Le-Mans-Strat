@@ -9,6 +9,7 @@ const firebaseConfig = {
   storageBucket: "le-mans-strat.firebasestorage.app",
   messagingSenderId: "1063156323054",
   appId: "1:1063156323054:web:81e74528a75ffb770099ff"
+
 };
 
 let db: any;
