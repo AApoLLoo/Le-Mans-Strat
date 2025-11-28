@@ -47,7 +47,7 @@ export const useRaceData = (teamId: string) => {
             tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
             brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
-            currentLapTimeSeconds: 0, last3LapAvgSeconds: 0,
+            currentLapTimeSeconds: 0, AvgLapTime: 0,
             strategyEstPitTime: 0, inPitLane: false, inGarage: true,
         },
         stintVirtualEnergy: {}
@@ -88,7 +88,7 @@ export const useRaceData = (teamId: string) => {
                             current: data.fuelRemainingL,
                             max: data.fuelTankCapacityL || prev.telemetry.fuel.max,
                             averageCons: data.averageConsumptionFuel || 0,
-                            lastLapCons: data.fuelRemainingL 
+                            lastLapCons: data.lastLapFuelConsumption 
                         } : prev.telemetry.fuel,
                         
                         tires: {
@@ -97,7 +97,21 @@ export const useRaceData = (teamId: string) => {
                             rl: data.tireWearRL ?? prev.telemetry.tires.rl,
                             rr: data.tireWearRR ?? prev.telemetry.tires.rr,
                         },
+                        brakeTemps: {
+                            flc: data.brakeTempFLC ?? prev.telemetry.brakeTemps.flc,
+                            frc: data.brakeTempFRC ?? prev.telemetry.brakeTemps.frc,
+                            rlc: data.brakeTempRLC ?? prev.telemetry.brakeTemps.rlc,
+                            rrc: data.brakeTempRRC ?? prev.telemetry.brakeTemps.rrc,
+                        },
+                        tireTemps: {
+                            flc: data.tireTempCenterFLC ?? prev.telemetry.tireTemps.flc,
+                            frc: data.tireTempCenterFRC ?? prev.telemetry.tireTemps.frc,
+                            rlc: data.tireTempCenterRLC ?? prev.telemetry.tireTemps.rlc,
+                            rrc: data.tireTempCenterRRC ?? prev.telemetry.tireTemps.rrc,
+                        },
                         laps: data.currentLap ?? prev.telemetry.laps,
+                        moyLap: data.averageLapTime ?? prev.telemetry.AvgLapTime,
+                        curLap: data.lapTimeLast ?? prev.telemetry.LapTimeLast,
                         speed: data.speedKmh ?? prev.telemetry.speed,
                         throttle: data.throttle ?? 0,
                         brake: data.brake ?? 0,
@@ -150,7 +164,7 @@ export const useRaceData = (teamId: string) => {
 
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
-        const activeLapTime = Math.max(1, gameState.telemetry.last3LapAvgSeconds || gameState.avgLapTimeSeconds || 210);
+        const activeLapTime = Math.max(1, gameState.telemetry.AvgLapTime || gameState.avgLapTimeSeconds || 210);
         const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
         const activeVECons = Math.max(0.1, gameState.telemetry.virtualEnergyAvgCons || gameState.veCons);
         const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
@@ -160,14 +174,14 @@ export const useRaceData = (teamId: string) => {
         const lapsPerStint = Math.max(1, isHypercar ? lapsPerVE : lapsPerTank);
         
         const lapsRemaining = Math.max(1, Math.ceil(localRaceTime / activeLapTime));
-        const currentLap = gameState.telemetry.laps;
-        const totalLapsTarget = currentLap + lapsRemaining;
+        const AvgLapTime = gameState.telemetry.laps;
+        const totalLapsTarget = AvgLapTime + lapsRemaining;
 
         const stints: Stint[] = [];
         const currentStintIndex = gameState.currentStint;
 
         // Stints passés
-        const avgPastStintLen = currentStintIndex > 0 ? Math.max(0, currentLap - (lapsPerStint * 0.5)) / currentStintIndex : lapsPerStint;
+        const avgPastStintLen = currentStintIndex > 0 ? Math.max(0, AvgLapTime - (lapsPerStint * 0.5)) / currentStintIndex : lapsPerStint;
         for (let i = 0; i < currentStintIndex; i++) {
             let driverId = gameState.stintAssignments[i];
             if (!driverId) driverId = gameState.drivers[i % gameState.drivers.length]?.id;
@@ -181,12 +195,12 @@ export const useRaceData = (teamId: string) => {
 
         // Stint actuel
         stints.push({
-            id: currentStintIndex, stopNum: currentStintIndex + 1, startLap: currentLap, endLap: currentLap + lapsPerStint,
+            id: currentStintIndex, stopNum: currentStintIndex + 1, startLap: AvgLapTime, endLap: AvgLapTime + lapsPerStint,
             fuel: "CURRENT", driver: activeDriver, driverId: activeDriver.id, isCurrent: true, isNext: false, isDone: false, note: "NOW", lapsCount: lapsPerStint
         });
 
         // Stints futurs
-        let lapCounter = currentLap + lapsPerStint;
+        let lapCounter = AvgLapTime + lapsPerStint;
         let nextIdx = currentStintIndex + 1;
         let safetyBreak = 0;
         while(lapCounter < totalLapsTarget && safetyBreak < 200) {

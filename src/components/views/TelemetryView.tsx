@@ -38,7 +38,7 @@ const getBrakeTempColor = (temp: number) => {
 };
 
 const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds, weather, airTemp, trackWetness }: any) => { 
-  const { tires, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
+  const { tires, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, moyLap, curLap, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
 
   const [showVirtualEnergy, setShowVirtualEnergy] = useState(false);
 
@@ -52,7 +52,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
   const icon = isVE ? <Zap size={14} className="text-yellow-300 fill-yellow-300"/> : <Fuel size={14}/>;
   const labelColor = isVE ? 'text-cyan-400' : 'text-slate-500';
 
-  const delta = last3LapAvgSeconds - avgLapTimeSeconds;
+  const delta = moyLap - avgLapTimeSeconds;
   let deltaColorClass = 'text-white';
   let deltaSign = '';
   if (delta > 0.5) { deltaColorClass = 'text-red-500'; deltaSign = '+'; } 
@@ -87,7 +87,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
             <div className="flex flex-col items-end">
                 <div className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1"><Clock size={12} className="text-amber-500"/> Avg Lap (Last 3)</div>
                 <div className="text-3xl font-black italic tracking-tighter font-mono flex items-center gap-2">
-                    <span className="text-white">{formatLapTime(last3LapAvgSeconds)}</span>
+                    <span className="text-white">{formatLapTime(moyLap)}</span>
                     <span className={`text-base font-bold ${deltaColorClass}`}>{displayDelta}</span>
                 </div>
             </div>
@@ -174,7 +174,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col justify-center relative overflow-hidden">
                 <div className="absolute right-0 top-0 p-4 opacity-10 text-indigo-400"><Clock size={100}/></div>
                 <h3 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-2"><Clock size={14}/> Current Lap Time</h3>
-                <div className="text-6xl font-black text-white tracking-tighter font-mono">{formatLapTime(currentLapTimeSeconds)}</div>
+                <div className="text-6xl font-black text-white tracking-tighter font-mono">{formatLapTime(curLap)}</div>
             </div>
 
             {/* --- BLOC ÉNERGIE --- */}
@@ -213,7 +213,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                     {!isVE && (
                         <>
                             <span>Last Lap: {fuel.lastLapCons.toFixed(2)} L</span>
-                            <span>Avg: {fuel.averageCons.toFixed(2)} L</span>
+                            <span>AvgLapTime: {fuel.averageCons.toFixed(2)} L</span>
                         </>
                     )}
                     {isVE && (
