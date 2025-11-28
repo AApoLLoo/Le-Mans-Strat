@@ -34,7 +34,8 @@ const StrategyView = ({
     stintNotes, 
     onAssignDriver, 
     onUpdateNote, 
-    isHypercar, 
+    isHypercar,
+    isLMGT3, // <--- AJOUTÉ ICI POUR CORRIGER L'ERREUR
     telemetryData 
 }) => {
   
@@ -71,7 +72,7 @@ const StrategyView = ({
                   <Fuel size={10}/> Avg Cons.
               </div>
               <div className="text-xl font-mono font-black text-blue-400">
-                  {activeCons.toFixed(2)} <span className="text-xs text-slate-500">L/Lap</span>
+                  {activeCons.toFixed(2)} <span className="text-xs text-slate-500">{ (isHypercar || isLMGT3) ? '%/Lap' : 'L/Lap'}</span>
               </div>
           </div>
 
@@ -162,7 +163,7 @@ const StrategyView = ({
 
                  {/* Refuel */}
                  <td className="p-3 text-right font-mono text-xs font-bold">
-                    <span className={stint.fuel.includes("FULL") ? "text-amber-400" : "text-blue-300"}>
+                    <span className={stint.fuel.includes("FULL") ? "text-amber-400" : (stint.fuel.includes("NRG") ? "text-cyan-400" : "text-blue-300")}>
                         {stint.fuel}
                     </span>
                  </td>

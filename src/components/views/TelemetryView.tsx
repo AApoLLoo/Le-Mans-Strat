@@ -10,6 +10,7 @@ const getTireColorGradient = (wear: number) => {
   if (wear > 30) return 'bg-gradient-to-t from-orange-600 to-orange-400 shadow-[0_0_15px_rgba(251,146,60,0.3)]';
   return 'bg-gradient-to-t from-red-700 to-red-500 shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse';
 };
+
 const getCompoundBadgeColor = (compound: string | undefined | null) => {
     if (!compound) return "text-slate-400 border-slate-600/50 bg-slate-800/50";
     const c = String(compound).toUpperCase();
@@ -19,8 +20,8 @@ const getCompoundBadgeColor = (compound: string | undefined | null) => {
     if (c.includes("WET") || c.includes("RAIN")) return "text-blue-400 border-blue-400/50 bg-blue-950/30";
     return "text-slate-400 border-slate-600/50 bg-slate-800/50";
 };
+
 const getTempColor = (temp: number, type: 'brake' | 'tire') => {
-    // Logique simplifiée pour les couleurs de température
     if (type === 'brake') {
         if (temp > 700) return 'text-red-500 font-black animate-pulse';
         if (temp > 500) return 'text-emerald-400 font-bold';
@@ -51,12 +52,25 @@ const getWeatherIcon = (weather: string) => {
 // --- COMPOSANT PRINCIPAL ---
 
 const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTimeSeconds, weather, airTemp, trackWetness }: any) => { 
-  const { tires, tireCompounds, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons,  moyLap, curLap, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
+  const { 
+      tires, tireCompounds, fuel, laps, 
+      virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, 
+      moyLap, curLap, brakeTemps, tireTemps, 
+      throttle, brake, speed, rpm, maxRpm, 
+      waterTemp, oilTemp, 
+      carCategory // Récupération de la catégorie envoyée par le Bridge
+  } = telemetryData;
 
   const [showVirtualEnergy, setShowVirtualEnergy] = useState(false);
   const compounds = tireCompounds || { fl: "---", fr: "---", rl: "---", rr: "---" };
-  // Gestion Energie
-  const isVE = showVirtualEnergy && (isHypercar || isLMGT3);
+  
+  // --- CORRECTION ---
+  // Détection robuste : on utilise le flag isLMGT3 (basé sur l'ID) OU la catégorie réelle du jeu
+  const isCategoryGT3 = isLMGT3 || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('gt3') || carCategory.toLowerCase().includes('lmgt3')));
+  
+  // Gestion Energie (Hypercar OU GT3)
+  const isVE = showVirtualEnergy && (isHypercar || isCategoryGT3);
+  
   const currentResource = isVE ? virtualEnergy : fuel.current;
   const maxResource = isVE ? 100 : fuel.max;
   const resourcePercentage = Math.min(100, Math.max(0, (currentResource / maxResource) * 100));
@@ -76,6 +90,7 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
   else if (delta < -0.5) { deltaColorClass = 'text-emerald-400 shadow-emerald-400/20'; } 
   
   const displayDelta = delta !== 0 ? `${deltaSign}${Math.abs(delta).toFixed(2)}` : '-.--';
+
   const renderTire = (name: string, wear: number, brakeT: number, tireT: number, compound: string) => (
     <div className="flex flex-col items-center gap-2 flex-1 h-full justify-center">
         <span className="text-[10px] text-slate-500 font-bold tracking-widest">{name}</span>
@@ -83,11 +98,10 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
         {/* Pneu Graphique */}
         <div className="relative w-12 lg:w-16 flex-1 bg-slate-900/80 rounded-lg border border-slate-700 overflow-hidden shadow-inner group flex flex-col justify-end">
             <div className={`absolute bottom-0 left-0 right-0 w-full transition-all duration-700 ease-out ${getTireColorGradient(wear)}`} style={{ height: `${wear}%` }}>
-                {/* Texture */}
                 <div className="w-full h-full opacity-30 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjIiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiAvPgo8L3N2Zz4=')]"></div>
             </div>
             
-            {/* Badge Compound intégré en bas du pneu */}
+            {/* Badge Compound */}
             <div className="absolute bottom-1 left-0 right-0 flex justify-center z-20">
                  <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border backdrop-blur-sm ${getCompoundBadgeColor(compound)}`}>
                     {compound}
@@ -118,8 +132,6 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
       
       {/* 1. HEADER COMPACT (Fixe) */}
       <div className="bg-slate-900/60 border border-white/10 rounded-xl p-3 flex items-center justify-between shrink-0 backdrop-blur-md shadow-lg">
-          
-          {/* Météo */}
           <div className="flex items-center gap-6">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5">
                   {getWeatherIcon(weather)}
@@ -137,7 +149,6 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
               </div>
           </div>
 
-          {/* Position & Chrono */}
           <div className="flex items-center gap-6">
             <div className="text-right">
                 <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest flex items-center justify-end gap-1">
@@ -154,10 +165,10 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
           </div>
       </div>
       
-      {/* 2. GRID PRINCIPALE (S'adapte à la hauteur) */}
+      {/* 2. GRID PRINCIPALE */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 overflow-hidden">
         
-        {/* COLONNE GAUCHE : PNEUS (Prend toute la hauteur) */}
+        {/* COLONNE GAUCHE : PNEUS */}
         <div className="flex-[2] bg-slate-900/40 border border-white/5 rounded-xl p-4 flex flex-col relative overflow-hidden backdrop-blur-sm">
             <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none">
                 <Disc size={120} />
@@ -166,14 +177,12 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                 <h3 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2"><Activity size={14} className="text-indigo-500"/> Tyre Status</h3>
             </div>
             
-            {/* Grille Pneus 2x2 */}
             <div className="flex-1 flex gap-4 min-h-0">
                 <div className="flex flex-col justify-between h-full gap-4">
                     {renderTire('FL', tires.fl, brakeTemps.flc, tireTemps.flc, compounds.fl)}
                     {renderTire('RL', tires.rl, brakeTemps.rlc, tireTemps.rlc, compounds.rl)}
                 </div>
                 
-                {/* Silhouette Voiture Centrale */}
                 <div className="flex items-center justify-center opacity-10 mx-2">
                     <div className="w-16 h-[80%] bg-slate-500 rounded-[2rem]"></div>
                 </div>
@@ -185,28 +194,27 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
             </div>
         </div>
 
-        {/* COLONNE DROITE : DATA (Flex-1 pour remplir) */}
+        {/* COLONNE DROITE : DATA */}
         <div className="flex-[3] flex flex-col gap-3 min-h-0">
             
-            {/* LIGNE 1 : FUEL & LAP (Hauteur flexible) */}
+            {/* LIGNE 1 : FUEL & LAP */}
             <div className="flex-1 flex gap-3 min-h-0">
                 
                 {/* Fuel / Energy */}
                 <div className="flex-[3] bg-slate-900/40 border border-white/5 rounded-xl p-4 flex flex-col justify-center relative group">
                     <div className="flex justify-between items-start mb-2">
                         <h3 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">{icon} {label}</h3>
-                        {(isHypercar || isLMGT3) && (
+                        {/* Bouton switch visible si Hypercar OU GT3 détectée */}
+                        {(isHypercar || isCategoryGT3) && (
                             <button onClick={() => setShowVirtualEnergy(!showVirtualEnergy)} className="p-1.5 bg-white/5 hover:bg-white/10 rounded transition-colors text-slate-400 hover:text-white">
                                 <RefreshCw size={12}/>
                             </button>
                         )}
                     </div>
                     
-                    {/* Grande Barre */}
                     <div className="flex-1 w-full bg-slate-950 rounded-lg overflow-hidden border border-white/10 relative shadow-inner min-h-[40px]">
                         <div className={`h-full transition-all duration-700 ease-out ${barColor}`} style={{ width: `${resourcePercentage}%` }}></div>
                         
-                        {/* Texte superposé */}
                         <div className="absolute inset-0 flex items-center justify-between px-4">
                             <span className="text-2xl font-black text-white italic drop-shadow-md tracking-tighter">
                                 {isVE ? `${Math.round(currentResource)}%` : `${currentResource.toFixed(1)} L`}
@@ -218,7 +226,6 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                         </div>
                     </div>
 
-                    {/* Batterie Hybride (Sous barre) */}
                     {isHypercar && (
                         <div className="mt-3 flex items-center gap-2">
                             <Battery size={12} className="text-green-400"/>
@@ -240,10 +247,8 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                 </div>
             </div>
 
-            {/* LIGNE 2 : TELEMETRIE VOITURE (Hauteur flexible) */}
+            {/* LIGNE 2 : TELEMETRIE VOITURE */}
             <div className="flex-[2] bg-slate-900/40 border border-white/5 rounded-xl p-4 flex flex-col min-h-0 relative overflow-hidden">
-                
-                {/* Header interne */}
                 <div className="flex justify-between items-start mb-4 z-10 shrink-0">
                     <div className="flex gap-6">
                         <div className="flex items-center gap-2">
@@ -261,7 +266,6 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                             </div>
                         </div>
                     </div>
-                    {/* Vitesse */}
                     <div className="text-right">
                         <div className="text-5xl lg:text-6xl font-black text-white italic tracking-tighter leading-none tabular-nums">
                             {Math.round(speed)}
@@ -270,10 +274,7 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                     </div>
                 </div>
 
-                {/* RPM Bar & Pedals */}
                 <div className="mt-auto flex flex-col gap-2 z-10">
-                    
-                    {/* Pédales (Barres horizontales fines) */}
                     <div className="flex gap-2 h-2">
                         <div className="flex-1 bg-slate-800 rounded-full overflow-hidden flex flex-col-reverse relative">
                             <div className="absolute inset-0 bg-red-600 transition-all duration-75 origin-left" style={{ width: `${brake}%` }}></div>
@@ -283,25 +284,19 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                         </div>
                     </div>
 
-                    {/* RPM Bar */}
                     <div className="w-full bg-slate-950 h-6 lg:h-8 rounded-md overflow-hidden border border-slate-700 relative">
-                        {/* Zone rouge indicateur */}
                         <div className="absolute right-0 top-0 bottom-0 w-[10%] bg-red-900/30 border-l border-red-500/50 z-0"></div>
-                        
                         <div 
                             className={`h-full transition-all duration-75 ease-linear ${rpm > maxRpm * 0.95 ? 'bg-red-500 shadow-[0_0_20px_rgba(239,68,68,0.8)]' : 'bg-gradient-to-r from-indigo-600 to-cyan-400'}`} 
                             style={{ width: `${(rpm / maxRpm) * 100}%` }}
                         ></div>
-                        
-                        {/* Grille par dessus */}
                         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iMSIgaGVpZ2h0PSI0IiBmaWxsPSJyZ2JhKDAsMCwwLDAuMikiIC8+Cjwvc3ZnPg==')] opacity-30"></div>
-                        
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-white drop-shadow-md font-mono">{rpm}</span>
                     </div>
                 </div>
             </div>
 
-            {/* LIGNE 3 : TOTAL LAPS (Hauteur fixe compacte) */}
+            {/* LIGNE 3 : TOTAL LAPS */}
             <div className="bg-slate-900/40 border border-white/5 rounded-xl p-3 flex items-center justify-between shrink-0 overflow-hidden relative">
                 <div className="flex items-center gap-3 z-10">
                     <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-400"><Flag size={18}/></div>
