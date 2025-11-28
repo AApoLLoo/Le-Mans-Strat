@@ -67,6 +67,19 @@ export const useRaceData = (teamId: string) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
 
+                // Calcul du temps écoulé depuis la dernière mise à jour du bridge
+                let adjustedRaceTime = data.sessionTimeRemainingSeconds;
+
+                if (data.isRaceRunning && data.lastPacketTime) {
+                    const now = Date.now();
+                    const timeDiffSeconds = (now - data.lastPacketTime) / 1000;
+                    
+                    // Si la donnée date de moins de 24h (pour éviter des bugs si vieux fichier), on ajuste
+                    if (timeDiffSeconds > 0 && timeDiffSeconds < 86400) {
+                        adjustedRaceTime = Math.max(0, data.sessionTimeRemainingSeconds - timeDiffSeconds);
+                    }
+                }
+
                 setGameState(prev => {
                     const liveTelemetry = {
                         ...prev.telemetry,
@@ -105,8 +118,8 @@ export const useRaceData = (teamId: string) => {
                     };
                 });
 
-                if (data.isRaceRunning && typeof data.sessionTimeRemainingSeconds === 'number') {
-                    setLocalRaceTime(data.sessionTimeRemainingSeconds);
+                if (data.isRaceRunning && typeof adjustedRaceTime === 'number') {
+                    setLocalRaceTime(adjustedRaceTime);
                 }
                 setStatus("LIVE DATA");
             } else {

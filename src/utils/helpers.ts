@@ -3,9 +3,14 @@ import type { Driver } from '../types';
 
 export const formatTime = (s: number) => {
     if(isNaN(s) || s < 0) return "00:00:00";
-    const h = Math.floor(s/3600).toString().padStart(2,'0');
-    const m = Math.floor((s%3600)/60).toString().padStart(2,'0');
-    const sec = (s%60).toString().padStart(2,'0');
+    
+    // On s'assure de travailler sur des entiers pour l'affichage
+    const val = Math.floor(s);
+    
+    const h = Math.floor(val / 3600).toString().padStart(2, '0');
+    const m = Math.floor((val % 3600) / 60).toString().padStart(2, '0');
+    const sec = (val % 60).toString().padStart(2, '0'); // Math.floor(s % 60) est aussi valide
+    
     return `${h}:${m}:${sec}`;
 };
 
@@ -13,6 +18,7 @@ export const formatLapTime = (s: number) => {
     if (isNaN(s) || s <= 0) return "---";
     const minutes = Math.floor(s / 60);
     const seconds = s % 60;
+    // Ici on garde 1 décimale pour les temps au tour (ex: 3:24.5)
     return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`; 
 };
 
