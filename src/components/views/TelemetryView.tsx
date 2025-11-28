@@ -50,7 +50,7 @@ const getWeatherIcon = (weather: string) => {
 // --- COMPOSANT PRINCIPAL ---
 
 const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTimeSeconds, weather, airTemp, trackWetness }: any) => { 
-  const { tires, tireCompounds, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
+  const { tires, tireCompounds, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons,  moyLap, curLap, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
 
   const [showVirtualEnergy, setShowVirtualEnergy] = useState(false);
 
@@ -68,7 +68,7 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
   const icon = isVE ? <Zap size={14} className="text-cyan-300 fill-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
 
   // Calcul Delta
-  const delta = last3LapAvgSeconds - avgLapTimeSeconds;
+  const delta = moyLap - avgLapTimeSeconds;
   let deltaColorClass = 'text-slate-400';
   let deltaSign = '';
   if (delta > 0.5) { deltaColorClass = 'text-red-500 shadow-red-500/20'; deltaSign = '+'; } 
@@ -137,7 +137,7 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                     <Clock size={10}/> Moyenne des tours
                 </div>
                 <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-xl font-bold text-white">{formatLapTime(last3LapAvgSeconds)}</span>
+                    <span className="font-mono text-xl font-bold text-white">{formatLapTime(moyLap)}</span>
                     <span className={`font-mono text-xs font-bold ${deltaColorClass}`}>{displayDelta}</span>
                 </div>
             </div>
@@ -228,7 +228,7 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                     <div className="absolute inset-0 bg-indigo-500/5"></div>
                     <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest mb-1">Current Lap</span>
                     <span className="text-4xl lg:text-5xl font-black text-white italic tracking-tighter font-mono drop-shadow-lg">
-                        {formatLapTime(currentLapTimeSeconds)}
+                        {formatLapTime(curLap)}
                     </span>
                 </div>
             </div>

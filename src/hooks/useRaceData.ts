@@ -56,7 +56,7 @@ export const useRaceData = (teamId: string) => {
             
             brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
-            currentLapTimeSeconds: 0, last3LapAvgSeconds: 0,
+            currentLapTimeSeconds: 0, AvgLapTime: 0,
             strategyEstPitTime: 0, inPitLane: false, inGarage: true,
         },
         stintVirtualEnergy: {}
@@ -127,6 +127,8 @@ export const useRaceData = (teamId: string) => {
                         },
                         
                         laps: data.currentLap ?? prev.telemetry.laps,
+                        moyLap: data.averageLapTime ?? prev.telemetry.AvgLapTime,
+                        curLap: data.lapTimeLast ?? prev.telemetry.LapTimeLast,
                         speed: data.speedKmh ?? prev.telemetry.speed,
                         throttle: data.throttle ?? 0,
                         brake: data.brake ?? 0,
@@ -193,7 +195,6 @@ export const useRaceData = (teamId: string) => {
         const lapsRemaining = Math.max(1, Math.ceil(localRaceTime / activeLapTime));
         const currentLap = gameState.telemetry.laps;
         const totalLapsTarget = currentLap + lapsRemaining;
-
         const stints: Stint[] = [];
         const currentStintIndex = gameState.currentStint;
 
