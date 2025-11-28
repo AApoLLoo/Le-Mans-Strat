@@ -22,13 +22,13 @@ const globalCss = `
 `;
 
 const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => { 
-  const isHypercar = teamId === 'hypercar';
+  const isHypercarStyle = teamId.toLowerCase().includes('hyper') || teamId.toLowerCase().includes('red');
   
   const { 
       gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData, 
-      confirmPitStop, undoPitStop, resetRace, // 👇 On récupère les nouvelles fonctions
+      confirmPitStop, undoPitStop, resetRace, 
       db, CHAT_ID 
-  } = useRaceData(teamId);
+  } = useRaceData(teamId); 
 
   const [viewMode, setViewMode] = useState("STRATEGY");
   const [showSettings, setShowSettings] = useState(false);
@@ -88,7 +88,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
           <button onClick={() => onTeamSelect(null)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition-colors"><Home size={20}/></button>
           <div className={`p-2 rounded transform skew-x-[-10deg] ${teamColor}`}><Flag className="text-white transform skew-x-[10deg]" size={20}/></div>
           <div>
-            <h1 className="font-bold text-lg lg:text-xl tracking-tighter text-white italic uppercase">{teamName} <span className="text-slate-500">24H</span></h1>
+            <h1 className="font-bold text-lg lg:text-xl tracking-tighter text-white italic uppercase">{teamName}</h1>
             <div className={`text-[10px] font-bold tracking-widest flex items-center gap-1 ${status.includes('LIVE') ? 'text-emerald-500' : 'text-red-500'}`}><Wifi size={10}/> {status}</div>
           </div>
         </div>
@@ -96,7 +96,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
         <div className="flex items-center gap-6">
         <div className="hidden md:flex flex-col items-end mr-2">
                <span className="text-white font-black text-sm uppercase tracking-wide">
-                 {gameState.trackName || "UNKNOWN TRACK"}
+                 {gameState.trackName || "TRACK"}
                </span>
                <span className="text-indigo-400 text-[10px] font-bold tracking-widest uppercase bg-indigo-900/30 px-2 py-0.5 rounded border border-indigo-500/30">
                  {gameState.sessionType || "SESSION"}
@@ -132,7 +132,6 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
                     <button onClick={confirmPitStop} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded font-bold transition-all shadow-lg shadow-indigo-900/20 active:scale-95">
                         CONFIRM PIT STOP
                     </button>
-                    {/* 👇 BOUTON UNDO */}
                     <button onClick={undoPitStop} className="w-full bg-slate-800 hover:bg-slate-700 text-slate-400 p-2 rounded text-xs font-bold flex items-center justify-center gap-2 transition-colors">
                         <RotateCcw size={12}/> UNDO LAST STOP
                     </button>
@@ -197,14 +196,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
                        syncUpdate({ stintAssignments: newAssign });
                    }}
                    onUpdateNote={(stopNum: any, val: any) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
-                   isHypercar={isHypercar}
+                   isHypercar={isHypercarStyle}
                    telemetryData={gameState.telemetry}
                  />
                )}
                {viewMode === "TELEMETRY" && (
                  <TelemetryView 
                     telemetryData={gameState.telemetry}
-                    isHypercar={isHypercar}
+                    isHypercar={isHypercarStyle}
                     position={gameState.position} 
                     avgLapTimeSeconds={gameState.avgLapTimeSeconds} 
                     weather={gameState.weather}
@@ -233,11 +232,11 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
             gameState={gameState}
             syncUpdate={syncUpdate}
             onClose={() => setShowSettings(false)}
-            isHypercar={isHypercar}
+            isHypercar={isHypercarStyle}
             onAddDriver={addDriver}
             onRemoveDriver={removeDriver}
             onUpdateDriver={updateDriverInfo}
-            onReset={resetRace} // 👇 FONCTION RESET BRANCHÉE ICI
+            onReset={resetRace}
         />
       )}
     </div>
@@ -245,17 +244,22 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
 };
 
 const RaceStrategyApp = () => {
-  const [selectedTeam, setSelectedTeam] = useState(null); 
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null); 
 
   if (!selectedTeam) {
     return <LandingPage onSelectTeam={setSelectedTeam} />;
   }
 
+  const isHypercarStyle = selectedTeam.toLowerCase().includes('hyper');
+  const teamColor = isHypercarStyle ? 'bg-red-600' : 'bg-blue-600';
+  
+  const displayName = selectedTeam.toUpperCase().replace('-', ' #');
+
   return (
     <TeamDashboard 
       teamId={selectedTeam} 
-      teamName={selectedTeam === 'hypercar' ? 'HYPERCAR' : 'LMP2'}
-      teamColor={selectedTeam === 'hypercar' ? 'bg-red-600' : 'bg-blue-600'}
+      teamName={displayName}
+      teamColor={teamColor}
       onTeamSelect={setSelectedTeam} 
     />
   );
