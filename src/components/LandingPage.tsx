@@ -3,12 +3,13 @@ import { collection, onSnapshot, query, deleteDoc, doc } from "firebase/firestor
 import { db } from '../lib/firebase';
 import lmp2CarImg from '../assets/lmp2-car.jpg'; 
 import LMGT3 from '../assets/LMGT3-MERC.jpg';
-import LMP3 from '../assets/LMP3.jpg';
 import ELMS from '../assets/LMP2-ELMS.jpg';
+import LMP3 from '../assets/LMP3.jpg';
 import hypercarCarImg from '../assets/Hypercar.jpg';
 import baguetteImg from '../assets/Baguette.png';
 import { ArrowRight, ChevronLeft, Car, Users, RefreshCw, Trash2 } from 'lucide-react';
 
+// Animation inchangée
 const generateBaguettes = (count: number) => {
   const baguettes = [];
   for (let i = 0; i < count; i++) {
@@ -28,7 +29,7 @@ interface Team {
     name: string;
     category: string;
     color: string;
-    currentDriver?: string; // Ajout de ce champ
+    currentDriver?: string;
 }
 
 interface LandingPageProps {
@@ -39,7 +40,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [customId, setCustomId] = useState("");
   const [teams, setTeams] = useState<Team[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!db) return;
@@ -50,7 +53,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
             ...doc.data()
         })) as Team[];
         setTeams(teamsData);
-        setLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -63,17 +65,46 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
   const handleDeleteTeam = async (teamId: string, e: React.MouseEvent) => {
       e.stopPropagation();
       if (!db) return;
-
-      if (window.confirm(`Are you sure you want to delete team "${teamId}"? This action cannot be undone.`)) {
-          try {
-              await deleteDoc(doc(db, "teams", teamId));
-          } catch (error) {
-              console.error("Error deleting team:", error);
-              alert("Error deleting team. Check console.");
-          }
+      if (window.confirm(`Delete team "${teamId}"?`)) {
+          try { await deleteDoc(doc(db, "teams", teamId)); } catch (error) { console.error(error); }
       }
   };
 
+  // --- COMPOSANT CARTE (Responsive) ---
+  const CategoryCard = ({ id, label, subLabel, colorClass, bgImg, filter = "" }: any) => (
+    <button 
+        onClick={() => setSelectedCategory(id)} 
+        // Utilisation de h-full w-full pour remplir la grille
+        className={`relative w-full h-full rounded-2xl overflow-hidden group shadow-xl transition-all duration-300 hover:scale-[1.02] border border-white/5 ring-0 hover:ring-2 hover:ring-offset-2 hover:ring-offset-[#020408] ${colorClass}`}
+    >
+        <div className="absolute inset-0 pointer-events-none bg-slate-900">
+            <img src={bgImg} alt={label} className={`w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-all duration-700 group-hover:scale-110 ${filter}`} />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/40 to-black/90"></div>
+        </div>
+
+        <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-4 pointer-events-none">
+            {/* Icone qui disparait sur les très petits écrans en hauteur */}
+            <div className="mb-auto mt-2 p-3 rounded-full bg-white/5 backdrop-blur-md border border-white/10 group-hover:bg-white/10 transition-colors hidden sm:block">
+                <Car size={24} className="opacity-80 group-hover:text-white transition-colors"/>
+            </div>
+
+            <div className="flex flex-col items-center transform group-hover:-translate-y-1 transition-transform duration-300">
+                {/* Taille de texte responsive */}
+                <span className="font-black text-2xl lg:text-3xl tracking-tighter italic drop-shadow-2xl">{label}</span>
+                <span className="text-[8px] lg:text-[10px] uppercase font-bold tracking-[0.2em] opacity-70 mt-1 border-t border-white/20 pt-1 w-full text-center">{subLabel}</span>
+            </div>
+
+            {teams.filter(t => t.category.includes(id.split(' ')[0])).length > 0 && (
+                <div className="absolute top-3 right-3 bg-white/10 backdrop-blur-md border border-white/20 text-white text-[8px] font-bold px-2 py-0.5 rounded-full shadow-lg flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    {teams.filter(t => t.category.includes(id.split(' ')[0])).length}
+                </div>
+            )}
+        </div>
+    </button>
+  );
+
+  // --- ÉCRAN 2 : LISTE DES VOITURES ---
   const renderLineupSelection = () => {
     const lineups = teams.filter(t => {
         const cat = t.category.toLowerCase();
@@ -83,70 +114,60 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
     });
     
     let bgImage = lmp2CarImg;
-    if (selectedCategory === 'hypercar') bgImage = hypercarCarImg;
-    else if (selectedCategory === 'lmgt3') bgImage = LMGT3;
+    let accentColor = 'text-blue-500';
+    let borderColor = 'border-slate-500/30';
+    let shadowColor = 'shadow-blue-900/20';
 
-    let borderColor = 'border-slate-500/50';
-    if (selectedCategory === 'hypercar') borderColor = 'border-red-500/50';
-    else if (selectedCategory === 'lmp2') borderColor = 'border-blue-500/50';
-    else if (selectedCategory === 'lmgt3') borderColor = 'border-orange-500/50';
-    else if (selectedCategory === 'lmp3') borderColor = 'border-purple-500/50';
-    else if (selectedCategory === 'lmp2 (elms)') borderColor = 'border-sky-500/50';
+    if (selectedCategory === 'hypercar') {
+        bgImage = hypercarCarImg; accentColor = 'text-red-600'; borderColor = 'border-red-500/50'; shadowColor = 'shadow-red-900/40';
+    } else if (selectedCategory === 'lmgt3') {
+        bgImage = LMGT3; accentColor = 'text-orange-500'; borderColor = 'border-orange-500/50'; shadowColor = 'shadow-orange-900/40';
+    } else if (selectedCategory === 'lmp3') {
+        accentColor = 'text-purple-500'; borderColor = 'border-purple-500/50'; shadowColor = 'shadow-purple-900/40';
+    } else if (selectedCategory?.includes('elms')) {
+        accentColor = 'text-sky-400'; borderColor = 'border-sky-500/50'; shadowColor = 'shadow-sky-900/40';
+    }
 
     return (
-      <div className="flex flex-col items-center gap-6 w-full max-w-4xl z-20 animate-fade-in-up">
-        <button 
-          onClick={() => setSelectedCategory(null)} 
-          className="self-start text-slate-400 hover:text-white flex items-center gap-2 mb-4 transition-colors font-bold uppercase tracking-widest text-xs"
-        >
-          <ChevronLeft size={16}/> Back to Categories
-        </button>
-
-        <h2 className="text-3xl font-black text-white italic uppercase mb-4">
-          SELECT YOUR <span className="text-indigo-400">{selectedCategory}</span>
-        </h2>
+      <div className="flex flex-col items-center w-full h-full px-4 pb-4 z-20 animate-fade-in-up overflow-hidden">
+        {/* Header Compact */}
+        <div className="w-full flex items-center justify-between mb-4 shrink-0">
+            <button onClick={() => setSelectedCategory(null)} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest">
+                <div className="p-1.5 bg-slate-800 rounded-full"><ChevronLeft size={14}/></div> BACK
+            </button>
+            <h2 className="text-2xl md:text-4xl font-black text-white italic uppercase tracking-tighter">
+                <span className={accentColor}>{selectedCategory}</span> CLASS
+            </h2>
+            <div className="w-16"></div>
+        </div>
 
         {lineups.length === 0 ? (
-            <div className="text-slate-400 text-sm font-mono flex flex-col items-center gap-4 bg-slate-900/80 p-8 rounded-xl border border-white/10">
-                <RefreshCw size={32} className="animate-spin text-indigo-500"/>
-                <p>Waiting for car connection...</p>
-                <p className="text-xs text-slate-500">Launch the Python Bridge to see your car here.</p>
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 w-full">
+                <RefreshCw size={32} className={`${accentColor} animate-spin`}/>
+                <p className="text-slate-500 text-xs font-mono">NO SIGNAL DETECTED</p>
             </div>
         ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full px-4">
+            // Grille scrollable si vraiment trop de voitures, mais compacte par défaut
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-6xl flex-1 overflow-y-auto custom-scrollbar p-2">
             {lineups.map((car) => (
-                <div 
-                    key={car.id} 
-                    onClick={() => onSelectTeam(car.id)} 
-                    className={`relative h-40 rounded-2xl overflow-hidden group hover:scale-105 transition-all duration-300 border-2 bg-slate-900/80 shadow-2xl cursor-pointer ${borderColor}`}
-                >
+                <div key={car.id} onClick={() => onSelectTeam(car.id)} className={`relative h-32 lg:h-40 rounded-xl overflow-hidden group cursor-pointer border ${borderColor} bg-slate-900/90 shadow-lg ${shadowColor} hover:scale-[1.01] transition-all`}>
                     <div className="absolute inset-0 pointer-events-none">
-                        <img src={bgImage} className="w-full h-full object-cover opacity-20 group-hover:opacity-40 transition-opacity filter blur-sm group-hover:blur-0" alt="" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+                        <img src={bgImage} className="w-full h-full object-cover opacity-30 group-hover:opacity-50 transition-opacity filter grayscale group-hover:grayscale-0" alt="" />
+                        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-900/60 to-transparent"></div>
                     </div>
+                    <button onClick={(e) => handleDeleteTeam(car.id, e)} className="absolute top-2 right-2 z-30 p-1.5 bg-black/40 text-slate-500 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={12} /></button>
 
-                    <button 
-                        onClick={(e) => handleDeleteTeam(car.id, e)}
-                        className="absolute top-2 right-2 z-30 p-2 bg-black/60 hover:bg-red-600 text-slate-400 hover:text-white rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200"
-                        title="Delete Team"
-                    >
-                        <Trash2 size={14} />
-                    </button>
-
-                    <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pointer-events-none">
-                        <span className={`text-2xl font-black text-white italic drop-shadow-lg text-center leading-none mb-2`}>{car.name}</span>
-                        
-                        {/* --- AFFICHAGE DU PILOTE ACTUEL --- */}
-                        {car.currentDriver && (
-                             <div className="mb-2 flex items-center gap-1 text-xs font-bold text-amber-400 bg-black/40 px-2 py-0.5 rounded border border-amber-500/30 backdrop-blur-sm shadow-md">
-                                <span className="uppercase truncate max-w-[150px]">{car.currentDriver}</span>
-                             </div>
-                        )}
-
-                        <div className={`px-3 py-1 rounded-full text-[10px] font-bold text-white shadow-lg flex items-center gap-2 ${car.color || 'bg-slate-600'}`}>
-                            <Users size={12}/> CONNECT
+                    <div className="relative z-10 flex flex-col justify-center h-full p-5 pointer-events-none">
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[9px] font-bold px-1.5 py-px rounded border ${borderColor} bg-black/40 uppercase tracking-widest text-slate-300`}>{car.id}</span>
+                            {car.currentDriver && <span className="text-[9px] font-bold text-amber-400 bg-amber-950/30 px-1.5 py-px rounded border border-amber-500/20 truncate max-w-[120px]">{car.currentDriver}</span>}
                         </div>
-                        <span className="mt-2 text-[9px] text-slate-500 font-mono">ID: {car.id}</span>
+                        <span className="text-xl lg:text-2xl font-black text-white italic uppercase tracking-tighter">{car.name}</span>
+                        <div className="mt-2 flex">
+                            <div className={`px-3 py-1 rounded text-[9px] font-bold text-white shadow flex items-center gap-1 ${car.color || 'bg-slate-700'}`}>
+                                <span>DASHBOARD</span> <ArrowRight size={10}/>
+                            </div>
+                        </div>
                     </div>
                 </div>
             ))}
@@ -156,102 +177,55 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
     );
   };
 
+  // --- STRUCTURE PRINCIPALE (H-SCREEN FIXE) ---
   return (
-      <div className="flex flex-col items-center justify-center h-screen w-full bg-[#020408] gap-8 font-sans relative overflow-hidden">
+      <div className="flex flex-col items-center h-screen w-full bg-[#020408] font-sans relative overflow-hidden selection:bg-indigo-500 selection:text-white">
+        <style>{`.font-display { font-family: 'Chakra Petch', sans-serif; }`}</style>
+
+        {/* Fond */}
         <div className="absolute inset-0 z-0 pointer-events-none">
-           {generateBaguettes(40)}
-           <div className="absolute inset-0 bg-[#020408] opacity-80"></div>
-           <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-red-900/20 opacity-30 animate-pulse"></div>
+           {generateBaguettes(30)}
+           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/10 via-[#020408] to-[#020408]"></div>
         </div>
 
-        <span className="text-xs font-bold text-indigo-500 tracking-widest uppercase mb-[-20px] z-20 relative">FBT Technologies only</span>
-        <h1 className="text-5xl font-black text-white italic z-20 relative drop-shadow-2xl">LE MANS <span className="text-indigo-500">24H</span></h1>
+        {/* HEADER TITRE (Fixe en haut) */}
+        <div className={`z-20 mt-6 mb-2 text-center transition-all duration-1000 shrink-0 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+            <h1 className="text-5xl lg:text-6xl font-black text-white italic tracking-tighter drop-shadow-2xl font-display">
+                LE MANS <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300">24H</span>
+            </h1>
+            {!selectedCategory && <p className="text-slate-500 text-[10px] font-mono tracking-[0.3em] mt-1 uppercase">Live Strategy Tool</p>}
+        </div>
         
-        {selectedCategory ? (
-          renderLineupSelection()
-        ) : (
-          <div className="flex flex-wrap justify-center gap-6 z-20 relative items-center max-w-6xl px-4">
-            
-            {/* HYPERCAR */}
-            <button onClick={() => setSelectedCategory('hypercar')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-red-900/20 hover:-translate-y-2 transition-all duration-300 border border-red-500/20 bg-slate-900">
-               <div className="absolute inset-0 pointer-events-none">
-                 <img src={hypercarCarImg} alt="Hypercar" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500" />
-                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
-               </div>
-               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
-                   <Car size={32} className="mb-3 text-red-500 opacity-80 group-hover:scale-110 transition-transform"/>
-                   <span className="font-black text-2xl tracking-tighter italic">HYPERCAR</span>
-                   <span className="text-[10px] text-red-200 mt-2 font-bold tracking-widest border border-red-500/50 px-2 py-0.5 rounded-full bg-red-900/30">WEC</span>
-               </div>
-            </button>
+        {/* ZONE DE CONTENU (Flexible) */}
+        <div className="flex-1 w-full flex flex-col items-center justify-center min-h-0 p-4 relative z-10">
+            {selectedCategory ? (
+                renderLineupSelection()
+            ) : (
+                // GRILLE DES CATÉGORIES (S'adapte à la hauteur)
+                <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 w-full max-w-7xl h-full max-h-[60vh] transition-all duration-700 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+                    
+                    <CategoryCard id="hypercar" label="HYPER" subLabel="TOP CLASS" bgImg={hypercarCarImg} colorClass="hover:shadow-red-900/30 hover:ring-red-600" />
+                    <CategoryCard id="lmp2" label="LMP2" subLabel="WEC" bgImg={lmp2CarImg} colorClass="hover:shadow-blue-900/30 hover:ring-blue-600" />
+                    <CategoryCard id="lmp2 (elms)" label="ELMS" subLabel="LMP2" bgImg={ELMS} filter="hue-rotate-15 contrast-125" colorClass="hover:shadow-sky-900/30 hover:ring-sky-500" />
+                    <CategoryCard id="lmp3" label="LMP3" subLabel="JUNIOR" bgImg={LMP3} filter="hue-rotate-[240deg] contrast-125" colorClass="hover:shadow-purple-900/30 hover:ring-purple-500" />
+                    <CategoryCard id="lmgt3" label="GT3" subLabel="TOURING" bgImg={LMGT3} filter="sepia-[0.5] contrast-110" colorClass="hover:shadow-orange-900/30 hover:ring-orange-500" />
+                
+                </div>
+            )}
+        </div>
 
-            {/* LMP2 */}
-            <button onClick={() => setSelectedCategory('lmp2')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-blue-900/20 hover:-translate-y-2 transition-all duration-300 border border-blue-500/20 bg-slate-900">
-               <div className="absolute inset-0 pointer-events-none">
-                 <img src={lmp2CarImg} alt="LMP2" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500" />
-                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
-               </div>
-               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
-                   <Car size={32} className="mb-3 text-blue-500 opacity-80 group-hover:scale-110 transition-transform"/>
-                   <span className="font-black text-2xl tracking-tighter italic">LMP2</span>
-                   <span className="text-[10px] text-blue-200 mt-2 font-bold tracking-widest border border-blue-500/50 px-2 py-0.5 rounded-full bg-blue-900/30">WEC</span>
-               </div>
-            </button>
-
-            {/* LMP2 ELMS*/}
-            <button onClick={() => setSelectedCategory('lmp2 (elms)')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-sky-900/20 hover:-translate-y-2 transition-all duration-300 border border-sky-500/20 bg-slate-900">
-               <div className="absolute inset-0 pointer-events-none">
-                 <img src={ELMS} alt="LMP2 ELMS" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500 filter hue-rotate-15" />
-                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
-               </div>
-               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
-                   <Car size={32} className="mb-3 text-sky-400 opacity-80 group-hover:scale-110 transition-transform"/>
-                   <span className="font-black text-2xl tracking-tighter italic">LMP2</span>
-                   <span className="text-[10px] text-sky-200 mt-2 font-bold tracking-widest border border-sky-500/50 px-2 py-0.5 rounded-full bg-sky-900/30">ELMS</span>
-               </div>
-            </button>
-
-            {/* LMP3 - NEW */}
-            <button onClick={() => setSelectedCategory('lmp3')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-purple-900/20 hover:-translate-y-2 transition-all duration-300 border border-purple-500/20 bg-slate-900">
-               <div className="absolute inset-0 pointer-events-none">
-                 <img src={LMP3} alt="LMP3" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500 filter hue-rotate-[240deg] contrast-125" />
-                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
-               </div>
-               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
-                   <Car size={32} className="mb-3 text-purple-500 opacity-80 group-hover:scale-110 transition-transform"/>
-                   <span className="font-black text-2xl tracking-tighter italic">LMP3</span>
-                   <span className="text-[10px] text-purple-200 mt-2 font-bold tracking-widest border border-purple-500/50 px-2 py-0.5 rounded-full bg-purple-900/30">ELMS</span>
-               </div>
-            </button>
-
-            {/* LMGT3 */}
-            <button onClick={() => setSelectedCategory('lmgt3')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-orange-900/20 hover:-translate-y-2 transition-all duration-300 border border-orange-500/20 bg-slate-900">
-               <div className="absolute inset-0 pointer-events-none">
-                 <img src={LMGT3} alt="LMGT3" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500 filter sepia-[0.5]" />
-                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
-               </div>
-               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
-                   <Car size={32} className="mb-3 text-orange-500 opacity-80 group-hover:scale-110 transition-transform"/>
-                   <span className="font-black text-2xl tracking-tighter italic">LMGT3</span>
-                   <span className="text-[10px] text-orange-200 mt-2 font-bold tracking-widest border border-orange-500/50 px-2 py-0.5 rounded-full bg-orange-900/30">WEC</span>
-               </div>
-            </button>
-
-          </div>
-        )}
-
+        {/* FOOTER INPUT (Fixe en bas) */}
         {!selectedCategory && (
-          <div className="z-20 mt-4 flex flex-col items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
-            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Or join specific ID manually</span>
-            <form onSubmit={handleCustomJoin} className="flex gap-2 bg-black/40 p-1.5 rounded-xl border border-white/10 backdrop-blur-md">
+          <div className={`z-20 mb-6 shrink-0 transition-opacity duration-1000 delay-500 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
+            <form onSubmit={handleCustomJoin} className="flex gap-0 p-1 bg-slate-900/90 rounded-lg border border-white/10 backdrop-blur-md shadow-xl group">
                 <input 
                     type="text" 
-                    placeholder="e.g. car-99..." 
+                    placeholder="Car ID..." 
                     value={customId}
                     onChange={(e) => setCustomId(e.target.value)}
-                    className="bg-transparent text-white text-xs px-3 py-1.5 outline-none w-32 placeholder-slate-600 font-mono text-center"
+                    className="bg-transparent text-white text-xs px-3 py-1.5 outline-none w-32 placeholder-slate-600 font-mono text-center uppercase"
                 />
-                <button type="submit" className="bg-slate-700 hover:bg-indigo-600 text-white p-1.5 rounded-lg transition-colors">
+                <button type="submit" className="bg-slate-800 hover:bg-indigo-600 text-slate-400 hover:text-white px-2 py-1 rounded transition-colors">
                     <ArrowRight size={14} />
                 </button>
             </form>

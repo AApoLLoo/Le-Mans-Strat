@@ -5,14 +5,12 @@ import type { GameState, StrategyData, Stint } from '../types';
 import { getSafeDriver } from '../utils/helpers';
 
 export const useRaceData = (teamId: string) => {
-    // On utilise l'ID tel quel, sans préfixe forcé
     const SESSION_ID = teamId; 
     const CHAT_ID = "global-radio"; 
     
     const tId = teamId.toLowerCase();
     const isHypercar = tId.includes('hyper') || tId.includes('red');
     const isLMGT3 = tId.includes('gt3') || tId.includes('lmgt3');
-    // --- AJOUTS ---
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms') || (tId.includes('lmp2') && tId.includes('elms'));
 
@@ -20,6 +18,7 @@ export const useRaceData = (teamId: string) => {
     const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
     const [localStintTime, setLocalStintTime] = useState(0);
     
+    // --- CORRECTION DANS L'ÉTAT INITIAL ---
     const [gameState, setGameState] = useState<GameState>({
         currentStint: 0,
         raceTime: 24 * 60 * 60,
@@ -50,6 +49,11 @@ export const useRaceData = (teamId: string) => {
             virtualEnergy: 0, batterySoc: 0,
             virtualEnergyLastLapCons: 0, virtualEnergyAvgCons: 0,
             tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
+            
+            // --- AJOUT OBLIGATOIRE ICI ---
+            tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" },
+            // -----------------------------
+            
             brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             currentLapTimeSeconds: 0, last3LapAvgSeconds: 0,
@@ -99,6 +103,16 @@ export const useRaceData = (teamId: string) => {
                             rl: data.tireWearRL ?? prev.telemetry.tires.rl,
                             rr: data.tireWearRR ?? prev.telemetry.tires.rr,
                         },
+
+                        // Le crash venait probablement d'ici si vous utilisiez 'prev.telemetry.tireCompounds'
+                        // alors que c'était undefined
+                        tireCompounds: {
+                            fl: data.tireCompoundFL || (prev.telemetry.tireCompounds ? prev.telemetry.tireCompounds.fl : "---"),
+                            fr: data.tireCompoundFR || (prev.telemetry.tireCompounds ? prev.telemetry.tireCompounds.fr : "---"),
+                            rl: data.tireCompoundRL || (prev.telemetry.tireCompounds ? prev.telemetry.tireCompounds.rl : "---"),
+                            rr: data.tireCompoundRR || (prev.telemetry.tireCompounds ? prev.telemetry.tireCompounds.rr : "---"),
+                        },
+
                         brakeTemps: {
                             flc: data.brakeTempFLC ?? prev.telemetry.brakeTemps.flc,
                             frc: data.brakeTempFRC ?? prev.telemetry.brakeTemps.frc,
@@ -111,6 +125,7 @@ export const useRaceData = (teamId: string) => {
                             rlc: data.tireTempCenterRLC ?? prev.telemetry.tireTemps.rlc,
                             rrc: data.tireTempCenterRRC ?? prev.telemetry.tireTemps.rrc,
                         },
+                        
                         laps: data.currentLap ?? prev.telemetry.laps,
                         speed: data.speedKmh ?? prev.telemetry.speed,
                         throttle: data.throttle ?? 0,
@@ -172,7 +187,6 @@ export const useRaceData = (teamId: string) => {
         const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
         const lapsPerVE = Math.floor(100 / activeVECons);
         
-        // LMP3 et LMP2-ELMS fonctionnent au Fuel
         const useVE = isHypercar || isLMGT3;
         const lapsPerStint = Math.max(1, useVE ? lapsPerVE : lapsPerTank);
         

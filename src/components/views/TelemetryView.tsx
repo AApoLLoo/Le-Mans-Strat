@@ -1,308 +1,313 @@
 import React, { useState } from 'react';
 import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame, Droplet, RefreshCw } from 'lucide-react';
 
-const getTireColor = (wear: number) => {
-  if (wear > 70) return 'bg-emerald-500 shadow-emerald-500/50';
-  if (wear > 40) return 'bg-amber-500 shadow-amber-500/50';
-  return 'bg-red-600 shadow-red-600/50 animate-pulse';
+// --- UTILITAIRES VISUELS ---
+
+const getTireColorGradient = (wear: number) => {
+  // Dégradé fluide du vert au rouge
+  if (wear > 80) return 'bg-gradient-to-t from-emerald-600 to-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)]';
+  if (wear > 50) return 'bg-gradient-to-t from-yellow-600 to-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]';
+  if (wear > 30) return 'bg-gradient-to-t from-orange-600 to-orange-400 shadow-[0_0_15px_rgba(251,146,60,0.3)]';
+  return 'bg-gradient-to-t from-red-700 to-red-500 shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse';
+};
+const getCompoundBadgeColor = (compound: string) => {
+    const c = compound.toUpperCase();
+    if (c.includes("SOFT")) return "text-red-500 border-red-500/50 bg-red-950/30";
+    if (c.includes("MEDIUM")) return "text-yellow-400 border-yellow-400/50 bg-yellow-950/30";
+    if (c.includes("HARD")) return "text-white border-white/50 bg-slate-700/50";
+    if (c.includes("WET") || c.includes("RAIN")) return "text-blue-400 border-blue-400/50 bg-blue-950/30";
+    return "text-slate-400 border-slate-600/50 bg-slate-800/50";
+};
+const getTempColor = (temp: number, type: 'brake' | 'tire') => {
+    // Logique simplifiée pour les couleurs de température
+    if (type === 'brake') {
+        if (temp > 700) return 'text-red-500 font-black animate-pulse';
+        if (temp > 500) return 'text-emerald-400 font-bold';
+        return 'text-slate-400';
+    } else {
+        if (temp > 110) return 'text-red-500 font-black animate-pulse';
+        if (temp > 85) return 'text-emerald-400 font-bold';
+        return 'text-blue-400';
+    }
 };
 
 const formatLapTime = (s: number) => {
-    if (isNaN(s) || s <= 0) return "---";
+    if (isNaN(s) || s <= 0) return "-:--.---";
     const minutes = Math.floor(s / 60);
     const seconds = s % 60;
-    return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`; 
+    return `${minutes}:${seconds.toFixed(3).padStart(6, '0')}`; 
 };
 
 const getWeatherIcon = (weather: string) => {
     switch (weather) {
-      case 'SUNNY': return <Sun size={20} className="text-yellow-400"/>;
-      case 'CLOUDY': return <Cloud size={20} className="text-slate-400"/>;
-      case 'RAIN':
-      case 'WET': return <CloudRain size={20} className="text-blue-400"/>;
-      default: return <Sun size={20} className="text-yellow-400"/>;
+      case 'SUNNY': return <Sun size={18} className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]"/>;
+      case 'CLOUDY': return <Cloud size={18} className="text-slate-400"/>;
+      case 'RAIN': case 'WET': return <CloudRain size={18} className="text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.8)]"/>;
+      default: return <Sun size={18} className="text-yellow-400"/>;
     }
 };
 
-const getTireTempColor = (temp: number) => {
-  if (temp >= 90 && temp <= 100) return 'text-indigo-400 font-bold';
-  if (temp >= 80 && temp < 90 || temp > 100 && temp <= 110) return 'text-amber-400';
-  return 'text-red-500 font-black animate-pulse';
-};
+// --- COMPOSANT PRINCIPAL ---
 
-const getBrakeTempColor = (temp: number) => {
-  if (temp >= 500 && temp <= 650) return 'text-emerald-400 font-bold'; 
-  if (temp < 500 && temp >= 300) return 'text-amber-400';
-  if (temp > 650) return 'text-red-500 font-black animate-pulse';
-  return 'text-slate-500';
-};
-
-// --- AJOUT prop isLMGT3 ---
 const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTimeSeconds, weather, airTemp, trackWetness }: any) => { 
-  const { tires, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
+  const { tires, tireCompounds, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
 
   const [showVirtualEnergy, setShowVirtualEnergy] = useState(false);
 
-  // --- MODIF : VE actif pour Hypercar OU LMGT3 ---
+  // Gestion Energie
   const isVE = showVirtualEnergy && (isHypercar || isLMGT3);
   const currentResource = isVE ? virtualEnergy : fuel.current;
   const maxResource = isVE ? 100 : fuel.max;
-  const resourcePercentage = (currentResource / maxResource) * 100;
-  const barColor = isVE ? 'bg-gradient-to-r from-cyan-600 to-blue-500 shadow-[0_0_15px_rgba(6,182,212,0.6)]' : 'bg-blue-600';
-  const label = isVE ? 'Virtual Energy' : 'Fuel Level';
-  const icon = isVE ? <Zap size={14} className="text-yellow-300 fill-yellow-300"/> : <Fuel size={14}/>;
-  const labelColor = isVE ? 'text-cyan-400' : 'text-slate-500';
+  const resourcePercentage = Math.min(100, Math.max(0, (currentResource / maxResource) * 100));
+  
+  const barColor = isVE 
+    ? 'bg-gradient-to-r from-cyan-600 via-cyan-400 to-white shadow-[0_0_20px_rgba(6,182,212,0.6)]' 
+    : 'bg-gradient-to-r from-blue-700 via-blue-500 to-blue-300 shadow-[0_0_20px_rgba(59,130,246,0.5)]';
+  
+  const label = isVE ? 'VIRTUAL ENERGY' : 'FUEL LEVEL';
+  const icon = isVE ? <Zap size={14} className="text-cyan-300 fill-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
 
+  // Calcul Delta
   const delta = last3LapAvgSeconds - avgLapTimeSeconds;
-  let deltaColorClass = 'text-white';
+  let deltaColorClass = 'text-slate-400';
   let deltaSign = '';
-  if (delta > 0.5) { deltaColorClass = 'text-red-500'; deltaSign = '+'; } 
-  else if (delta < -0.5) { deltaColorClass = 'text-emerald-500'; } 
-  else if (delta !== 0) { deltaColorClass = 'text-amber-500'; deltaSign = delta > 0 ? '+' : ''; }
-  const displayDelta = delta !== 0 ? `${deltaSign}${delta.toFixed(2)}s` : '±0.0s';
+  if (delta > 0.5) { deltaColorClass = 'text-red-500 shadow-red-500/20'; deltaSign = '+'; } 
+  else if (delta < -0.5) { deltaColorClass = 'text-emerald-400 shadow-emerald-400/20'; } 
+  
+  const displayDelta = delta !== 0 ? `${deltaSign}${Math.abs(delta).toFixed(2)}` : '-.--';
+
+  // Helper pour afficher un pneu
+  const renderTire = (name: string, wear: number, brakeT: number, tireT: number) => (
+    <div className="flex flex-col items-center gap-1.5 flex-1 h-full justify-center">
+        <span className="text-[10px] text-slate-500 font-bold tracking-widest">{name}</span>
+        
+        {/* Pneu Graphique */}
+        <div className="relative w-12 lg:w-16 flex-1 bg-slate-900/80 rounded-lg border border-slate-700 overflow-hidden shadow-inner group">
+            <div className={`absolute bottom-0 left-0 right-0 w-full transition-all duration-700 ease-out ${getTireColorGradient(wear)}`} style={{ height: `${wear}%` }}>
+                {/* Texture */}
+                <div className="w-full h-full opacity-30 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjIiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiAvPgo8L3N2Zz4=')]"></div>
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+                <span className="text-base lg:text-xl font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] font-mono">{Math.round(wear)}</span>
+            </div>
+        </div>
+
+        {/* Temps */}
+        <div className="flex flex-col gap-1 w-full">
+            <div className="flex items-center justify-between bg-black/40 px-1.5 py-0.5 rounded text-[9px] border border-white/5">
+                <Flame size={10} className="text-slate-600"/> 
+                <span className={`font-mono ${getTempColor(brakeT, 'brake')}`}>{Math.round(brakeT)}°</span>
+            </div>
+            <div className="flex items-center justify-between bg-black/40 px-1.5 py-0.5 rounded text-[9px] border border-white/5">
+                <Thermometer size={10} className="text-slate-600"/> 
+                <span className={`font-mono ${getTempColor(tireT, 'tire')}`}>{Math.round(tireT)}°</span>
+            </div>
+        </div>
+    </div>
+  );
 
   return (
-    <div className="flex-1 overflow-hidden bg-[#050a10] p-6 flex flex-col gap-6">
+    <div className="h-full w-full bg-[#050a10] p-3 lg:p-4 flex flex-col gap-3 overflow-hidden font-display">
       
-      {/* HEADER INFO */}
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between shrink-0">
+      {/* 1. HEADER COMPACT (Fixe) */}
+      <div className="bg-slate-900/60 border border-white/10 rounded-xl p-3 flex items-center justify-between shrink-0 backdrop-blur-md shadow-lg">
+          
+          {/* Météo */}
           <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5">
                   {getWeatherIcon(weather)}
-                  <span className="text-sm font-bold text-white uppercase">{weather}</span>
+                  <span className="text-xs font-bold text-slate-200 tracking-wide">{weather}</span>
               </div>
-              <div className="flex items-center gap-1.5 text-sm text-slate-400">
-                  <Thermometer size={16} className="text-red-400"/>
-                  <span className="font-mono text-white">{airTemp}°C</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-sm text-slate-400">
-                  <CloudRain size={16} className="text-blue-400"/>
-                  <span className="font-mono text-white">{trackWetness}%</span>
+              <div className="hidden sm:flex gap-4">
+                <div className="flex flex-col leading-none">
+                    <span className="text-[9px] text-slate-500 font-bold uppercase">AIR</span>
+                    <span className="text-xs font-mono text-white">{airTemp}°C</span>
+                </div>
+                <div className="flex flex-col leading-none">
+                    <span className="text-[9px] text-slate-500 font-bold uppercase">TRACK</span>
+                    <span className="text-xs font-mono text-blue-300">{trackWetness}%</span>
+                </div>
               </div>
           </div>
+
+          {/* Position & Chrono */}
           <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-                <Trophy size={20} className="text-indigo-400"/>
-                <div className="text-4xl font-black text-white italic tracking-tighter font-mono">P{position}</div>
-            </div>
-            <div className="flex flex-col items-end">
-                <div className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1"><Clock size={12} className="text-amber-500"/> Avg Lap (Last 3)</div>
-                <div className="text-3xl font-black italic tracking-tighter font-mono flex items-center gap-2">
-                    <span className="text-white">{formatLapTime(last3LapAvgSeconds)}</span>
-                    <span className={`text-base font-bold ${deltaColorClass}`}>{displayDelta}</span>
+            <div className="text-right">
+                <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest flex items-center justify-end gap-1">
+                    <Clock size={10}/> Moyenne des tours
                 </div>
+                <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-xl font-bold text-white">{formatLapTime(last3LapAvgSeconds)}</span>
+                    <span className={`font-mono text-xs font-bold ${deltaColorClass}`}>{displayDelta}</span>
+                </div>
+            </div>
+            <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-lg shadow-[0_0_15px_rgba(79,70,229,0.4)] border border-indigo-400/30">
+                <span className="text-2xl font-black text-white italic -skew-x-6">{position}</span>
             </div>
           </div>
       </div>
       
-      {/* MAIN CONTENT */}
-      <div className="flex flex-col lg:flex-row gap-6 h-full overflow-hidden">
+      {/* 2. GRID PRINCIPALE (S'adapte à la hauteur) */}
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 overflow-hidden">
         
-        {/* PNEUS (Gauche) */}
-        <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center relative">
-            <h3 className="absolute top-4 left-4 text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                <Disc size={14}/> Tire Wear
-            </h3>
-            <div className="absolute top-4 right-4 text-[9px] font-bold text-slate-500 uppercase flex flex-col items-end gap-1">
-                <div className="flex items-center gap-1"><Flame size={10} className="text-red-400"/><span>Brake</span></div>
-                <div className="flex items-center gap-1"><Thermometer size={10} className="text-indigo-400"/><span>Tire</span></div>
+        {/* COLONNE GAUCHE : PNEUS (Prend toute la hauteur) */}
+        <div className="flex-[2] bg-slate-900/40 border border-white/5 rounded-xl p-4 flex flex-col relative overflow-hidden backdrop-blur-sm">
+            <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none">
+                <Disc size={120} />
+            </div>
+            <div className="flex items-center justify-between mb-2 shrink-0">
+                <h3 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2"><Activity size={14} className="text-indigo-500"/> Tyre Status</h3>
             </div>
             
-            <div className="flex gap-8 mt-10">
-                {/* GAUCHE */}
-                <div className="flex flex-col gap-12">
-                    <div className="flex flex-col items-center gap-1">
-                        <span className="text-[10px] text-slate-500 font-bold">FL</span>
-                        <div className={`w-16 h-24 rounded-lg border-2 border-slate-700 flex items-end justify-center overflow-hidden relative bg-slate-800`}>
-                            <div className={`w-full transition-all duration-500 ${getTireColor(tires.fl)}`} style={{ height: `${tires.fl}%` }}></div>
-                            <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 font-black text-lg text-white drop-shadow-md">{tires.fl}%</span>
-                        </div>
-                        <div className="mt-1 flex flex-col items-center text-xs font-mono">
-                            <span className={getBrakeTempColor(brakeTemps.flc)}><Flame size={10} className="inline mr-1"/>{brakeTemps.flc}°</span>
-                            <span className={getTireTempColor(tireTemps.flc)}><Thermometer size={10} className="inline mr-1"/>{tireTemps.flc}°</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-col items-center gap-1">
-                        <span className="text-[10px] text-slate-500 font-bold">RL</span>
-                        <div className={`w-16 h-24 rounded-lg border-2 border-slate-700 flex items-end justify-center overflow-hidden relative bg-slate-800`}>
-                            <div className={`w-full transition-all duration-500 ${getTireColor(tires.rl)}`} style={{ height: `${tires.rl}%` }}></div>
-                            <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 font-black text-lg text-white drop-shadow-md">{tires.rl}%</span>
-                        </div>
-                        <div className="mt-1 flex flex-col items-center text-xs font-mono">
-                            <span className={getBrakeTempColor(brakeTemps.rlc)}><Flame size={10} className="inline mr-1"/>{brakeTemps.rlc}°</span>
-                            <span className={getTireTempColor(tireTemps.rlc)}><Thermometer size={10} className="inline mr-1"/>{tireTemps.rlc}°</span>
-                        </div>
-                    </div>
+            {/* Grille Pneus 2x2 */}
+            <div className="flex-1 flex gap-4 min-h-0">
+                <div className="flex flex-col justify-between h-full gap-4">
+                    {renderTire('FL', tires.fl, brakeTemps.flc, tireTemps.flc)}
+                    {renderTire('RL', tires.rl, brakeTemps.rlc, tireTemps.rlc)}
+                </div>
+                
+                {/* Silhouette Voiture Centrale */}
+                <div className="flex items-center justify-center opacity-10 mx-2">
+                    <div className="w-16 h-[80%] bg-slate-500 rounded-[2rem]"></div>
                 </div>
 
-                {/* VOITURE */}
-                <div className="w-20 h-full flex items-center justify-center opacity-20">
-                    <div className="w-10 h-48 bg-slate-500 rounded-t-3xl rounded-b-xl"></div>
-                </div>
-
-                {/* DROITE */}
-                <div className="flex flex-col gap-12">
-                    <div className="flex flex-col items-center gap-1">
-                        <span className="text-[10px] text-slate-500 font-bold">FR</span>
-                        <div className={`w-16 h-24 rounded-lg border-2 border-slate-700 flex items-end justify-center overflow-hidden relative bg-slate-800`}>
-                            <div className={`w-full transition-all duration-500 ${getTireColor(tires.fr)}`} style={{ height: `${tires.fr}%` }}></div>
-                            <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 font-black text-lg text-white drop-shadow-md">{tires.fr}%</span>
-                        </div>
-                        <div className="mt-1 flex flex-col items-center text-xs font-mono">
-                            <span className={getBrakeTempColor(brakeTemps.frc)}><Flame size={10} className="inline mr-1"/>{brakeTemps.frc}°</span>
-                            <span className={getTireTempColor(tireTemps.frc)}><Thermometer size={10} className="inline mr-1"/>{tireTemps.frc}°</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-col items-center gap-1">
-                        <span className="text-[10px] text-slate-500 font-bold">RR</span>
-                        <div className={`w-16 h-24 rounded-lg border-2 border-slate-700 flex items-end justify-center overflow-hidden relative bg-slate-800`}>
-                            <div className={`w-full transition-all duration-500 ${getTireColor(tires.rr)}`} style={{ height: `${tires.rr}%` }}></div>
-                            <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 font-black text-lg text-white drop-shadow-md">{tires.rr}%</span>
-                        </div>
-                        <div className="mt-1 flex flex-col items-center text-xs font-mono">
-                            <span className={getBrakeTempColor(brakeTemps.rrc)}><Flame size={10} className="inline mr-1"/>{brakeTemps.rrc}°</span>
-                            <span className={getTireTempColor(tireTemps.rrc)}><Thermometer size={10} className="inline mr-1"/>{tireTemps.rrc}°</span>
-                        </div>
-                    </div>
+                <div className="flex flex-col justify-between h-full gap-4">
+                    {renderTire('FR', tires.fr, brakeTemps.frc, tireTemps.frc)}
+                    {renderTire('RR', tires.rr, brakeTemps.rrc, tireTemps.rrc)}
                 </div>
             </div>
         </div>
 
-        {/* COLONNE DROITE : DATA */}
-        <div className="flex-1 flex flex-col gap-4">
+        {/* COLONNE DROITE : DATA (Flex-1 pour remplir) */}
+        <div className="flex-[3] flex flex-col gap-3 min-h-0">
             
-            {/* CURRENT LAP */}
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col justify-center relative overflow-hidden">
-                <div className="absolute right-0 top-0 p-4 opacity-10 text-indigo-400"><Clock size={100}/></div>
-                <h3 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-2"><Clock size={14}/> Current Lap Time</h3>
-                <div className="text-6xl font-black text-white tracking-tighter font-mono">{formatLapTime(currentLapTimeSeconds)}</div>
-            </div>
-
-            {/* --- BLOC ÉNERGIE --- */}
-            <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col justify-center relative group">
-                <div className="flex items-center justify-between mb-4">
-                    <h3 className={`text-xs font-bold uppercase flex items-center gap-2 transition-colors duration-300 ${labelColor}`}>
-                        {icon} {label}
-                    </h3>
+            {/* LIGNE 1 : FUEL & LAP (Hauteur flexible) */}
+            <div className="flex-1 flex gap-3 min-h-0">
+                
+                {/* Fuel / Energy */}
+                <div className="flex-[3] bg-slate-900/40 border border-white/5 rounded-xl p-4 flex flex-col justify-center relative group">
+                    <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">{icon} {label}</h3>
+                        {(isHypercar || isLMGT3) && (
+                            <button onClick={() => setShowVirtualEnergy(!showVirtualEnergy)} className="p-1.5 bg-white/5 hover:bg-white/10 rounded transition-colors text-slate-400 hover:text-white">
+                                <RefreshCw size={12}/>
+                            </button>
+                        )}
+                    </div>
                     
-                    {/* --- MODIF : Bouton de switch pour Hypercar OU LMGT3 --- */}
-                    {(isHypercar || isLMGT3) && (
-                        <button 
-                            onClick={() => setShowVirtualEnergy(!showVirtualEnergy)}
-                            className="text-[10px] font-bold uppercase flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded transition-all border border-slate-700 hover:border-cyan-500"
-                            title="Switch Fuel / Virtual Energy"
-                        >
-                            <RefreshCw size={12} className={showVirtualEnergy ? "text-cyan-400 rotate-180 transition-transform duration-500" : "transition-transform duration-500"}/>
-                            {showVirtualEnergy ? "Show Fuel" : "Show VE"}
-                        </button>
+                    {/* Grande Barre */}
+                    <div className="flex-1 w-full bg-slate-950 rounded-lg overflow-hidden border border-white/10 relative shadow-inner min-h-[40px]">
+                        <div className={`h-full transition-all duration-700 ease-out ${barColor}`} style={{ width: `${resourcePercentage}%` }}></div>
+                        
+                        {/* Texte superposé */}
+                        <div className="absolute inset-0 flex items-center justify-between px-4">
+                            <span className="text-2xl font-black text-white italic drop-shadow-md tracking-tighter">
+                                {isVE ? `${Math.round(currentResource)}%` : `${currentResource.toFixed(1)} L`}
+                            </span>
+                            <div className="text-[10px] text-right text-white/80 font-mono leading-tight">
+                                <div>LAST: <span className="font-bold">{isVE ? virtualEnergyLastLapCons?.toFixed(1) + '%' : fuel.lastLapCons.toFixed(2)}</span></div>
+                                <div>AVG: <span className="font-bold">{isVE ? virtualEnergyAvgCons?.toFixed(1) + '%' : fuel.averageCons.toFixed(2)}</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Batterie Hybride (Sous barre) */}
+                    {isHypercar && (
+                        <div className="mt-3 flex items-center gap-2">
+                            <Battery size={12} className="text-green-400"/>
+                            <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]" style={{width: `${batterySoc}%`}}></div>
+                            </div>
+                            <span className="text-[10px] font-mono text-green-400 font-bold">{batterySoc}%</span>
+                        </div>
                     )}
                 </div>
 
-                {/* BARRE PRINCIPALE (FUEL ou VE) */}
-                <div className="w-full bg-slate-800 h-10 rounded-full overflow-hidden border border-slate-700 relative shadow-inner">
-                    <div 
-                        className={`h-full flex items-center justify-end px-3 transition-all duration-700 ease-out ${barColor}`} 
-                        style={{ width: `${resourcePercentage}%` }}
-                    >
-                    </div>
-                    <span className="absolute inset-0 flex items-center justify-center font-black text-lg text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] z-10 tracking-widest">
-                        {isVE ? `${Math.round(currentResource)}%` : `${currentResource.toFixed(1)} L / ${maxResource} L`}
+                {/* Tour Actuel */}
+                <div className="flex-[2] bg-slate-900/40 border border-white/5 rounded-xl p-4 flex flex-col justify-center items-center relative overflow-hidden">
+                    <div className="absolute inset-0 bg-indigo-500/5"></div>
+                    <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest mb-1">Current Lap</span>
+                    <span className="text-4xl lg:text-5xl font-black text-white italic tracking-tighter font-mono drop-shadow-lg">
+                        {formatLapTime(currentLapTimeSeconds)}
                     </span>
                 </div>
-
-                {/* INFOS DETAILLÉES SOUS LA BARRE */}
-                <div className="mt-3 flex justify-between text-[10px] text-slate-400 font-mono h-4 items-center">
-                    {!isVE && (
-                        <>
-                            <span>Last Lap: {fuel.lastLapCons.toFixed(2)} L</span>
-                            <span>Avg: {fuel.averageCons.toFixed(2)} L</span>
-                        </>
-                    )}
-                    {isVE && (
-                        <>
-                            <span className="text-cyan-300">Last: {virtualEnergyLastLapCons?.toFixed(2)} %</span>
-                            <span className="text-cyan-300 font-bold">Avg: {virtualEnergyAvgCons?.toFixed(2)} %/Lap</span>
-                        </>
-                    )}
-                </div>
-
-                {/* BATTERIE PHYSIQUE - STRICTEMENT HYPERCAR (PAS LMGT3) */}
-                {isHypercar && (
-                    <div className="mt-4 pt-3 border-t border-slate-800 flex items-center gap-3">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
-                            <Battery size={10}/> BAT
-                        </div>
-                        <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">
-                            <div 
-                                className="h-full bg-green-500 transition-all duration-500" 
-                                style={{width: `${batterySoc}%`}}
-                            ></div>
-                        </div>
-                        <div className="text-[10px] font-mono text-white font-bold">{batterySoc}%</div>
-                    </div>
-                )}
             </div>
 
-            {/* MOTEUR & PÉDALES */}
-            <div className="flex gap-4 h-40"> 
-                <div className="flex-[2] bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex flex-col relative overflow-hidden">
-                    <div className="flex justify-between items-start z-10">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">TELEMETRY</div>
-                        <div className="flex gap-4">
-                            <div className="flex items-center gap-1.5">
-                                <Thermometer size={14} className={waterTemp > 105 ? "text-red-500 animate-pulse" : "text-blue-400"}/>
-                                <div className="flex flex-col leading-none">
-                                    <span className="text-[9px] text-slate-500 font-bold">WATER</span>
-                                    <span className="text-xs font-mono font-bold text-white">{waterTemp}°</span>
-                                </div>
+            {/* LIGNE 2 : TELEMETRIE VOITURE (Hauteur flexible) */}
+            <div className="flex-[2] bg-slate-900/40 border border-white/5 rounded-xl p-4 flex flex-col min-h-0 relative overflow-hidden">
+                
+                {/* Header interne */}
+                <div className="flex justify-between items-start mb-4 z-10 shrink-0">
+                    <div className="flex gap-6">
+                        <div className="flex items-center gap-2">
+                            <Droplet size={14} className={oilTemp > 110 ? "text-red-500 animate-pulse" : "text-amber-500"}/>
+                            <div>
+                                <div className="text-[9px] font-bold text-slate-500">OIL</div>
+                                <div className="text-sm font-mono font-bold text-white">{Math.round(oilTemp)}°</div>
                             </div>
-                            <div className="flex items-center gap-1.5">
-                                <Droplet size={14} className={oilTemp > 110 ? "text-red-500 animate-pulse" : "text-amber-500"}/>
-                                <div className="flex flex-col leading-none">
-                                    <span className="text-[9px] text-slate-500 font-bold">OIL</span>
-                                    <span className="text-xs font-mono font-bold text-white">{oilTemp}°</span>
-                                </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Thermometer size={14} className={waterTemp > 105 ? "text-red-500 animate-pulse" : "text-blue-400"}/>
+                            <div>
+                                <div className="text-[9px] font-bold text-slate-500">WATER</div>
+                                <div className="text-sm font-mono font-bold text-white">{Math.round(waterTemp)}°</div>
                             </div>
                         </div>
                     </div>
+                    {/* Vitesse */}
+                    <div className="text-right">
+                        <div className="text-5xl lg:text-6xl font-black text-white italic tracking-tighter leading-none tabular-nums">
+                            {Math.round(speed)}
+                        </div>
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mr-1">KM/H</div>
+                    </div>
+                </div>
 
-                    <div className="flex-1 flex items-center justify-center z-10 mt-2">
-                        <span className="text-6xl font-black text-white italic tracking-tighter tabular-nums">{Math.round(speed)}</span>
-                        <span className="text-sm font-bold text-slate-500 ml-2 self-end mb-4">KM/H</span>
+                {/* RPM Bar & Pedals */}
+                <div className="mt-auto flex flex-col gap-2 z-10">
+                    
+                    {/* Pédales (Barres horizontales fines) */}
+                    <div className="flex gap-2 h-2">
+                        <div className="flex-1 bg-slate-800 rounded-full overflow-hidden flex flex-col-reverse relative">
+                            <div className="absolute inset-0 bg-red-600 transition-all duration-75 origin-left" style={{ width: `${brake}%` }}></div>
+                        </div>
+                        <div className="flex-1 bg-slate-800 rounded-full overflow-hidden flex flex-col-reverse relative">
+                            <div className="absolute inset-0 bg-emerald-500 transition-all duration-75 origin-left" style={{ width: `${throttle}%` }}></div>
+                        </div>
                     </div>
 
-                    <div className="w-full bg-slate-800 h-3 rounded-full mt-auto overflow-hidden border border-slate-700 relative z-10">
+                    {/* RPM Bar */}
+                    <div className="w-full bg-slate-950 h-6 lg:h-8 rounded-md overflow-hidden border border-slate-700 relative">
+                        {/* Zone rouge indicateur */}
+                        <div className="absolute right-0 top-0 bottom-0 w-[10%] bg-red-900/30 border-l border-red-500/50 z-0"></div>
+                        
                         <div 
-                            className={`h-full transition-all duration-75 ease-linear ${rpm > maxRpm * 0.95 ? 'bg-red-500' : 'bg-indigo-500'}`} 
+                            className={`h-full transition-all duration-75 ease-linear ${rpm > maxRpm * 0.95 ? 'bg-red-500 shadow-[0_0_20px_rgba(239,68,68,0.8)]' : 'bg-gradient-to-r from-indigo-600 to-cyan-400'}`} 
                             style={{ width: `${(rpm / maxRpm) * 100}%` }}
                         ></div>
-                    </div>
-                    <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1 z-10">
-                        <span>0</span>
-                        <span className={rpm > maxRpm * 0.95 ? "text-red-500 font-bold" : ""}>{rpm} RPM</span>
-                        <span>{maxRpm}</span>
-                    </div>
-                </div>
-
-                <div className="w-24 bg-slate-900/50 border border-slate-800 rounded-xl p-3 flex justify-center gap-2">
-                    <div className="flex flex-col items-center gap-1 h-full w-full">
-                        <div className="flex-1 w-full bg-slate-800 rounded overflow-hidden relative border border-slate-700">
-                            <div className="absolute bottom-0 left-0 right-0 bg-red-600 transition-all duration-75" style={{ height: `${brake}%` }}></div>
-                        </div>
-                    </div>
-                    <div className="flex flex-col items-center gap-1 h-full w-full">
-                        <div className="flex-1 w-full bg-slate-800 rounded overflow-hidden relative border border-slate-700">
-                            <div className="absolute bottom-0 left-0 right-0 bg-emerald-500 transition-all duration-75" style={{ height: `${throttle}%` }}></div>
-                        </div>
+                        
+                        {/* Grille par dessus */}
+                        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iMSIgaGVpZ2h0PSI0IiBmaWxsPSJyZ2JhKDAsMCwwLDAuMikiIC8+Cjwvc3ZnPg==')] opacity-30"></div>
+                        
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-white drop-shadow-md font-mono">{rpm}</span>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col justify-center relative overflow-hidden">
-                <div className="absolute right-0 top-0 p-4 opacity-10"><Flag size={100}/></div> 
-                <h3 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-2"><Activity size={14}/> Laps Completed (Total)</h3>
-                <div className="text-6xl font-black text-white tracking-tighter font-mono">{laps} <span className="text-xl text-slate-600">LAPS</span></div>
+            {/* LIGNE 3 : TOTAL LAPS (Hauteur fixe compacte) */}
+            <div className="bg-slate-900/40 border border-white/5 rounded-xl p-3 flex items-center justify-between shrink-0 overflow-hidden relative">
+                <div className="flex items-center gap-3 z-10">
+                    <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-400"><Flag size={18}/></div>
+                    <div>
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Laps</div>
+                        <div className="text-2xl font-black text-white italic tracking-tighter">{laps}</div>
+                    </div>
+                </div>
+                <div className="absolute right-[-10px] bottom-[-10px] opacity-10 rotate-12">
+                    <Trophy size={60}/>
+                </div>
             </div>
+
         </div>
       </div>
     </div>
