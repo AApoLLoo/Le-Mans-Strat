@@ -10,7 +10,7 @@ import { ArrowRight, ChevronLeft, Car, Users, RefreshCw, Trash2 } from 'lucide-r
 // --- CONFIGURATION ---
 // Temps avant suppression automatique (10 minutes = 600000 ms)
 // Pour tester rapidement, mettez 30000 (30 secondes)10 * 60 * 1000
-const DELETE_TIMEOUT_MS = 30000; 
+const DELETE_TIMEOUT_MS = 10*60*1000; 
 
 // --- ANIMATION ---
 const generateBaguettes = (count: number) => {
