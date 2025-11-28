@@ -29,8 +29,8 @@ export interface TelemetryData {
   
   brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
   tireTemps: { flc: number; frc: number; rlc: number; rrc: number };
-  currentLapTimeSeconds: number;
-  last3LapAvgSeconds: number;
+  curLap: number;
+  AvgLapTime: number;
   strategyEstPitTime: number;
   throttle: number;
   brake: number;

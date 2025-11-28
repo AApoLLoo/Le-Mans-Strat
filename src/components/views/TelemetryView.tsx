@@ -10,8 +10,9 @@ const getTireColorGradient = (wear: number) => {
   if (wear > 30) return 'bg-gradient-to-t from-orange-600 to-orange-400 shadow-[0_0_15px_rgba(251,146,60,0.3)]';
   return 'bg-gradient-to-t from-red-700 to-red-500 shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse';
 };
-const getCompoundBadgeColor = (compound: string) => {
-    const c = compound.toUpperCase();
+const getCompoundBadgeColor = (compound: string | undefined | null) => {
+    if (!compound) return "text-slate-400 border-slate-600/50 bg-slate-800/50";
+    const c = String(compound).toUpperCase();
     if (c.includes("SOFT")) return "text-red-500 border-red-500/50 bg-red-950/30";
     if (c.includes("MEDIUM")) return "text-yellow-400 border-yellow-400/50 bg-yellow-950/30";
     if (c.includes("HARD")) return "text-white border-white/50 bg-slate-700/50";
@@ -53,7 +54,7 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
   const { tires, tireCompounds, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons,  moyLap, curLap, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
 
   const [showVirtualEnergy, setShowVirtualEnergy] = useState(false);
-
+  const compounds = tireCompounds || { fl: "---", fr: "---", rl: "---", rr: "---" };
   // Gestion Energie
   const isVE = showVirtualEnergy && (isHypercar || isLMGT3);
   const currentResource = isVE ? virtualEnergy : fuel.current;
@@ -75,20 +76,26 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
   else if (delta < -0.5) { deltaColorClass = 'text-emerald-400 shadow-emerald-400/20'; } 
   
   const displayDelta = delta !== 0 ? `${deltaSign}${Math.abs(delta).toFixed(2)}` : '-.--';
-
-  // Helper pour afficher un pneu
-  const renderTire = (name: string, wear: number, brakeT: number, tireT: number) => (
-    <div className="flex flex-col items-center gap-1.5 flex-1 h-full justify-center">
+  const renderTire = (name: string, wear: number, brakeT: number, tireT: number, compound: string) => (
+    <div className="flex flex-col items-center gap-2 flex-1 h-full justify-center">
         <span className="text-[10px] text-slate-500 font-bold tracking-widest">{name}</span>
         
         {/* Pneu Graphique */}
-        <div className="relative w-12 lg:w-16 flex-1 bg-slate-900/80 rounded-lg border border-slate-700 overflow-hidden shadow-inner group">
+        <div className="relative w-12 lg:w-16 flex-1 bg-slate-900/80 rounded-lg border border-slate-700 overflow-hidden shadow-inner group flex flex-col justify-end">
             <div className={`absolute bottom-0 left-0 right-0 w-full transition-all duration-700 ease-out ${getTireColorGradient(wear)}`} style={{ height: `${wear}%` }}>
                 {/* Texture */}
                 <div className="w-full h-full opacity-30 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjIiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiAvPgo8L3N2Zz4=')]"></div>
             </div>
-            <div className="absolute inset-0 flex items-center justify-center z-10">
-                <span className="text-base lg:text-xl font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] font-mono">{Math.round(wear)}</span>
+            
+            {/* Badge Compound intégré en bas du pneu */}
+            <div className="absolute bottom-1 left-0 right-0 flex justify-center z-20">
+                 <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border backdrop-blur-sm ${getCompoundBadgeColor(compound)}`}>
+                    {compound}
+                 </span>
+            </div>
+
+            <div className="absolute inset-0 flex items-center justify-center z-10 pb-4">
+                <span className="text-base lg:text-xl font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] font-mono">{Math.round(wear)}%</span>
             </div>
         </div>
 
@@ -162,8 +169,8 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
             {/* Grille Pneus 2x2 */}
             <div className="flex-1 flex gap-4 min-h-0">
                 <div className="flex flex-col justify-between h-full gap-4">
-                    {renderTire('FL', tires.fl, brakeTemps.flc, tireTemps.flc)}
-                    {renderTire('RL', tires.rl, brakeTemps.rlc, tireTemps.rlc)}
+                    {renderTire('FL', tires.fl, brakeTemps.flc, tireTemps.flc, compounds.fl)}
+                    {renderTire('RL', tires.rl, brakeTemps.rlc, tireTemps.rlc, compounds.rl)}
                 </div>
                 
                 {/* Silhouette Voiture Centrale */}
@@ -172,8 +179,8 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                 </div>
 
                 <div className="flex flex-col justify-between h-full gap-4">
-                    {renderTire('FR', tires.fr, brakeTemps.frc, tireTemps.frc)}
-                    {renderTire('RR', tires.rr, brakeTemps.rrc, tireTemps.rrc)}
+                    {renderTire('FR', tires.fr, brakeTemps.frc, tireTemps.frc, compounds.fr)}
+                    {renderTire('RR', tires.rr, brakeTemps.rrc, tireTemps.rrc, compounds.rr)}
                 </div>
             </div>
         </div>

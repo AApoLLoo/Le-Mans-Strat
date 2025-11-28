@@ -49,14 +49,10 @@ export const useRaceData = (teamId: string) => {
             virtualEnergy: 0, batterySoc: 0,
             virtualEnergyLastLapCons: 0, virtualEnergyAvgCons: 0,
             tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
-            
-            // --- AJOUT OBLIGATOIRE ICI ---
             tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" },
-            // -----------------------------
-            
             brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
-            currentLapTimeSeconds: 0, AvgLapTime: 0,
+            curLap: 0, AvgLapTime: 0,
             strategyEstPitTime: 0, inPitLane: false, inGarage: true,
         },
         stintVirtualEnergy: {}
@@ -103,16 +99,12 @@ export const useRaceData = (teamId: string) => {
                             rl: data.tireWearRL ?? prev.telemetry.tires.rl,
                             rr: data.tireWearRR ?? prev.telemetry.tires.rr,
                         },
-
-                        // Le crash venait probablement d'ici si vous utilisiez 'prev.telemetry.tireCompounds'
-                        // alors que c'était undefined
                         tireCompounds: {
-                            fl: data.tireCompoundFL ?? prev.telemetry.tireCompounds.fl,
-                            fr: data.tireCompoundFR ?? prev.telemetry.tireCompounds.fr,
-                            rl: data.tireCompoundRL ?? prev.telemetry.tireCompounds.rl,
-                            rr: data.tireCompoundRR ?? prev.telemetry.tireCompounds.rr,
+                            fl: data.tireCompoundFL || (prev.telemetry.tireCompounds?.fl ?? "---"),
+                            fr: data.tireCompoundFR || (prev.telemetry.tireCompounds?.fr ?? "---"),
+                            rl: data.tireCompoundRL || (prev.telemetry.tireCompounds?.rl ?? "---"),
+                            rr: data.tireCompoundRR || (prev.telemetry.tireCompounds?.rr ?? "---"),
                         },
-
                         brakeTemps: {
                             flc: data.brakeTempFLC ?? prev.telemetry.brakeTemps.flc,
                             frc: data.brakeTempFRC ?? prev.telemetry.brakeTemps.frc,
@@ -128,7 +120,7 @@ export const useRaceData = (teamId: string) => {
                         
                         laps: data.currentLap ?? prev.telemetry.laps,
                         moyLap: data.averageLapTime ?? prev.telemetry.AvgLapTime,
-                        curLap: data.lapTimeLast ?? prev.telemetry.LapTimeLast,
+                        curLap: data.lapTimeLast ?? prev.telemetry.curLap,
                         speed: data.speedKmh ?? prev.telemetry.speed,
                         throttle: data.throttle ?? 0,
                         brake: data.brake ?? 0,
@@ -181,7 +173,7 @@ export const useRaceData = (teamId: string) => {
 
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
-        const activeLapTime = Math.max(1, gameState.telemetry.last3LapAvgSeconds || gameState.avgLapTimeSeconds || 210);
+        const activeLapTime = Math.max(1, gameState.telemetry.AvgLapTime || gameState.avgLapTimeSeconds || 210);
         const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
         const activeVECons = Math.max(0.1, gameState.telemetry.virtualEnergyAvgCons || gameState.veCons);
         const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
