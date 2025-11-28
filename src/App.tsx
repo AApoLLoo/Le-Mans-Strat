@@ -22,12 +22,11 @@ const globalCss = `
 `;
 
 const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => { 
-  const isHypercarStyle = teamId.toLowerCase().includes('hyper') || teamId.toLowerCase().includes('red');
   
   const { 
       gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData, 
       confirmPitStop, undoPitStop, resetRace, 
-      db, CHAT_ID 
+      db, CHAT_ID, isHypercar, isLMGT3 
   } = useRaceData(teamId); 
 
   const [viewMode, setViewMode] = useState("STRATEGY");
@@ -196,14 +195,16 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
                        syncUpdate({ stintAssignments: newAssign });
                    }}
                    onUpdateNote={(stopNum: any, val: any) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
-                   isHypercar={isHypercarStyle}
+                   isHypercar={isHypercar}
+                   isLMGT3={isLMGT3} 
                    telemetryData={gameState.telemetry}
                  />
                )}
                {viewMode === "TELEMETRY" && (
                  <TelemetryView 
                     telemetryData={gameState.telemetry}
-                    isHypercar={isHypercarStyle}
+                    isHypercar={isHypercar}
+                    isLMGT3={isLMGT3} 
                     position={gameState.position} 
                     avgLapTimeSeconds={gameState.avgLapTimeSeconds} 
                     weather={gameState.weather}
@@ -232,7 +233,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
             gameState={gameState}
             syncUpdate={syncUpdate}
             onClose={() => setShowSettings(false)}
-            isHypercar={isHypercarStyle}
+            isHypercar={isHypercar}
+            isLMGT3={isLMGT3} 
             onAddDriver={addDriver}
             onRemoveDriver={removeDriver}
             onUpdateDriver={updateDriverInfo}
@@ -250,8 +252,14 @@ const RaceStrategyApp = () => {
     return <LandingPage onSelectTeam={setSelectedTeam} />;
   }
 
-  const isHypercarStyle = selectedTeam.toLowerCase().includes('hyper');
-  const teamColor = isHypercarStyle ? 'bg-red-600' : 'bg-blue-600';
+  const tId = selectedTeam.toLowerCase();
+  // Logique de couleur
+  let teamColor = 'bg-slate-600';
+  if (tId.includes('hyper') || tId.includes('red')) teamColor = 'bg-red-600';
+  else if (tId.includes('gt3') || tId.includes('lmgt3')) teamColor = 'bg-orange-500';
+  else if (tId.includes('lmp3')) teamColor = 'bg-purple-600';
+  else if (tId.includes('elms')) teamColor = 'bg-sky-500'; // LMP2 ELMS
+  else if (tId.includes('lmp2')) teamColor = 'bg-blue-600'; // LMP2 WEC
   
   const displayName = selectedTeam.toUpperCase().replace('-', ' #');
 

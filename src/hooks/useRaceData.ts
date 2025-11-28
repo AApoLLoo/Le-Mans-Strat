@@ -9,7 +9,12 @@ export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId; 
     const CHAT_ID = "global-radio"; 
     
-    const isHypercar = teamId.toLowerCase().includes('hyper') || teamId.toLowerCase().includes('red');
+    const tId = teamId.toLowerCase();
+    const isHypercar = tId.includes('hyper') || tId.includes('red');
+    const isLMGT3 = tId.includes('gt3') || tId.includes('lmgt3');
+    // --- AJOUTS ---
+    const isLMP3 = tId.includes('lmp3');
+    const isLMP2ELMS = tId.includes('elms') || (tId.includes('lmp2') && tId.includes('elms'));
 
     const [status, setStatus] = useState("CONNECTING...");
     const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
@@ -47,7 +52,7 @@ export const useRaceData = (teamId: string) => {
             tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
             brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
-            currentLapTimeSeconds: 0, AvgLapTime: 0,
+            currentLapTimeSeconds: 0, last3LapAvgSeconds: 0,
             strategyEstPitTime: 0, inPitLane: false, inGarage: true,
         },
         stintVirtualEnergy: {}
@@ -67,14 +72,11 @@ export const useRaceData = (teamId: string) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
 
-                // Calcul du temps écoulé depuis la dernière mise à jour du bridge
                 let adjustedRaceTime = data.sessionTimeRemainingSeconds;
 
                 if (data.isRaceRunning && data.lastPacketTime) {
                     const now = Date.now();
                     const timeDiffSeconds = (now - data.lastPacketTime) / 1000;
-                    
-                    // Si la donnée date de moins de 24h (pour éviter des bugs si vieux fichier), on ajuste
                     if (timeDiffSeconds > 0 && timeDiffSeconds < 86400) {
                         adjustedRaceTime = Math.max(0, data.sessionTimeRemainingSeconds - timeDiffSeconds);
                     }
@@ -88,7 +90,7 @@ export const useRaceData = (teamId: string) => {
                             current: data.fuelRemainingL,
                             max: data.fuelTankCapacityL || prev.telemetry.fuel.max,
                             averageCons: data.averageConsumptionFuel || 0,
-                            lastLapCons: data.lastLapFuelConsumption 
+                            lastLapCons: data.lastLapFuelConsumption ?? prev.telemetry.fuel.lastLapCons
                         } : prev.telemetry.fuel,
                         
                         tires: {
@@ -110,8 +112,6 @@ export const useRaceData = (teamId: string) => {
                             rrc: data.tireTempCenterRRC ?? prev.telemetry.tireTemps.rrc,
                         },
                         laps: data.currentLap ?? prev.telemetry.laps,
-                        moyLap: data.averageLapTime ?? prev.telemetry.AvgLapTime,
-                        curLap: data.lapTimeLast ?? prev.telemetry.LapTimeLast,
                         speed: data.speedKmh ?? prev.telemetry.speed,
                         throttle: data.throttle ?? 0,
                         brake: data.brake ?? 0,
@@ -164,24 +164,26 @@ export const useRaceData = (teamId: string) => {
 
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
-        const activeLapTime = Math.max(1, gameState.telemetry.AvgLapTime || gameState.avgLapTimeSeconds || 210);
+        const activeLapTime = Math.max(1, gameState.telemetry.last3LapAvgSeconds || gameState.avgLapTimeSeconds || 210);
         const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
         const activeVECons = Math.max(0.1, gameState.telemetry.virtualEnergyAvgCons || gameState.veCons);
         const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
 
         const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
         const lapsPerVE = Math.floor(100 / activeVECons);
-        const lapsPerStint = Math.max(1, isHypercar ? lapsPerVE : lapsPerTank);
+        
+        // LMP3 et LMP2-ELMS fonctionnent au Fuel
+        const useVE = isHypercar || isLMGT3;
+        const lapsPerStint = Math.max(1, useVE ? lapsPerVE : lapsPerTank);
         
         const lapsRemaining = Math.max(1, Math.ceil(localRaceTime / activeLapTime));
-        const AvgLapTime = gameState.telemetry.laps;
-        const totalLapsTarget = AvgLapTime + lapsRemaining;
+        const currentLap = gameState.telemetry.laps;
+        const totalLapsTarget = currentLap + lapsRemaining;
 
         const stints: Stint[] = [];
         const currentStintIndex = gameState.currentStint;
 
-        // Stints passés
-        const avgPastStintLen = currentStintIndex > 0 ? Math.max(0, AvgLapTime - (lapsPerStint * 0.5)) / currentStintIndex : lapsPerStint;
+        const avgPastStintLen = currentStintIndex > 0 ? Math.max(0, currentLap - (lapsPerStint * 0.5)) / currentStintIndex : lapsPerStint;
         for (let i = 0; i < currentStintIndex; i++) {
             let driverId = gameState.stintAssignments[i];
             if (!driverId) driverId = gameState.drivers[i % gameState.drivers.length]?.id;
@@ -193,14 +195,12 @@ export const useRaceData = (teamId: string) => {
             });
         }
 
-        // Stint actuel
         stints.push({
-            id: currentStintIndex, stopNum: currentStintIndex + 1, startLap: AvgLapTime, endLap: AvgLapTime + lapsPerStint,
+            id: currentStintIndex, stopNum: currentStintIndex + 1, startLap: currentLap, endLap: currentLap + lapsPerStint,
             fuel: "CURRENT", driver: activeDriver, driverId: activeDriver.id, isCurrent: true, isNext: false, isDone: false, note: "NOW", lapsCount: lapsPerStint
         });
 
-        // Stints futurs
-        let lapCounter = AvgLapTime + lapsPerStint;
+        let lapCounter = currentLap + lapsPerStint;
         let nextIdx = currentStintIndex + 1;
         let safetyBreak = 0;
         while(lapCounter < totalLapsTarget && safetyBreak < 200) {
@@ -217,7 +217,7 @@ export const useRaceData = (teamId: string) => {
 
             stints.push({
                 id: nextIdx, stopNum: nextIdx + 1, startLap: lapCounter, endLap: lapCounter + safeLapsThisStint,
-                fuel: isLast ? ((safeLapsThisStint+1)*activeFuelCons).toFixed(1)+"L" : (isHypercar ? "NRG RESET" : "FULL"), 
+                fuel: isLast ? ((safeLapsThisStint+1)*activeFuelCons).toFixed(1)+"L" : (useVE ? "NRG RESET" : "FULL"), 
                 driver: d, driverId: dId, isCurrent: false, isNext: nextIdx === currentStintIndex + 1, isDone: false, note: isLast ? "FINISH" : "BOX", lapsCount: safeLapsThisStint
             });
             lapCounter += safeLapsThisStint;
@@ -226,7 +226,7 @@ export const useRaceData = (teamId: string) => {
         }
 
         return { stints, totalLaps: totalLapsTarget, lapsPerTank: lapsPerStint, activeCons: activeFuelCons, activeLapTime, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex) };
-    }, [gameState, localRaceTime, isHypercar]);
+    }, [gameState, localRaceTime, isHypercar, isLMGT3, isLMP3, isLMP2ELMS]);
 
     const confirmPitStop = () => {
         const nextStint = gameState.currentStint + 1;
@@ -260,6 +260,7 @@ export const useRaceData = (teamId: string) => {
 
     return {
         gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData,
-        confirmPitStop, undoPitStop, resetRace, db, CHAT_ID
+        confirmPitStop, undoPitStop, resetRace, db, CHAT_ID,
+        isHypercar, isLMGT3, isLMP3, isLMP2ELMS
     };
 };

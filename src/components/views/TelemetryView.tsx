@@ -37,13 +37,14 @@ const getBrakeTempColor = (temp: number) => {
   return 'text-slate-500';
 };
 
-const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds, weather, airTemp, trackWetness }: any) => { 
-  const { tires, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, moyLap, curLap, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
+// --- AJOUT prop isLMGT3 ---
+const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTimeSeconds, weather, airTemp, trackWetness }: any) => { 
+  const { tires, fuel, laps, virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, currentLapTimeSeconds, last3LapAvgSeconds, brakeTemps, tireTemps, throttle, brake, speed, rpm, maxRpm, waterTemp, oilTemp } = telemetryData;
 
   const [showVirtualEnergy, setShowVirtualEnergy] = useState(false);
 
-  // Logique d'affichage dynamique (Fuel ou VE)
-  const isVE = showVirtualEnergy && isHypercar;
+  // --- MODIF : VE actif pour Hypercar OU LMGT3 ---
+  const isVE = showVirtualEnergy && (isHypercar || isLMGT3);
   const currentResource = isVE ? virtualEnergy : fuel.current;
   const maxResource = isVE ? 100 : fuel.max;
   const resourcePercentage = (currentResource / maxResource) * 100;
@@ -52,7 +53,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
   const icon = isVE ? <Zap size={14} className="text-yellow-300 fill-yellow-300"/> : <Fuel size={14}/>;
   const labelColor = isVE ? 'text-cyan-400' : 'text-slate-500';
 
-  const delta = moyLap - avgLapTimeSeconds;
+  const delta = last3LapAvgSeconds - avgLapTimeSeconds;
   let deltaColorClass = 'text-white';
   let deltaSign = '';
   if (delta > 0.5) { deltaColorClass = 'text-red-500'; deltaSign = '+'; } 
@@ -87,7 +88,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
             <div className="flex flex-col items-end">
                 <div className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1"><Clock size={12} className="text-amber-500"/> Avg Lap (Last 3)</div>
                 <div className="text-3xl font-black italic tracking-tighter font-mono flex items-center gap-2">
-                    <span className="text-white">{formatLapTime(moyLap)}</span>
+                    <span className="text-white">{formatLapTime(last3LapAvgSeconds)}</span>
                     <span className={`text-base font-bold ${deltaColorClass}`}>{displayDelta}</span>
                 </div>
             </div>
@@ -174,7 +175,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
             <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col justify-center relative overflow-hidden">
                 <div className="absolute right-0 top-0 p-4 opacity-10 text-indigo-400"><Clock size={100}/></div>
                 <h3 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-2"><Clock size={14}/> Current Lap Time</h3>
-                <div className="text-6xl font-black text-white tracking-tighter font-mono">{formatLapTime(curLap)}</div>
+                <div className="text-6xl font-black text-white tracking-tighter font-mono">{formatLapTime(currentLapTimeSeconds)}</div>
             </div>
 
             {/* --- BLOC ÉNERGIE --- */}
@@ -184,7 +185,8 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                         {icon} {label}
                     </h3>
                     
-                    {isHypercar && (
+                    {/* --- MODIF : Bouton de switch pour Hypercar OU LMGT3 --- */}
+                    {(isHypercar || isLMGT3) && (
                         <button 
                             onClick={() => setShowVirtualEnergy(!showVirtualEnergy)}
                             className="text-[10px] font-bold uppercase flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded transition-all border border-slate-700 hover:border-cyan-500"
@@ -213,7 +215,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                     {!isVE && (
                         <>
                             <span>Last Lap: {fuel.lastLapCons.toFixed(2)} L</span>
-                            <span>AvgLapTime: {fuel.averageCons.toFixed(2)} L</span>
+                            <span>Avg: {fuel.averageCons.toFixed(2)} L</span>
                         </>
                     )}
                     {isVE && (
@@ -224,7 +226,7 @@ const TelemetryView = ({ telemetryData, isHypercar, position, avgLapTimeSeconds,
                     )}
                 </div>
 
-                {/* BATTERIE PHYSIQUE */}
+                {/* BATTERIE PHYSIQUE - STRICTEMENT HYPERCAR (PAS LMGT3) */}
                 {isHypercar && (
                     <div className="mt-4 pt-3 border-t border-slate-800 flex items-center gap-3">
                         <div className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">

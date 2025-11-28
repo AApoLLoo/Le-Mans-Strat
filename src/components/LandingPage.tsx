@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, deleteDoc, doc } from "firebase/firestore";
 import { db } from '../lib/firebase';
 import lmp2CarImg from '../assets/lmp2-car.jpg'; 
+import LMGT3 from '../assets/LMGT3-MERC.jpg';
+import LMP3 from '../assets/LMP3.jpg';
+import ELMS from '../assets/LMP2-ELMS.jpg';
 import hypercarCarImg from '../assets/Hypercar.jpg';
 import baguetteImg from '../assets/Baguette.png';
 import { ArrowRight, ChevronLeft, Car, Users, RefreshCw, Trash2 } from 'lucide-react';
@@ -25,6 +28,7 @@ interface Team {
     name: string;
     category: string;
     color: string;
+    currentDriver?: string; // Ajout de ce champ
 }
 
 interface LandingPageProps {
@@ -71,8 +75,23 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
   };
 
   const renderLineupSelection = () => {
-    const lineups = teams.filter(t => t.category.toLowerCase().includes(selectedCategory!.toLowerCase()));
-    const bgImage = selectedCategory === 'hypercar' ? hypercarCarImg : lmp2CarImg;
+    const lineups = teams.filter(t => {
+        const cat = t.category.toLowerCase();
+        const sel = selectedCategory!.toLowerCase();
+        if (sel === 'lmp2 (elms)') return cat.includes('elms') || (cat.includes('lmp2') && t.name.includes('ELMS'));
+        return cat.includes(sel);
+    });
+    
+    let bgImage = lmp2CarImg;
+    if (selectedCategory === 'hypercar') bgImage = hypercarCarImg;
+    else if (selectedCategory === 'lmgt3') bgImage = LMGT3;
+
+    let borderColor = 'border-slate-500/50';
+    if (selectedCategory === 'hypercar') borderColor = 'border-red-500/50';
+    else if (selectedCategory === 'lmp2') borderColor = 'border-blue-500/50';
+    else if (selectedCategory === 'lmgt3') borderColor = 'border-orange-500/50';
+    else if (selectedCategory === 'lmp3') borderColor = 'border-purple-500/50';
+    else if (selectedCategory === 'lmp2 (elms)') borderColor = 'border-sky-500/50';
 
     return (
       <div className="flex flex-col items-center gap-6 w-full max-w-4xl z-20 animate-fade-in-up">
@@ -84,7 +103,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
         </button>
 
         <h2 className="text-3xl font-black text-white italic uppercase mb-4">
-          SELECT YOUR <span className={selectedCategory === 'hypercar' ? 'text-red-500' : 'text-blue-500'}>{selectedCategory}</span>
+          SELECT YOUR <span className="text-indigo-400">{selectedCategory}</span>
         </h2>
 
         {lineups.length === 0 ? (
@@ -99,7 +118,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
                 <div 
                     key={car.id} 
                     onClick={() => onSelectTeam(car.id)} 
-                    className={`relative h-40 rounded-2xl overflow-hidden group hover:scale-105 transition-all duration-300 border-2 bg-slate-900/80 shadow-2xl cursor-pointer ${car.category === 'hypercar' ? 'border-red-500/50' : 'border-blue-500/50'}`}
+                    className={`relative h-40 rounded-2xl overflow-hidden group hover:scale-105 transition-all duration-300 border-2 bg-slate-900/80 shadow-2xl cursor-pointer ${borderColor}`}
                 >
                     <div className="absolute inset-0 pointer-events-none">
                         <img src={bgImage} className="w-full h-full object-cover opacity-20 group-hover:opacity-40 transition-opacity filter blur-sm group-hover:blur-0" alt="" />
@@ -116,6 +135,14 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
 
                     <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pointer-events-none">
                         <span className={`text-2xl font-black text-white italic drop-shadow-lg text-center leading-none mb-2`}>{car.name}</span>
+                        
+                        {/* --- AFFICHAGE DU PILOTE ACTUEL --- */}
+                        {car.currentDriver && (
+                             <div className="mb-2 flex items-center gap-1 text-xs font-bold text-amber-400 bg-black/40 px-2 py-0.5 rounded border border-amber-500/30 backdrop-blur-sm shadow-md">
+                                <span className="uppercase truncate max-w-[150px]">{car.currentDriver}</span>
+                             </div>
+                        )}
+
                         <div className={`px-3 py-1 rounded-full text-[10px] font-bold text-white shadow-lg flex items-center gap-2 ${car.color || 'bg-slate-600'}`}>
                             <Users size={12}/> CONNECT
                         </div>
@@ -143,46 +170,78 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
         {selectedCategory ? (
           renderLineupSelection()
         ) : (
-          <div className="flex flex-col md:flex-row gap-8 z-20 relative items-center">
+          <div className="flex flex-wrap justify-center gap-6 z-20 relative items-center max-w-6xl px-4">
             
-            <button onClick={() => setSelectedCategory('hypercar')} className="w-72 h-80 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-red-900/20 hover:-translate-y-2 transition-all duration-300 border border-red-500/20 bg-slate-900">
+            {/* HYPERCAR */}
+            <button onClick={() => setSelectedCategory('hypercar')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-red-900/20 hover:-translate-y-2 transition-all duration-300 border border-red-500/20 bg-slate-900">
                <div className="absolute inset-0 pointer-events-none">
                  <img src={hypercarCarImg} alt="Hypercar" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500" />
                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
                </div>
-               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-8 pb-10 pointer-events-none">
-                   <Car size={40} className="mb-4 text-red-500 opacity-80 group-hover:scale-110 transition-transform"/>
-                   <span className="font-black text-4xl tracking-tighter italic">HYPERCAR</span>
-                   <span className="text-xs text-red-200 mt-2 font-bold tracking-widest border border-red-500/50 px-3 py-1 rounded-full bg-red-900/30">SELECT CLASS</span>
-                   {teams.filter(t => t.category === 'hypercar').length > 0 && (
-                       <span className="absolute top-4 right-4 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse shadow-lg">
-                           {teams.filter(t => t.category === 'hypercar').length} LIVE
-                       </span>
-                   )}
+               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
+                   <Car size={32} className="mb-3 text-red-500 opacity-80 group-hover:scale-110 transition-transform"/>
+                   <span className="font-black text-2xl tracking-tighter italic">HYPERCAR</span>
+                   <span className="text-[10px] text-red-200 mt-2 font-bold tracking-widest border border-red-500/50 px-2 py-0.5 rounded-full bg-red-900/30">WEC</span>
                </div>
             </button>
 
-            <button onClick={() => setSelectedCategory('lmp2')} className="w-72 h-80 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-blue-900/20 hover:-translate-y-2 transition-all duration-300 border border-blue-500/20 bg-slate-900">
+            {/* LMP2 */}
+            <button onClick={() => setSelectedCategory('lmp2')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-blue-900/20 hover:-translate-y-2 transition-all duration-300 border border-blue-500/20 bg-slate-900">
                <div className="absolute inset-0 pointer-events-none">
                  <img src={lmp2CarImg} alt="LMP2" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500" />
                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
                </div>
-               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-8 pb-10 pointer-events-none">
-                   <Car size={40} className="mb-4 text-blue-500 opacity-80 group-hover:scale-110 transition-transform"/>
-                   <span className="font-black text-4xl tracking-tighter italic">LMP2</span>
-                   <span className="text-xs text-blue-200 mt-2 font-bold tracking-widest border border-blue-500/50 px-3 py-1 rounded-full bg-blue-900/30">SELECT CLASS</span>
-                   {teams.filter(t => t.category === 'lmp2').length > 0 && (
-                       <span className="absolute top-4 right-4 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse shadow-lg">
-                           {teams.filter(t => t.category === 'lmp2').length} LIVE
-                       </span>
-                   )}
+               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
+                   <Car size={32} className="mb-3 text-blue-500 opacity-80 group-hover:scale-110 transition-transform"/>
+                   <span className="font-black text-2xl tracking-tighter italic">LMP2</span>
+                   <span className="text-[10px] text-blue-200 mt-2 font-bold tracking-widest border border-blue-500/50 px-2 py-0.5 rounded-full bg-blue-900/30">WEC</span>
                </div>
             </button>
+
+            {/* LMP2 ELMS*/}
+            <button onClick={() => setSelectedCategory('lmp2 (elms)')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-sky-900/20 hover:-translate-y-2 transition-all duration-300 border border-sky-500/20 bg-slate-900">
+               <div className="absolute inset-0 pointer-events-none">
+                 <img src={ELMS} alt="LMP2 ELMS" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500 filter hue-rotate-15" />
+                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
+               </div>
+               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
+                   <Car size={32} className="mb-3 text-sky-400 opacity-80 group-hover:scale-110 transition-transform"/>
+                   <span className="font-black text-2xl tracking-tighter italic">LMP2</span>
+                   <span className="text-[10px] text-sky-200 mt-2 font-bold tracking-widest border border-sky-500/50 px-2 py-0.5 rounded-full bg-sky-900/30">ELMS</span>
+               </div>
+            </button>
+
+            {/* LMP3 - NEW */}
+            <button onClick={() => setSelectedCategory('lmp3')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-purple-900/20 hover:-translate-y-2 transition-all duration-300 border border-purple-500/20 bg-slate-900">
+               <div className="absolute inset-0 pointer-events-none">
+                 <img src={LMP3} alt="LMP3" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500 filter hue-rotate-[240deg] contrast-125" />
+                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
+               </div>
+               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
+                   <Car size={32} className="mb-3 text-purple-500 opacity-80 group-hover:scale-110 transition-transform"/>
+                   <span className="font-black text-2xl tracking-tighter italic">LMP3</span>
+                   <span className="text-[10px] text-purple-200 mt-2 font-bold tracking-widest border border-purple-500/50 px-2 py-0.5 rounded-full bg-purple-900/30">ELMS</span>
+               </div>
+            </button>
+
+            {/* LMGT3 */}
+            <button onClick={() => setSelectedCategory('lmgt3')} className="w-56 h-64 rounded-3xl relative overflow-hidden group shadow-2xl hover:shadow-orange-900/20 hover:-translate-y-2 transition-all duration-300 border border-orange-500/20 bg-slate-900">
+               <div className="absolute inset-0 pointer-events-none">
+                 <img src={LMGT3} alt="LMGT3" className="w-full h-full object-cover opacity-50 group-hover:opacity-80 transition-opacity duration-500 filter sepia-[0.5]" />
+                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
+               </div>
+               <div className="relative z-10 flex flex-col items-center justify-end h-full text-white p-6 pb-8 pointer-events-none">
+                   <Car size={32} className="mb-3 text-orange-500 opacity-80 group-hover:scale-110 transition-transform"/>
+                   <span className="font-black text-2xl tracking-tighter italic">LMGT3</span>
+                   <span className="text-[10px] text-orange-200 mt-2 font-bold tracking-widest border border-orange-500/50 px-2 py-0.5 rounded-full bg-orange-900/30">WEC</span>
+               </div>
+            </button>
+
           </div>
         )}
 
         {!selectedCategory && (
-          <div className="z-20 mt-8 flex flex-col items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
+          <div className="z-20 mt-4 flex flex-col items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
             <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Or join specific ID manually</span>
             <form onSubmit={handleCustomJoin} className="flex gap-2 bg-black/40 p-1.5 rounded-xl border border-white/10 backdrop-blur-md">
                 <input 

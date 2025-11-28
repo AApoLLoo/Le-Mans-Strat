@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, RotateCcw, Plus, Trash2 } from 'lucide-react';
-import type { GameState } from '../types'; // Notez le "import type"
+import type { GameState } from '../types';
 
 interface SettingsModalProps {
     gameState: GameState;
@@ -11,10 +11,11 @@ interface SettingsModalProps {
     onRemoveDriver: (id: number | string) => void;
     onUpdateDriver: (id: number | string, field: string, val: any) => void;
     isHypercar: boolean;
+    isLMGT3: boolean; // Ajout prop
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ 
-    gameState, syncUpdate, onClose, onReset, onAddDriver, onRemoveDriver, onUpdateDriver, isHypercar 
+    gameState, syncUpdate, onClose, onReset, onAddDriver, onRemoveDriver, onUpdateDriver, isHypercar, isLMGT3 
 }) => {
     return (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -25,14 +26,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                  <div><label className="text-[10px] text-slate-500 font-bold">AVG LAP TIME (Seconds)</label><input type="number" value={gameState.avgLapTimeSeconds} onChange={(e)=>syncUpdate({avgLapTimeSeconds: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
                  <div><label className="text-[10px] text-slate-500 font-bold">TANK (L)</label><input type="number" value={gameState.tankCapacity} onChange={(e)=>syncUpdate({tankCapacity: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"/></div>
                  <div>
-                    <label className={`${isHypercar ? 'text-cyan-500' : 'text-slate-500'} text-[10px] font-bold`}>
-                        {isHypercar ? 'VE CONS (%/Lap)' : 'FUEL CONS (L/Lap)'}
+                    {/* --- MODIF : Label adapté pour LMGT3 --- */}
+                    <label className={`${(isHypercar || isLMGT3) ? 'text-cyan-500' : 'text-slate-500'} text-[10px] font-bold`}>
+                        {(isHypercar || isLMGT3) ? 'VE CONS (%/Lap)' : 'FUEL CONS (L/Lap)'}
                     </label>
                     <input 
                         type="number" 
                         step="0.01" 
-                        value={isHypercar ? gameState.veCons : gameState.fuelCons} 
-                        onChange={(e)=> syncUpdate(isHypercar ? {veCons: Number(e.target.value)} : {fuelCons: Number(e.target.value)})} 
+                        value={(isHypercar || isLMGT3) ? gameState.veCons : gameState.fuelCons} 
+                        onChange={(e)=> syncUpdate((isHypercar || isLMGT3) ? {veCons: Number(e.target.value)} : {fuelCons: Number(e.target.value)})} 
                         className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"
                     />
                  </div>
