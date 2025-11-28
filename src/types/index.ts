@@ -67,7 +67,8 @@ export interface StrategyData {
   stints: Stint[];
   totalLaps: number;
   lapsPerTank: number;
-  activeCons: number;
+  activeFuelCons: number;
+  activeVECons: number;
   activeLapTime: number;
   pitStopsRemaining: number;
 }

@@ -259,7 +259,7 @@ export const useRaceData = (teamId: string) => {
             safetyBreak++;
         }
 
-        return { stints, totalLaps: totalLapsTarget, lapsPerTank: lapsPerStint, activeCons: activeFuelCons, activeLapTime, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex) };
+        return { stints, totalLaps: totalLapsTarget, lapsPerTank: lapsPerStint, activeFuelCons: activeFuelCons, activeVECons: activeVECons, activeLapTime, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex) };
     }, [gameState, localRaceTime, isHypercar, isLMGT3, isLMP3, isLMP2ELMS]);
 
     const confirmPitStop = () => {

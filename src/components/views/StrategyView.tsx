@@ -35,16 +35,19 @@ const StrategyView = ({
     onAssignDriver, 
     onUpdateNote, 
     isHypercar,
-    isLMGT3, // <--- AJOUTÉ ICI POUR CORRIGER L'ERREUR
+    isLMGT3, 
     telemetryData 
 }) => {
   
   // Protection par défaut
-  const { activeCons = 0, activeLapTime = 0, pitStopsRemaining = 0, totalLaps = 0 } = strategyData || {};
+  const { activeFuelCons = 0, activeVECons = 0, activeLapTime = 0, pitStopsRemaining = 0, totalLaps = 0 } = strategyData || {};
   
   // Temps de pit estimé
   const estPitTime = telemetryData?.strategyEstPitTime || 0;
-  
+  const useVE = isHypercar || isLMGT3;
+  const displayConsValue = useVE ? activeVECons : activeFuelCons;
+  const displayConsUnit = useVE ? '%/Lap' : 'L/Lap';
+  const displayConsIconClass = useVE ? "text-cyan-400" : "text-blue-400";
   // Récupération de l'état "Au stand"
   const inPitLane = telemetryData?.inPitLane || false;
   
@@ -64,15 +67,15 @@ const StrategyView = ({
       )}
 
       {/* --- BANDEAU RÉCAPITULATIF LIVE --- */}
-      <div className="grid grid-cols-4 gap-2 p-4 border-b border-slate-800 bg-slate-900/50 shrink-0 pt-6">
+          <div className="grid grid-cols-4 gap-2 p-4 border-b border-slate-800 bg-slate-900/50 shrink-0 pt-6">
           
-          {/* Consommation Moyenne */}
-          <div className="bg-slate-800 rounded-lg p-2 flex flex-col items-center justify-center">
+            <div className="bg-slate-800 rounded-lg p-2 flex flex-col items-center justify-center">
               <div className="text-[9px] text-slate-400 uppercase font-bold flex items-center gap-1">
+                  {/* Changement d'icône si VE ? On garde Fuel pour l'instant ou on met un éclair */}
                   <Fuel size={10}/> Avg Cons.
               </div>
-              <div className="text-xl font-mono font-black text-blue-400">
-                  {activeCons.toFixed(2)} <span className="text-xs text-slate-500">{ (isHypercar || isLMGT3) ? '%/Lap' : 'L/Lap'}</span>
+              <div className={`text-xl font-mono font-black ${displayConsIconClass}`}>
+                  {displayConsValue.toFixed(2)} <span className="text-xs text-slate-500">{displayConsUnit}</span>
               </div>
           </div>
 
