@@ -107,10 +107,10 @@ export const useRaceData = (teamId: string) => {
                         // Le crash venait probablement d'ici si vous utilisiez 'prev.telemetry.tireCompounds'
                         // alors que c'était undefined
                         tireCompounds: {
-                            fl: data.tireCompoundFL || (prev.telemetry.tireCompounds ? prev.telemetry.tireCompounds.fl : "---"),
-                            fr: data.tireCompoundFR || (prev.telemetry.tireCompounds ? prev.telemetry.tireCompounds.fr : "---"),
-                            rl: data.tireCompoundRL || (prev.telemetry.tireCompounds ? prev.telemetry.tireCompounds.rl : "---"),
-                            rr: data.tireCompoundRR || (prev.telemetry.tireCompounds ? prev.telemetry.tireCompounds.rr : "---"),
+                            fl: data.tireCompoundFL ?? prev.telemetry.tireCompounds.fl,
+                            fr: data.tireCompoundFR ?? prev.telemetry.tireCompounds.fr,
+                            rl: data.tireCompoundRL ?? prev.telemetry.tireCompounds.rl,
+                            rr: data.tireCompoundRR ?? prev.telemetry.tireCompounds.rr,
                         },
 
                         brakeTemps: {
