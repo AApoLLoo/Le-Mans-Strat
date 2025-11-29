@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { formatTime } from '../../utils/helpers';
-import { Flag, Clock, Battery, Fuel, Zap, AlertCircle } from 'lucide-react';
+import { Fuel, Zap } from 'lucide-react';
 
 interface LeaderboardEntry {
     pos: number;
@@ -21,38 +20,57 @@ interface LeaderboardEntry {
 }
 
 interface LiveTimingProps {
-    telemetryData: any; // Données détaillées de TA voiture
+    telemetryData: any;
     isHypercar: boolean;
 }
 
 const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }) => {
     const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-    const [lastUpdate, setLastUpdate] = useState(0);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [_, setLastUpdate] = useState(0);
 
-    // Abonnement au leaderboard global
+    // 1. Récupération des infos
+    const trackName = telemetryData?.trackName || "";
+    const sessionType = telemetryData?.sessionType || "";
+    // AJOUT : On récupère le nom du serveur
+    const serverName = telemetryData?.serverName || "Offline";
+
+    // 2. Calcul de l'ID avec le Serveur
+    const trackId = trackName.replace(/\s/g, '');
+    const sessId = sessionType.replace(/\s/g, '');
+    const srvId = serverName.replace(/\s/g, '');
+    
+    // ID UNIQUE : leaderboard_Circuit_Session_Serveur
+    const docId = `leaderboard_${trackId}_${sessId}_${srvId}`; 
+
     useEffect(() => {
-        if (!db) return;
-        const unsub = onSnapshot(doc(db, "strategies", "leaderboard"), (doc) => {
+        // On ajoute serverName aux conditions de sécurité
+        if (!db || !trackName || !sessionType || !serverName) return;
+
+        console.log("Listening to leaderboard:", docId);
+
+        const unsub = onSnapshot(doc(db, "strategies", docId), (doc) => {
             if (doc.exists()) {
                 const data = doc.data();
                 try {
-                    // Les données sont dans un champ JSON string pour la performance
                     const entries = JSON.parse(data.json);
                     setLeaderboard(entries);
                     setLastUpdate(Date.now());
                 } catch (e) {
                     console.error("Error parsing leaderboard", e);
                 }
+            } else {
+                setLeaderboard([]);
             }
         });
         return () => unsub();
-    }, []);
+    }, [docId, trackName, sessionType]); // On dépend de docId maintenant
 
-    // Helpers pour le formatage
-    const getGapString = (val: number, isLaps: boolean = false) => {
+    // Helpers
+    const getGapString = (val: number) => {
         if (val === 0) return "-";
-        if (val > 0) return `+${val.toFixed(1)}`; // Temps en secondes
-        if (val < 0) return `${Math.floor(val)}L`; // Tours de retard (valeur négative souvent utilisée par rF2)
+        if (val > 0) return `+${val.toFixed(1)}`;
+        if (val < 0) return `${Math.floor(val)}L`;
         return val.toFixed(1);
     };
 
@@ -72,9 +90,8 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
 
     return (
         <div className="flex flex-col h-full gap-4">
-            {/* 1. DASHBOARD PERSONNEL (Top Bar) */}
+            {/* TOP BAR */}
             <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 bg-slate-900/50 p-3 rounded-xl border border-white/5 shadow-lg shrink-0">
-                {/* Fuel */}
                 <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
                     <span className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1"><Fuel size={10}/> Fuel</span>
                     <div className="flex items-end gap-2">
@@ -82,7 +99,6 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
                         <span className="text-xs text-slate-400 mb-1">~{((telemetryData?.fuel?.current || 0) / (telemetryData?.fuel?.averageCons || 1)).toFixed(1)} Laps</span>
                     </div>
                 </div>
-                {/* Energy (Si Hypercar) */}
                 {isHypercar && (
                     <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
                          <span className="text-[10px] text-sky-400 font-bold uppercase flex items-center gap-1"><Zap size={10}/> Virtual NRG</span>
@@ -91,27 +107,24 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
                         </div>
                     </div>
                 )}
-                {/* Pneus (Vue simplifiée) */}
                 <div className="col-span-2 lg:col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Tires (Wear)</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">Tires</span>
                     <div className="grid grid-cols-2 gap-1 mt-1">
-                        {[telemetryData?.tires?.fl, telemetryData?.tires?.fr, telemetryData?.tires?.rl, telemetryData?.tires?.rr].map((wear, i) => (
+                        {[telemetryData?.tires?.fl, telemetryData?.tires?.fr, telemetryData?.tires?.rl, telemetryData?.tires?.rr].map((wear: number, i: number) => (
                             <div key={i} className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
                                 <div className={`h-full ${wear > 70 ? 'bg-emerald-500' : wear > 40 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{width: `${wear}%`}}></div>
                             </div>
                         ))}
                     </div>
                 </div>
-                {/* Last Lap */}
                 <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
                      <span className="text-[10px] text-slate-400 font-bold uppercase">Last Lap</span>
-                     <span className="text-xl font-mono font-bold text-white tracking-tight">{formatLap(telemetryData?.curLapTimeLast || 0)}</span>
+                     <span className="text-xl font-mono font-bold text-white tracking-tight">{formatLap(telemetryData?.lapTimeLast || 0)}</span>
                 </div>
             </div>
 
-            {/* 2. LEADERBOARD (Tableau) */}
+            {/* LEADERBOARD */}
             <div className="flex-1 overflow-hidden bg-slate-900/80 rounded-xl border border-white/5 flex flex-col">
-                {/* Header Tableau */}
                 <div className="grid grid-cols-12 gap-2 p-3 bg-black/40 text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5">
                     <div className="col-span-1 text-center">Pos</div>
                     <div className="col-span-1 text-center">Class</div>
@@ -125,41 +138,45 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
                     <div className="col-span-1 text-center">State</div>
                 </div>
 
-                {/* Liste Déroulante */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    {leaderboard.map((row) => {
-                        const isMe = row.driver === telemetryData?.driverName; // Simple check
-                        
-                        return (
-                            <div key={row.num + row.class} className={`grid grid-cols-12 gap-2 p-2 items-center text-xs font-mono border-b border-white/5 hover:bg-white/5 transition-colors ${isMe ? 'bg-indigo-900/20' : ''} ${getClassColor(row.class)}`}>
-                                <div className="col-span-1 text-center font-bold text-white text-sm">{row.pos}</div>
-                                <div className="col-span-1 text-center">
-                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${row.class.includes('HYP') ? 'bg-red-900/50 text-red-200' : row.class.includes('GT') ? 'bg-orange-900/50 text-orange-200' : 'bg-blue-900/50 text-blue-200'}`}>
-                                        {row.class.substring(0,3)}
-                                    </span>
+                    {leaderboard.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-2">
+                            <span className="animate-spin text-2xl">↻</span>
+                            {/* Maintenant docId est accessible ici */}
+                            <span className="text-xs">Waiting for data ({docId})...</span>
+                        </div>
+                    ) : (
+                        leaderboard.map((row) => {
+                            const isMe = row.driver === telemetryData?.driverName;
+                            
+                            return (
+                                <div key={row.num + row.class} className={`grid grid-cols-12 gap-2 p-2 items-center text-xs font-mono border-b border-white/5 hover:bg-white/5 transition-colors ${isMe ? 'bg-indigo-900/20' : ''} ${getClassColor(row.class)}`}>
+                                    <div className="col-span-1 text-center font-bold text-white text-sm">{row.pos}</div>
+                                    <div className="col-span-1 text-center">
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${row.class.includes('HYP') ? 'bg-red-900/50 text-red-200' : row.class.includes('GT') ? 'bg-orange-900/50 text-orange-200' : 'bg-blue-900/50 text-blue-200'}`}>
+                                            {row.class.substring(0,3)}
+                                        </span>
+                                    </div>
+                                    <div className="col-span-1 text-center text-slate-300">{row.num}</div>
+                                    <div className="col-span-3 truncate">
+                                        <div className="font-bold text-white truncate">{row.driver}</div>
+                                        <div className="text-[9px] text-slate-500 truncate">{row.car}</div>
+                                    </div>
+                                    <div className="col-span-1 text-right text-yellow-500">{row.pos === 1 ? '-' : getGapString(row.gap)}</div>
+                                    <div className="col-span-1 text-right text-slate-400">{getGapString(row.int)}</div>
+                                    <div className="col-span-1 text-center text-slate-300">{formatLap(row.last)}</div>
+                                    <div className="col-span-1 text-center text-purple-400">{formatLap(row.best)}</div>
+                                    <div className="col-span-1 text-center text-slate-500">{row.stops}</div>
+                                    <div className="col-span-1 text-center flex justify-center">
+                                        {row.pit ? (
+                                            <span className="bg-yellow-500 text-black px-1 rounded text-[9px] font-bold animate-pulse">PIT</span>
+                                        ) : (
+                                            <span className="text-emerald-500 text-[9px]">TRK</span>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="col-span-1 text-center text-slate-300">{row.num}</div>
-                                <div className="col-span-3 truncate">
-                                    <div className="font-bold text-white truncate">{row.driver}</div>
-                                    <div className="text-[9px] text-slate-500 truncate">{row.car}</div>
-                                </div>
-                                <div className="col-span-1 text-right text-yellow-500">{row.pos === 1 ? '-' : getGapString(row.gap)}</div>
-                                <div className="col-span-1 text-right text-slate-400">{getGapString(row.int)}</div>
-                                <div className="col-span-1 text-center text-slate-300">{formatLap(row.last)}</div>
-                                <div className="col-span-1 text-center text-purple-400">{formatLap(row.best)}</div>
-                                <div className="col-span-1 text-center text-slate-500">{row.stops}</div>
-                                <div className="col-span-1 text-center flex justify-center">
-                                    {row.pit ? (
-                                        <span className="bg-yellow-500 text-black px-1 rounded text-[9px] font-bold animate-pulse">PIT</span>
-                                    ) : (
-                                        <span className="text-emerald-500 text-[9px]">TRK</span>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                    {leaderboard.length === 0 && (
-                        <div className="p-10 text-center text-slate-500 italic">Waiting for Race Control Bridge...</div>
+                            );
+                        })
                     )}
                 </div>
             </div>
