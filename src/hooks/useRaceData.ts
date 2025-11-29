@@ -6,19 +6,9 @@ import { getSafeDriver } from '../utils/helpers';
 
 export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId; 
-    const CHAT_ID = "global-radio"; // <--- LIGNE RÉTABLIE ICI
+    const CHAT_ID = "global-radio"; 
     
-    // Détections basiques via l'ID
-    const tId = teamId.toLowerCase();
-    const isHypercar = tId.includes('hyper') || tId.includes('red');
-    const isLMGT3 = tId.includes('gt3') || tId.includes('lmgt3');
-    const isLMP3 = tId.includes('lmp3');
-    const isLMP2ELMS = tId.includes('elms') || (tId.includes('lmp2') && tId.includes('elms'));
-
-    const [status, setStatus] = useState("CONNECTING...");
-    const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
-    const [localStintTime, setLocalStintTime] = useState(0);
-    
+    // État initial du jeu
     const [gameState, setGameState] = useState<GameState>({
         currentStint: 0,
         raceTime: 24 * 60 * 60,
@@ -46,8 +36,8 @@ export const useRaceData = (teamId: string) => {
             throttle: 0, brake: 0, speed: 0, rpm: 0, maxRpm: 8000,
             waterTemp: 0, oilTemp: 0, laps: 0,
             fuel: { current: 0, max: 100, lastLapCons: 0, averageCons: 0 },
-            virtualEnergy: 0, batterySoc: 0,
-            virtualEnergyLastLapCons: 0, virtualEnergyAvgCons: 0,
+            VE: {VEcurrent: 100, VElastLapCons: 0, VEaverageCons: 0},
+            batterySoc:0,
             tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
             tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" },
             brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
@@ -57,6 +47,21 @@ export const useRaceData = (teamId: string) => {
         },
         stintVirtualEnergy: {}
     });
+
+    // --- DÉTECTION DYNAMIQUE DES CATÉGORIES ---
+    // On combine l'ID de l'équipe ET la catégorie reçue via la télémétrie
+    const tId = teamId.toLowerCase();
+    const telemetryCat = (gameState.telemetry as any).carCategory || "";
+    const catLower = String(telemetryCat).toLowerCase();
+
+    const isHypercar = tId.includes('hyper') || tId.includes('red') || catLower.includes('hyper');
+    const isLMGT3 = tId.includes('gt3') || tId.includes('lmgt3') || catLower.includes('gt3') || catLower.includes('lmgt3');
+    const isLMP3 = tId.includes('lmp3') || catLower.includes('lmp3');
+    const isLMP2ELMS = tId.includes('elms') || (tId.includes('lmp2') && tId.includes('elms'));
+
+    const [status, setStatus] = useState("CONNECTING...");
+    const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
+    const [localStintTime, setLocalStintTime] = useState(0);
 
     const syncUpdate = (data: Partial<GameState>) => {
         if (!db) return;
@@ -82,26 +87,16 @@ export const useRaceData = (teamId: string) => {
                 }
 
                 setGameState(prev => {
-                    // Logique auto-ajout pilote
                     let updatedDrivers = data.drivers || prev.drivers;
                     const incomingDriverName = data.driverName;
 
                     if (incomingDriverName && incomingDriverName !== "Driver 1") {
                         const driverExists = updatedDrivers.find((d: any) => d.name === incomingDriverName || d.id === incomingDriverName);
-                        
                         if (!driverExists) {
                             if (updatedDrivers.length === 1 && updatedDrivers[0].name === "Driver 1") {
-                                updatedDrivers = [{
-                                    id: incomingDriverName, 
-                                    name: incomingDriverName, 
-                                    color: '#3b82f6'
-                                }];
+                                updatedDrivers = [{ id: incomingDriverName, name: incomingDriverName, color: '#3b82f6' }];
                             } else {
-                                updatedDrivers = [...updatedDrivers, {
-                                    id: incomingDriverName, 
-                                    name: incomingDriverName, 
-                                    color: '#ec4899'
-                                }];
+                                updatedDrivers = [...updatedDrivers, { id: incomingDriverName, name: incomingDriverName, color: '#ec4899' }];
                             }
                         }
                     }
@@ -115,7 +110,11 @@ export const useRaceData = (teamId: string) => {
                             averageCons: data.averageConsumptionFuel || 0,
                             lastLapCons: data.lastLapFuelConsumption ?? prev.telemetry.fuel.lastLapCons
                         } : prev.telemetry.fuel,
-                        
+                        VE : data.virtualEnergyRemainingPct !== undefined ? {
+                            VEcurrent: data.virtualEnergyRemainingPct,
+                            VElastLapCons: data.virtualEnergyConsumptionLastLap ?? prev.telemetry.VE.VElastLapCons,
+                            VEaverageCons: data.virtualEnergyAverageConsumption ?? prev.telemetry.VE.VEaverageCons,
+                        } : prev.telemetry.VE,
                         tires: {
                             fl: data.tireWearFL ?? prev.telemetry.tires.fl,
                             fr: data.tireWearFR ?? prev.telemetry.tires.fr,
@@ -140,7 +139,7 @@ export const useRaceData = (teamId: string) => {
                             rlc: data.tireTempCenterRLC ?? prev.telemetry.tireTemps.rlc,
                             rrc: data.tireTempCenterRRC ?? prev.telemetry.tireTemps.rrc,
                         },
-                        
+                        Soc: data.batterySoc ?? prev.telemetry.batterySoc,
                         laps: data.currentLap ?? prev.telemetry.laps,
                         moyLap: data.averageLapTime ?? prev.telemetry.AvgLapTime,
                         curLap: data.lapTimeLast ?? prev.telemetry.curLap,
@@ -196,18 +195,16 @@ export const useRaceData = (teamId: string) => {
 
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
-        
         const activeLapTime = Math.max(1, gameState.telemetry.AvgLapTime || gameState.avgLapTimeSeconds || 210);
         const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
-        const activeVECons = Math.max(0.1, gameState.telemetry.virtualEnergyAvgCons || gameState.veCons);
+        const activeVECons = Math.max(0.1, gameState.telemetry.VE.VEaverageCons || gameState.veCons);
         const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
 
         const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
         const lapsPerVE = Math.floor(100 / activeVECons);
         
-        const carCat = gameState.telemetry['carCategory'] as string;
-        const isGt3Detected = carCat && (carCat.toLowerCase().includes('gt3') || carCat.toLowerCase().includes('lmgt3'));
-        const useVE = isHypercar || isLMGT3 || isGt3Detected;
+        // Utilisation des booléens dynamiques calculés ci-dessus
+        const useVE = isHypercar || isLMGT3;
         
         const lapsPerStint = Math.max(1, useVE ? lapsPerVE : lapsPerTank);
         

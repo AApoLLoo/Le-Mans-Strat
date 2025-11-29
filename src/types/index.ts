@@ -1,5 +1,7 @@
 // src/types/index.ts
 
+import type { VideoMetadata } from "firebase/vertexai-preview";
+
 export interface Driver {
   id: number | string;
   name: string;
@@ -14,19 +16,21 @@ export interface FuelData {
   lastLapCons: number;
   averageCons: number;
 }
+export interface VirtualEnergyData{
+  VEcurrent: number;
+  VElastLapCons: number;
+  VEaverageCons: number;
+}
 
 export interface TelemetryData {
   laps: number;
   fuel: FuelData;
-  virtualEnergy: number; 
-  batterySoc: number;    
-  virtualEnergyLastLapCons: number; 
-  virtualEnergyAvgCons: number;     
+  VE : VirtualEnergyData;  
   
   tires: { fl: number; fr: number; rl: number; rr: number };
   // Ajout de l'objet pour les gommes
   tireCompounds: { fl: string; fr: string; rl: string; rr: string };
-  
+  batterySoc: number;
   brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
   tireTemps: { flc: number; frc: number; rlc: number; rrc: number };
   curLap: number;

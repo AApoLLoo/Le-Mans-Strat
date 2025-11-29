@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame, Droplet, RefreshCw } from 'lucide-react';
 
 // --- UTILITAIRES VISUELS ---
@@ -53,11 +53,10 @@ const getWeatherIcon = (weather: string) => {
 
 const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTimeSeconds, weather, airTemp, trackWetness }: any) => { 
   const { 
-      tires, tireCompounds, fuel, laps, 
-      virtualEnergy, batterySoc, virtualEnergyAvgCons, virtualEnergyLastLapCons, 
+      tires, tireCompounds, fuel, laps, VE, 
       moyLap, curLap, brakeTemps, tireTemps, 
       throttle, brake, speed, rpm, maxRpm, 
-      waterTemp, oilTemp, 
+      waterTemp, oilTemp, batterySoc,
       carCategory // Récupération de la catégorie envoyée par le Bridge
   } = telemetryData;
 
@@ -68,10 +67,17 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
   // Détection robuste : on utilise le flag isLMGT3 (basé sur l'ID) OU la catégorie réelle du jeu
   const isCategoryGT3 = isLMGT3 || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('gt3') || carCategory.toLowerCase().includes('lmgt3')));
   
+  // --- AJOUT : Force l'affichage VE si Hypercar/GT3 est détecté ---
+  useEffect(() => {
+      if (isHypercar || isCategoryGT3) {
+          setShowVirtualEnergy(true);
+      }
+  }, [isHypercar, isCategoryGT3]);
+
   // Gestion Energie (Hypercar OU GT3)
   const isVE = showVirtualEnergy && (isHypercar || isCategoryGT3);
   
-  const currentResource = isVE ? virtualEnergy : fuel.current;
+  const currentResource = isVE ? VE.VEcurrent : fuel.current;
   const maxResource = isVE ? 100 : fuel.max;
   const resourcePercentage = Math.min(100, Math.max(0, (currentResource / maxResource) * 100));
   
@@ -220,8 +226,8 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                                 {isVE ? `${Math.round(currentResource)}%` : `${currentResource.toFixed(1)} L`}
                             </span>
                             <div className="text-[10px] text-right text-white/80 font-mono leading-tight">
-                                <div>LAST: <span className="font-bold">{isVE ? virtualEnergyLastLapCons?.toFixed(1) + '%' : fuel.lastLapCons.toFixed(2)}</span></div>
-                                <div>AVG: <span className="font-bold">{isVE ? virtualEnergyAvgCons?.toFixed(1) + '%' : fuel.averageCons.toFixed(2)}</span></div>
+                                <div>LAST: <span className="font-bold">{isVE ? VE.VElastLapCons?.toFixed(1) + '%' : fuel.lastLapCons.toFixed(2)}</span></div>
+                                <div>AVG: <span className="font-bold">{isVE ? VE.VEaverageCons?.toFixed(1) + '%' : fuel.averageCons.toFixed(2)}</span></div>
                             </div>
                         </div>
                     </div>
