@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'; 
-import { doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+// src/hooks/useRaceData.ts
+import { doc, onSnapshot, setDoc, updateDoc, arrayUnion } from "firebase/firestore"; // Ajoutez arrayUnion
 import { db } from '../lib/firebase';
 import type { GameState, StrategyData, Stint } from '../types';
 import { getSafeDriver } from '../utils/helpers';
@@ -87,16 +88,33 @@ export const useRaceData = (teamId: string) => {
                 }
 
                 setGameState(prev => {
-                    let updatedDrivers = data.drivers || prev.drivers;
-                    const incomingDriverName = data.driverName;
+                    const data = docSnap.data();
 
+                    // 1. Récupérer la liste officielle depuis la DB, ou vide par défaut
+                    const dbDrivers = data.drivers || []; 
+                    // On garde une liste locale par sécurité si la DB est vide au tout début
+                    const currentDrivers = dbDrivers.length > 0 ? dbDrivers : prev.drivers;
+                    
+                    const incomingDriverName = data.driverName;
+                    
+                    // 2. Vérifier si le pilote actuel est nouveau
                     if (incomingDriverName && incomingDriverName !== "Driver 1") {
-                        const driverExists = updatedDrivers.find((d: any) => d.name === incomingDriverName || d.id === incomingDriverName);
+                        const driverExists = currentDrivers.find((d: any) => d.name === incomingDriverName || d.id === incomingDriverName);
+                        
+                        // Si le pilote n'existe pas dans la liste PARTAGÉE, on l'ajoute à FIREBASE
                         if (!driverExists) {
-                            if (updatedDrivers.length === 1 && updatedDrivers[0].name === "Driver 1") {
-                                updatedDrivers = [{ id: incomingDriverName, name: incomingDriverName, color: '#3b82f6' }];
+                            const newDriver = { 
+                                id: incomingDriverName, 
+                                name: incomingDriverName, 
+                                color: '#ec4899' // Vous pouvez générer une couleur aléatoire ici si vous voulez
+                            };
+                    
+                            // Si c'est le tout premier vrai pilote, on écrase le "Driver 1" par défaut, sinon on ajoute
+                            if (currentDrivers.length === 1 && currentDrivers[0].name === "Driver 1") {
+                                 updateDoc(docRef, { drivers: [newDriver] }).catch(e => console.error("Error init driver:", e));
                             } else {
-                                updatedDrivers = [...updatedDrivers, { id: incomingDriverName, name: incomingDriverName, color: '#ec4899' }];
+                                 // arrayUnion garantit qu'on n'ajoute pas de doublon si 2 clients le font en même temps
+                                 updateDoc(docRef, { drivers: arrayUnion(newDriver) }).catch(e => console.error("Error adding driver:", e));
                             }
                         }
                     }
@@ -158,7 +176,7 @@ export const useRaceData = (teamId: string) => {
                         ...prev,
                         ...data,
                         telemetry: liveTelemetry,
-                        drivers: updatedDrivers,
+                        drivers: data.drivers || prev.drivers, // On fait confiance à la DB en priorité
                         incidents: data.incidents || prev.incidents
                     };
                 });

@@ -1,46 +1,60 @@
 import React from 'react';
-import { ChevronRight, Battery, Zap, Clock, Fuel, Timer, AlertTriangle } from 'lucide-react';
+import { ChevronRight, Fuel, Timer, Clock, AlertTriangle } from 'lucide-react';
 
-const formatLapTime = (s) => {
-    if (isNaN(s) || s <= 0) return "---";
-    const minutes = Math.floor(s / 60);
-    const seconds = s % 60;
-    return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`; 
-};
+// --- TYPES (Ajoutez ceci pour corriger les erreurs TS) ---
+interface Driver {
+    id: string | number;
+    name: string;
+    color?: string;
+}
 
-const getLapTimeDelta = (estimatedTime, realTimeAvg) => {
-    const delta = realTimeAvg - estimatedTime;
+interface Stint {
+    id: number;
+    stopNum: number;
+    startLap: number;
+    endLap: number;
+    isCurrent: boolean;
+    isDone: boolean;
+    fuel: string;
+    driver: Driver;
+    driverId?: string | number;
+    lapsCount: number;
+}
 
-    let colorClass = 'text-white';
-    let deltaSign = '';
-    if (delta > 0.5) { 
-        colorClass = 'text-red-500';
-        deltaSign = '+';
-    } else if (delta < -0.5) { 
-        colorClass = 'text-emerald-500';
-        deltaSign = '-'; 
-    } else if (delta !== 0) { 
-        colorClass = 'text-amber-500';
-        deltaSign = delta > 0 ? '+' : '';
-    }
-    const displayDelta = delta !== 0 ? `${deltaSign}${Math.abs(delta).toFixed(2)}s` : '±0.0s';
-    
-    return { colorClass, displayDelta };
-};
+interface StrategyData {
+    activeFuelCons?: number;
+    activeVECons?: number;
+    activeLapTime?: number;
+    pitStopsRemaining?: number;
+    totalLaps?: number;
+    stints?: Stint[];
+}
 
-const StrategyView = ({ 
+interface StrategyViewProps {
+    strategyData: StrategyData;
+    drivers: Driver[];
+    stintNotes: Record<string, string>;
+    onAssignDriver: (stintId: number, driverId: string) => void;
+    onUpdateNote: (stopNum: number, note: string) => void;
+    isHypercar: boolean;
+    isLMGT3: boolean;
+    telemetryData: any; // Vous pouvez préciser le type si vous l'avez
+}
+
+// --- COMPOSANT ---
+const StrategyView: React.FC<StrategyViewProps> = ({ 
     strategyData, 
-    drivers, 
+    drivers = [], // Valeur par défaut pour éviter le crash
     stintNotes, 
     onAssignDriver, 
     onUpdateNote, 
-    isHypercar,
+    isHypercar, 
     isLMGT3, 
     telemetryData 
 }) => {
   
   // Protection par défaut
-  const { activeFuelCons = 0, activeVECons = 0, activeLapTime = 0, pitStopsRemaining = 0, totalLaps = 0 } = strategyData || {};
+  const { activeFuelCons = 0, activeVECons = 0, pitStopsRemaining = 0, totalLaps = 0 } = strategyData || {};
   
   // Temps de pit estimé
   const estPitTime = telemetryData?.strategyEstPitTime || 0;
@@ -54,7 +68,7 @@ const StrategyView = ({
   return (
     <div className="flex flex-col h-full bg-[#050a10] relative">
       
-      {/* --- ALERTE PIT STOP (S'AFFICHE SI AU STAND) --- */}
+      {/* --- ALERTE PIT STOP --- */}
       {inPitLane && (
           <div className="absolute top-0 left-0 right-0 z-50 bg-red-600 text-white p-4 flex items-center justify-center gap-4 animate-pulse shadow-2xl border-b-4 border-yellow-400">
               <AlertTriangle size={32} className="text-yellow-300"/>
@@ -67,11 +81,10 @@ const StrategyView = ({
       )}
 
       {/* --- BANDEAU RÉCAPITULATIF LIVE --- */}
-          <div className="grid grid-cols-4 gap-2 p-4 border-b border-slate-800 bg-slate-900/50 shrink-0 pt-6">
+      <div className="grid grid-cols-4 gap-2 p-4 border-b border-slate-800 bg-slate-900/50 shrink-0 pt-6">
           
             <div className="bg-slate-800 rounded-lg p-2 flex flex-col items-center justify-center">
               <div className="text-[9px] text-slate-400 uppercase font-bold flex items-center gap-1">
-                  {/* Changement d'icône si VE ? On garde Fuel pour l'instant ou on met un éclair */}
                   <Fuel size={10}/> Avg Cons.
               </div>
               <div className={`text-xl font-mono font-black ${displayConsIconClass}`}>
@@ -79,7 +92,6 @@ const StrategyView = ({
               </div>
           </div>
 
-          {/* Temps Pit Estimé */}
           <div className="bg-slate-800 rounded-lg p-2 flex flex-col items-center justify-center">
               <div className="text-[9px] text-slate-400 uppercase font-bold flex items-center gap-1">
                   <Timer size={10}/> Est. Pit Time
@@ -89,7 +101,6 @@ const StrategyView = ({
               </div>
           </div>
 
-          {/* Arrêts Restants */}
           <div className="bg-slate-800 rounded-lg p-2 flex flex-col items-center justify-center">
               <div className="text-[9px] text-slate-400 uppercase font-bold flex items-center gap-1">
                   <AlertTriangle size={10}/> Stops Left
@@ -99,7 +110,6 @@ const StrategyView = ({
               </div>
           </div>
 
-          {/* Tour de Fin Estimé */}
           <div className="bg-slate-800 rounded-lg p-2 flex flex-col items-center justify-center">
               <div className="text-[9px] text-slate-400 uppercase font-bold flex items-center gap-1">
                   <Clock size={10}/> Total Laps
@@ -124,15 +134,13 @@ const StrategyView = ({
              </tr>
            </thead>
            <tbody className="divide-y divide-white/5">
-             {strategyData?.stints?.map((stint, index) => (
+             {strategyData?.stints?.map((stint) => (
                <tr key={stint.id} className={`group hover:bg-white/[0.02] transition-colors ${stint.isCurrent ? 'bg-emerald-500/10 border-l-2 border-emerald-500' : ''} ${stint.isDone ? 'row-done' : ''}`}>
                  
-                 {/* Numéro Stint */}
                  <td className="p-3 text-center font-mono font-bold text-xs text-slate-600">
                     {stint.isCurrent ? <span className="animate-pulse text-emerald-500">▶</span> : stint.stopNum}
                  </td>
 
-                 {/* Pilote */}
                  <td className="p-3">
                    {stint.isDone ? (
                        <span className="text-slate-500 text-xs">{stint.driver.name}</span>
@@ -142,12 +150,12 @@ const StrategyView = ({
                          onChange={(e) => onAssignDriver(stint.id, e.target.value)} 
                          className="bg-transparent border border-slate-700 rounded px-2 py-1 text-xs font-bold text-white focus:border-indigo-500 focus:bg-slate-900 outline-none w-full max-w-[140px]"
                        >
-                         {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                         {/* Protection ici : drivers?.map ou utilisation de la props par défaut */}
+                         {drivers?.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                        </select>
                    )}
                  </td>
 
-                 {/* Durée du relais (Tours) */}
                  <td className="p-3 text-center font-mono text-xs text-slate-400">
                     {stint.isCurrent ? (
                         <span className="text-emerald-400 font-bold">IN PROG.</span>
@@ -156,7 +164,6 @@ const StrategyView = ({
                     )}
                  </td>
 
-                 {/* Fenêtre de Pit (Tour de début -> Tour de fin) */}
                  <td className="p-3 text-center font-mono text-sm font-bold text-white flex items-center justify-center gap-2">
                    <span className="text-slate-400 text-xs">L</span>
                    {stint.startLap} 
@@ -164,14 +171,12 @@ const StrategyView = ({
                    {stint.endLap}
                  </td>
 
-                 {/* Refuel */}
                  <td className="p-3 text-right font-mono text-xs font-bold">
                     <span className={stint.fuel.includes("FULL") ? "text-amber-400" : (stint.fuel.includes("NRG") ? "text-cyan-400" : "text-blue-300")}>
                         {stint.fuel}
                     </span>
                  </td>
                  
-                 {/* Notes */}
                  <td className="p-3">
                    <input 
                      type="text" 
