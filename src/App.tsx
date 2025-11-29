@@ -190,8 +190,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
                    strategyData={strategyData}
                    drivers={gameState.drivers}
                    stintNotes={gameState.stintNotes}
-                   onAssignDriver={(idx: number, id: any) => {
-                       const newAssign = {...gameState.stintAssignments, [idx]: Number(id)};
+                   onAssignDriver={(idx: number, val: any) => {
+                       // CORRECTION MAJEURE ICI :
+                       // On ne fait plus un simple Number(val) qui cassait les ID textuels.
+                       // On cherche le pilote dans la liste pour récupérer son ID original (string ou number).
+                       const selectedDriver = gameState.drivers.find(d => String(d.id) === String(val));
+                       const realId = selectedDriver ? selectedDriver.id : val;
+
+                       const newAssign = {...gameState.stintAssignments, [idx]: realId};
                        syncUpdate({ stintAssignments: newAssign });
                    }}
                    onUpdateNote={(stopNum: any, val: any) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}

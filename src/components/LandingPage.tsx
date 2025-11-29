@@ -5,7 +5,7 @@ import lmp2CarImg from '../assets/lmp2-car.jpg';
 import LMGT3 from '../assets/LMGT3-MERC.jpg';
 import hypercarCarImg from '../assets/Hypercar.jpg';
 import baguetteImg from '../assets/Baguette.png';
-import { ArrowRight, ChevronLeft, Car, Users, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Car, Users, RefreshCw, Trash2, Eye } from 'lucide-react';
 
 // --- CONFIGURATION ---
 // Temps avant suppression automatique (10 minutes = 600000 ms)
@@ -33,7 +33,8 @@ interface Team {
     category: string;
     color: string;
     currentDriver?: string;
-    lastPacketTime?: number; // Pour vérifier la connexion
+    lastPacketTime?: number;
+    spectatorName?: string; // AJOUT
 }
 
 interface LandingPageProps {
@@ -193,30 +194,29 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTeam }) => {
                         </button>
 
                         <div className="relative z-10 flex flex-col justify-center h-full p-5 pointer-events-none">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 <span className={`text-[9px] font-bold px-1.5 py-px rounded border ${borderColor} bg-black/40 uppercase tracking-widest text-slate-300`}>
                                     {car.id}
                                 </span>
                                 
-                                {/* --- PILOTE & STATUT --- */}
+                                {/* --- PILOTE ACTIF --- */}
                                 {car.currentDriver && (
                                     <div className={`flex items-center gap-1.5 text-[9px] font-bold px-2 py-px rounded-full border backdrop-blur-md transition-colors ${isOnline ? 'text-emerald-400 border-emerald-500/30 bg-emerald-950/30' : 'text-slate-500 border-slate-700/30 bg-black/40'}`}>
                                         <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]' : 'bg-slate-600'}`}></span>
                                         <span className="uppercase truncate max-w-[100px]">{car.currentDriver}</span>
                                     </div>
                                 )}
-                            </div>
-                            
-                            <span className="text-xl lg:text-2xl font-black text-white italic uppercase tracking-tighter leading-none block">
-                                {car.name}
-                            </span>
-                            
-                            <div className="mt-2 flex">
-                                <div className={`px-3 py-1 rounded text-[9px] font-bold text-white shadow flex items-center gap-1 transition-transform group-hover:translate-x-1 ${car.color || 'bg-slate-700'}`}>
-                                    <span>DASHBOARD</span> <ArrowRight size={10}/>
-                                </div>
+
+                                {/* --- NOUVEAU : INDICATEUR SPECTATEUR --- */}
+                                {car.spectatorName && isOnline && (
+                                     <div className="flex items-center gap-1.5 text-[9px] font-bold px-2 py-px rounded-full border border-indigo-500/30 bg-indigo-950/30 text-indigo-300 animate-fade-in">
+                                        <Eye size={10} className="text-indigo-400" />
+                                        <span className="uppercase truncate max-w-[80px]">{car.spectatorName}</span>
+                                    </div>
+                                )}
                             </div>
                         </div>
+
                     </div>
                 );
             })}

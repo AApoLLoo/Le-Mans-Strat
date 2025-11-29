@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'; 
-// src/hooks/useRaceData.ts
-import { doc, onSnapshot, setDoc, updateDoc, arrayUnion } from "firebase/firestore"; // Ajoutez arrayUnion
+import { doc, onSnapshot, setDoc, updateDoc, arrayUnion } from "firebase/firestore"; 
 import { db } from '../lib/firebase';
 import type { GameState, StrategyData, Stint } from '../types';
 import { getSafeDriver } from '../utils/helpers';
@@ -9,7 +8,7 @@ export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId; 
     const CHAT_ID = "global-radio"; 
     
-    // État initial du jeu
+    // État initial
     const [gameState, setGameState] = useState<GameState>({
         currentStint: 0,
         raceTime: 24 * 60 * 60,
@@ -45,12 +44,14 @@ export const useRaceData = (teamId: string) => {
             tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
             curLap: 0, AvgLapTime: 0,
             strategyEstPitTime: 0, inPitLane: false, inGarage: true,
+            // Valeurs par défaut pour le leader
+            leaderLaps: 0,
+            leaderAvgLapTime: 0
         },
         stintVirtualEnergy: {}
     });
 
-    // --- DÉTECTION DYNAMIQUE DES CATÉGORIES ---
-    // On combine l'ID de l'équipe ET la catégorie reçue via la télémétrie
+    // Détection catégories
     const tId = teamId.toLowerCase();
     const telemetryCat = (gameState.telemetry as any).carCategory || "";
     const catLower = String(telemetryCat).toLowerCase();
@@ -78,6 +79,7 @@ export const useRaceData = (teamId: string) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
 
+                // Gestion du temps
                 let adjustedRaceTime = data.sessionTimeRemainingSeconds;
                 if (data.isRaceRunning && data.lastPacketTime) {
                     const now = Date.now();
@@ -89,32 +91,19 @@ export const useRaceData = (teamId: string) => {
 
                 setGameState(prev => {
                     const data = docSnap.data();
-
-                    // 1. Récupérer la liste officielle depuis la DB, ou vide par défaut
                     const dbDrivers = data.drivers || []; 
-                    // On garde une liste locale par sécurité si la DB est vide au tout début
                     const currentDrivers = dbDrivers.length > 0 ? dbDrivers : prev.drivers;
-                    
                     const incomingDriverName = data.driverName;
                     
-                    // 2. Vérifier si le pilote actuel est nouveau
+                    // Gestion Pilotes
                     if (incomingDriverName && incomingDriverName !== "Driver 1") {
                         const driverExists = currentDrivers.find((d: any) => d.name === incomingDriverName || d.id === incomingDriverName);
-                        
-                        // Si le pilote n'existe pas dans la liste PARTAGÉE, on l'ajoute à FIREBASE
                         if (!driverExists) {
-                            const newDriver = { 
-                                id: incomingDriverName, 
-                                name: incomingDriverName, 
-                                color: '#ec4899' // Vous pouvez générer une couleur aléatoire ici si vous voulez
-                            };
-                    
-                            // Si c'est le tout premier vrai pilote, on écrase le "Driver 1" par défaut, sinon on ajoute
+                            const newDriver = { id: incomingDriverName, name: incomingDriverName, color: '#ec4899' };
                             if (currentDrivers.length === 1 && currentDrivers[0].name === "Driver 1") {
-                                 updateDoc(docRef, { drivers: [newDriver] }).catch(e => console.error("Error init driver:", e));
+                                 updateDoc(docRef, { drivers: [newDriver] }).catch(console.error);
                             } else {
-                                 // arrayUnion garantit qu'on n'ajoute pas de doublon si 2 clients le font en même temps
-                                 updateDoc(docRef, { drivers: arrayUnion(newDriver) }).catch(e => console.error("Error adding driver:", e));
+                                 updateDoc(docRef, { drivers: arrayUnion(newDriver) }).catch(console.error);
                             }
                         }
                     }
@@ -133,6 +122,7 @@ export const useRaceData = (teamId: string) => {
                             VElastLapCons: data.virtualEnergyConsumptionLastLap ?? prev.telemetry.VE.VElastLapCons,
                             VEaverageCons: data.virtualEnergyAverageConsumption ?? prev.telemetry.VE.VEaverageCons,
                         } : prev.telemetry.VE,
+                        // ... Pneus et Temps (identique à avant) ...
                         tires: {
                             fl: data.tireWearFL ?? prev.telemetry.tires.fl,
                             fr: data.tireWearFR ?? prev.telemetry.tires.fr,
@@ -157,6 +147,11 @@ export const useRaceData = (teamId: string) => {
                             rlc: data.tireTempCenterRLC ?? prev.telemetry.tireTemps.rlc,
                             rrc: data.tireTempCenterRRC ?? prev.telemetry.tireTemps.rrc,
                         },
+                        // --- NOUVEAU : Récupération des données Leader ---
+                        // Assurez-vous que votre Bridge envoie ces champs !
+                        leaderLaps: data.leaderCurrentLap ?? prev.telemetry.leaderLaps,
+                        leaderAvgLapTime: data.leaderAverageLap ?? prev.telemetry.leaderAvgLapTime,
+                        
                         Soc: data.batterySoc ?? prev.telemetry.batterySoc,
                         laps: data.currentLap ?? prev.telemetry.laps,
                         moyLap: data.averageLapTime ?? prev.telemetry.AvgLapTime,
@@ -176,7 +171,7 @@ export const useRaceData = (teamId: string) => {
                         ...prev,
                         ...data,
                         telemetry: liveTelemetry,
-                        drivers: data.drivers || prev.drivers, // On fait confiance à la DB en priorité
+                        drivers: data.drivers || prev.drivers,
                         incidents: data.incidents || prev.incidents
                     };
                 });
@@ -193,13 +188,14 @@ export const useRaceData = (teamId: string) => {
                 setStatus("WAITING BRIDGE");
             }
         }, (error) => {
-            console.error("Erreur Firebase:", error);
+            console.error("Firebase Error:", error);
             setStatus("ERROR");
         });
 
         return () => unsubscribe();
     }, [teamId]);
 
+    // Timer local
     useEffect(() => {
         let interval: any = null;
         if (gameState.isRaceRunning && localRaceTime > 0) {
@@ -211,27 +207,54 @@ export const useRaceData = (teamId: string) => {
         return () => clearInterval(interval);
     }, [gameState.isRaceRunning]);
 
+    // --- CŒUR DU CALCUL STRATÉGIQUE ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
-        const activeLapTime = Math.max(1, gameState.telemetry.AvgLapTime || gameState.avgLapTimeSeconds || 210);
+        
+        // --- 1. CALCUL DES TOURS TOTAUX ---
+        const leaderLaps = gameState.telemetry.leaderLaps || 0;
+        const leaderAvg = gameState.telemetry.leaderAvgLapTime || 0;
+        
+        let totalLapsTarget = 0;
+
+        // MODE 1 : LOGIQUE "JEU" (Précision maximale)
+        if (leaderLaps > 0 && leaderAvg > 0) {
+            // Le leader roule sans s'arrêter dans cette formule car sa moyenne 
+            // inclut déjà ses arrêts passés et ses ralentissements.
+            const estimatedRemainingLaps = localRaceTime / leaderAvg;
+            totalLapsTarget = Math.floor(leaderLaps + estimatedRemainingLaps);
+        } 
+        // MODE 2 : FALLBACK (Estimation locale)
+        else {
+            let activeLapTime = gameState.telemetry.AvgLapTime;
+            if (!activeLapTime || activeLapTime < 180) activeLapTime = gameState.avgLapTimeSeconds || 210;
+            
+            const ESTIMATED_PIT_LOSS = 65; 
+            const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
+            const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
+            const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
+            
+            // On calcule un cycle "Relais + Arrêt"
+            const timePerStintCycle = (lapsPerTank * activeLapTime) + ESTIMATED_PIT_LOSS;
+            const remainingCycles = localRaceTime / timePerStintCycle;
+            totalLapsTarget = Math.floor(gameState.telemetry.laps + (remainingCycles * lapsPerTank));
+        }
+
+        // --- 2. CALCUL DES RELAIS (Identique à avant) ---
         const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
         const activeVECons = Math.max(0.1, gameState.telemetry.VE.VEaverageCons || gameState.veCons);
         const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
-
+        
         const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
-        const lapsPerVE = Math.floor(100 / activeVECons);
-        
-        // Utilisation des booléens dynamiques calculés ci-dessus
+        const lapsPerVE = activeVECons > 0 ? Math.floor(100 / activeVECons) : 999;
         const useVE = isHypercar || isLMGT3;
+        const lapsPerStint = Math.max(1, useVE ? Math.min(lapsPerVE, lapsPerTank) : lapsPerTank);
         
-        const lapsPerStint = Math.max(1, useVE ? lapsPerVE : lapsPerTank);
-        
-        const lapsRemaining = Math.max(1, Math.ceil(localRaceTime / activeLapTime));
         const currentLap = gameState.telemetry.laps;
-        const totalLapsTarget = currentLap + lapsRemaining;
         const stints: Stint[] = [];
         const currentStintIndex = gameState.currentStint;
 
+        // Relais Passés
         const avgPastStintLen = currentStintIndex > 0 ? Math.max(0, currentLap - (lapsPerStint * 0.5)) / currentStintIndex : lapsPerStint;
         for (let i = 0; i < currentStintIndex; i++) {
             let driverId = gameState.stintAssignments[i];
@@ -244,15 +267,18 @@ export const useRaceData = (teamId: string) => {
             });
         }
 
+        // Relais Actuel
         stints.push({
             id: currentStintIndex, stopNum: currentStintIndex + 1, startLap: currentLap, endLap: currentLap + lapsPerStint,
             fuel: "CURRENT", driver: activeDriver, driverId: activeDriver.id, isCurrent: true, isNext: false, isDone: false, note: "NOW", lapsCount: lapsPerStint
         });
 
+        // Relais Futurs
         let lapCounter = currentLap + lapsPerStint;
         let nextIdx = currentStintIndex + 1;
         let safetyBreak = 0;
-        while(lapCounter < totalLapsTarget && safetyBreak < 200) {
+
+        while(lapCounter < totalLapsTarget && safetyBreak < 100) {
             let dId = gameState.stintAssignments[nextIdx];
             if (!dId) {
                 const prevDId = stints[stints.length-1].driverId;
@@ -262,11 +288,11 @@ export const useRaceData = (teamId: string) => {
             const d = getSafeDriver(gameState.drivers.find(drv => drv.id === dId));
             const isLast = (lapCounter + lapsPerStint) >= totalLapsTarget;
             const lapsThisStint = isLast ? (totalLapsTarget - lapCounter) : lapsPerStint;
-            const safeLapsThisStint = Math.max(1, lapsThisStint);
+            const safeLapsThisStint = Math.max(1, Math.floor(lapsThisStint));
 
             stints.push({
-                id: nextIdx, stopNum: nextIdx + 1, startLap: lapCounter, endLap: lapCounter + safeLapsThisStint,
-                fuel: isLast ? ((safeLapsThisStint+1)*activeFuelCons).toFixed(1)+"L" : (useVE ? "NRG RESET" : "FULL"), 
+                id: nextIdx, stopNum: nextIdx + 1, startLap: Math.floor(lapCounter), endLap: Math.floor(lapCounter + safeLapsThisStint),
+                fuel: isLast ? ((safeLapsThisStint * activeFuelCons).toFixed(1) + "L") : (useVE ? "NRG RESET" : "FULL"), 
                 driver: d, driverId: dId, isCurrent: false, isNext: nextIdx === currentStintIndex + 1, isDone: false, note: isLast ? "FINISH" : "BOX", lapsCount: safeLapsThisStint
             });
             lapCounter += safeLapsThisStint;
@@ -274,9 +300,12 @@ export const useRaceData = (teamId: string) => {
             safetyBreak++;
         }
 
-        return { stints, totalLaps: totalLapsTarget, lapsPerTank: lapsPerStint, activeFuelCons: activeFuelCons, activeVECons: activeVECons, activeLapTime, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex) };
+        return { stints, totalLaps: totalLapsTarget, lapsPerTank: lapsPerStint, activeFuelCons, activeVECons, activeLapTime: leaderAvg || 210, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex) };
     }, [gameState, localRaceTime, isHypercar, isLMGT3, isLMP3, isLMP2ELMS]);
 
+    // ... (rest of functions: confirmPitStop, undoPitStop, resetRace) ...
+    // Note: Pour garder le code court, je suppose que vous gardez les fonctions confirmPitStop/undoPitStop inchangées
+    
     const confirmPitStop = () => {
         const nextStint = gameState.currentStint + 1;
         const newAssignments = { ...gameState.stintAssignments, [gameState.currentStint]: gameState.activeDriverId };

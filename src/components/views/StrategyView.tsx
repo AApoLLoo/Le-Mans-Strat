@@ -1,7 +1,7 @@
 import React from 'react';
 import { ChevronRight, Fuel, Timer, Clock, AlertTriangle } from 'lucide-react';
 
-// --- TYPES (Ajoutez ceci pour corriger les erreurs TS) ---
+// --- TYPES ---
 interface Driver {
     id: string | number;
     name: string;
@@ -38,13 +38,13 @@ interface StrategyViewProps {
     onUpdateNote: (stopNum: number, note: string) => void;
     isHypercar: boolean;
     isLMGT3: boolean;
-    telemetryData: any; // Vous pouvez préciser le type si vous l'avez
+    telemetryData: any;
 }
 
 // --- COMPOSANT ---
 const StrategyView: React.FC<StrategyViewProps> = ({ 
     strategyData, 
-    drivers = [], // Valeur par défaut pour éviter le crash
+    drivers = [], 
     stintNotes, 
     onAssignDriver, 
     onUpdateNote, 
@@ -53,16 +53,13 @@ const StrategyView: React.FC<StrategyViewProps> = ({
     telemetryData 
 }) => {
   
-  // Protection par défaut
   const { activeFuelCons = 0, activeVECons = 0, pitStopsRemaining = 0, totalLaps = 0 } = strategyData || {};
   
-  // Temps de pit estimé
   const estPitTime = telemetryData?.strategyEstPitTime || 0;
   const useVE = isHypercar || isLMGT3;
   const displayConsValue = useVE ? activeVECons : activeFuelCons;
   const displayConsUnit = useVE ? '%/Lap' : 'L/Lap';
   const displayConsIconClass = useVE ? "text-cyan-400" : "text-blue-400";
-  // Récupération de l'état "Au stand"
   const inPitLane = telemetryData?.inPitLane || false;
   
   return (
@@ -142,18 +139,14 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                  </td>
 
                  <td className="p-3">
-                   {stint.isDone ? (
-                       <span className="text-slate-500 text-xs">{stint.driver.name}</span>
-                   ) : (
-                       <select 
-                         value={stint.driverId || ""} 
-                         onChange={(e) => onAssignDriver(stint.id, e.target.value)} 
-                         className="bg-transparent border border-slate-700 rounded px-2 py-1 text-xs font-bold text-white focus:border-indigo-500 focus:bg-slate-900 outline-none w-full max-w-[140px]"
-                       >
-                         {/* Protection ici : drivers?.map ou utilisation de la props par défaut */}
-                         {drivers?.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                       </select>
-                   )}
+                   {/* MODIFICATION : Le select est maintenant toujours actif, même pour les relais passés */}
+                   <select 
+                     value={stint.driverId || ""} 
+                     onChange={(e) => onAssignDriver(stint.id, e.target.value)} 
+                     className={`bg-transparent border border-slate-700 rounded px-2 py-1 text-xs font-bold focus:border-indigo-500 focus:bg-slate-900 outline-none w-full max-w-[140px] ${stint.isDone ? 'text-slate-400 border-slate-800' : 'text-white'}`}
+                   >
+                     {drivers?.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                   </select>
                  </td>
 
                  <td className="p-3 text-center font-mono text-xs text-slate-400">

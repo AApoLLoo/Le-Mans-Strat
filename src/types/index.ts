@@ -29,6 +29,8 @@ export interface TelemetryData {
   
   tires: { fl: number; fr: number; rl: number; rr: number };
   // Ajout de l'objet pour les gommes
+  leaderLaps?: number;       // Tour actuel du leader (ex: 245)
+  leaderAvgLapTime?: number; // Temps moyen du leader (ex: 205.5 sec)
   tireCompounds: { fl: string; fr: string; rl: string; rr: string };
   batterySoc: number;
   brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
