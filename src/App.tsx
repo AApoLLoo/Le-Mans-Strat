@@ -5,6 +5,7 @@ import StrategyView from './components/views/StrategyView';
 import MapView from './components/views/MapView';
 import ChatView from './components/views/ChatView';
 import TelemetryView from './components/views/TelemetryView';
+import LiveTimingView from './components/views/LiveTimingView';
 import LandingPage from './components/LandingPage';
 import SettingsModal from './components/SettingsModal';
 
@@ -179,7 +180,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
         {/* RIGHT PANEL */}
         <div className="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden shadow-2xl border-t-2 border-indigo-500 relative w-full">
            <div className="p-3 border-b border-white/5 bg-slate-900/50 flex gap-2 shrink-0">
-               {["STRATEGY", "TELEMETRY", "MAP", "CHAT"].map(mode => (
+               {["STRATEGY", "TELEMETRY","LIVE", "MAP", "CHAT"].map(mode => (
                    <button key={mode} onClick={() => setViewMode(mode)} className={`px-4 py-1.5 rounded text-xs font-bold tracking-wide transition-all ${viewMode === mode ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>{mode}</button>
                ))}
            </div>
@@ -205,6 +206,14 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
                    isLMGT3={isLMGT3} 
                    telemetryData={gameState.telemetry}
                  />
+               )}
+               {viewMode === "LIVE" && (
+                 <div className="h-full p-2 overflow-hidden">
+                    <LiveTimingView 
+                        telemetryData={gameState.telemetry} 
+                        isHypercar={isHypercar} 
+                    />
+                 </div>
                )}
                {viewMode === "TELEMETRY" && (
                  <TelemetryView 
