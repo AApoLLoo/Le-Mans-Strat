@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, doc, setDoc } from 'firebase/firestore';
+// AJOUT : Import de deleteDoc
+import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { useCollection } from 'react-firebase-hooks/firestore';
 import { Clock, Plus, Users, ChevronRight, User, X, Trash2, Car } from 'lucide-react';
 import type { GameState, Driver } from '../types';
@@ -40,14 +41,16 @@ const DEFAULT_GAME_STATE: GameState = {
         fuel: { current: 0, max: 105, lastLapCons: 0, averageCons: 0 },
         VE: { VEcurrent: 100, VElastLapCons: 0, VEaverageCons: 0 },
         batterySoc: 0,
+        electric: { charge: 0, torque: 0, rpm: 0, motorTemp: 0, waterTemp: 0, state: 0 },
         tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
         tirePressures: { fl: 0, fr: 0, rl: 0, rr: 0 },
-        tireTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
+        tireTemps: { fl: [], fr: [], rl: [], rr: [] },
         brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
         tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" },
         strategyEstPitTime: 0,
         inPitLane: false, inGarage: true, pitLimiter: false,
-        damageIndex: 0, isOverheating: false
+        damageIndex: 0, isOverheating: false,
+        carCategory: "Unknown"
     }
 };
 
@@ -179,8 +182,9 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   
+  // CORRECTION 1: On récupère TOUTE la collection sans filtre (orderBy) pour éviter que les docs mal formés (sans createdAt) soient cachés
   const [strategies, loading] = useCollection(
-    query(collection(db, "strategies"), orderBy("createdAt", "desc"))
+    collection(db, "strategies")
   );
 
   const handleJoinTeam = (teamId: string) => {
@@ -190,12 +194,11 @@ const LandingPage = () => {
 
   const handleCreateSession = async (name: string, category: string, drivers: Driver[]) => {
       const teamId = name.replace(/\s+/g, '-').toLowerCase();
-      
       try {
           await setDoc(doc(db, "strategies", teamId), {
               ...DEFAULT_GAME_STATE,
               id: teamId,
-              carCategory: category, // Sauvegarde de la catégorie
+              carCategory: category,
               drivers: drivers,
               activeDriverId: drivers[0]?.id,
               createdAt: new Date().toISOString(),
@@ -207,10 +210,28 @@ const LandingPage = () => {
       }
   };
 
+  // NOUVEAU : Fonction de suppression
+  const handleDeleteTeam = async (e: React.MouseEvent, teamId: string) => {
+      e.stopPropagation(); // Empêche d'entrer dans la session quand on clique sur supprimer
+      if (window.confirm(`Delete Line Up "${teamId.toUpperCase()}"? This cannot be undone.`)) {
+          try {
+              await deleteDoc(doc(db, "strategies", teamId));
+          } catch (err) {
+              alert("Error deleting team: " + err);
+          }
+      }
+  };
+
+  // CORRECTION 2: Tri côté client pour afficher tous les résultats proprement
   const activeTeams = strategies?.docs.map(doc => ({
     id: doc.id,
     ...doc.data()
-  })) || [];
+  })).sort((a: any, b: any) => {
+      // Si createdAt n'existe pas, on met une date ancienne pour qu'il soit en bas
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA;
+  }) || [];
 
   const getCategoryColor = (cat: string) => {
       const c = (cat || "").toLowerCase();
@@ -232,7 +253,7 @@ const LandingPage = () => {
         
         <div className="text-center mb-16 space-y-4">
           <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-500 drop-shadow-2xl">
-            LE MANS ULTIMATE <span className="text-indigo-500"> </span>
+            LE MANS <span className="text-indigo-500">24H</span>
           </h1>
           <p className="text-slate-400 text-lg uppercase tracking-[0.3em] font-bold">Strategic Command Center</p>
         </div>
@@ -276,14 +297,23 @@ const LandingPage = () => {
                   onClick={() => handleJoinTeam(team.id)}
                   className="group bg-slate-900/50 border border-white/10 hover:border-indigo-500/50 rounded-xl p-5 cursor-pointer transition-all duration-300 hover:bg-slate-800/80 hover:shadow-2xl hover:shadow-indigo-500/10 relative overflow-hidden"
                 >
-                  <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                  {/* BOUTON SUPPRIMER */}
+                  <button 
+                    onClick={(e) => handleDeleteTeam(e, team.id)}
+                    className="absolute top-2 right-2 p-2 text-slate-600 hover:text-red-500 z-20 transition-colors opacity-0 group-hover:opacity-100"
+                    title="Delete Line Up"
+                  >
+                    <Trash2 size={18}/>
+                  </button>
+
+                  <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
                     <Users size={80} className="text-white"/>
                   </div>
 
                   <div className="relative z-10 space-y-4">
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start pr-8">
                       <div>
-                        <div className="text-2xl font-black text-white italic tracking-tight group-hover:text-indigo-400 transition-colors">
+                        <div className="text-2xl font-black text-white italic tracking-tight group-hover:text-indigo-400 transition-colors truncate max-w-[200px]">
                           {team.id.toUpperCase()}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
@@ -293,7 +323,6 @@ const LandingPage = () => {
                           {team.carNumber && <span className="text-[10px] font-bold px-2 py-0.5 bg-white/5 text-slate-400 border border-white/10 rounded">#{team.carNumber}</span>}
                         </div>
                       </div>
-                      <ChevronRight className="text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all"/>
                     </div>
 
                     <div className="bg-black/40 rounded-lg p-3 border border-white/5">
