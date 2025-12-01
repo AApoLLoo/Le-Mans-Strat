@@ -1,7 +1,5 @@
 // src/types/index.ts
 
-import type { VideoMetadata } from "firebase/vertexai-preview";
-
 export interface Driver {
   id: number | string;
   name: string;
@@ -16,41 +14,61 @@ export interface FuelData {
   lastLapCons: number;
   averageCons: number;
 }
-export interface VirtualEnergyData{
+
+export interface VirtualEnergyData {
   VEcurrent: number;
   VElastLapCons: number;
   VEaverageCons: number;
 }
 
 export interface TelemetryData {
+  // --- Données Générales ---
   laps: number;
-  fuel: FuelData;
-  VE : VirtualEnergyData;  
-  
-  tires: { fl: number; fr: number; rl: number; rr: number };
-  // Ajout de l'objet pour les gommes
-  leaderLaps?: number;       // Tour actuel du leader (ex: 245)
-  leaderAvgLapTime?: number; // Temps moyen du leader (ex: 205.5 sec)
-  tireCompounds: { fl: string; fr: string; rl: string; rr: string };
-  batterySoc: number;
-  brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
-  tireTemps: { flc: number; frc: number; rlc: number; rrc: number };
-  curLap: number;
-  AvgLapTime: number;
-  strategyEstPitTime: number;
-  throttle: number;
-  brake: number;
+  curLap: number;       // Temps tour en cours
+  lastLap: number;      // Dernier temps au tour
+  bestLap: number;      // Meilleur temps
+  position: number;
   speed: number;
   rpm: number;
-  maxRpm :number;
+  maxRpm: number;
+  gear: number;         // Nouveau
+  
+  // --- Physiques & Moteur ---
+  throttle: number;
+  brake: number;
+  clutch: number;       // Nouveau
+  steering: number;     // Nouveau
   waterTemp: number;
   oilTemp: number;
-  inPitLane: boolean | null;
-  inGarage : boolean,
-  avgWearPerLapFL?: number;
-  avgWearPerLapFR?: number;
-  avgWearPerLapRL?: number;
-  avgWearPerLapRR?: number;
+  
+  // --- Consommables ---
+  fuel: FuelData;
+  VE: VirtualEnergyData;
+  batterySoc: number;   // Hybrid Charge
+
+  // --- Pneus & Freins ---
+  // Valeurs normalisées (ex: 100% = neuf)
+  tires: { fl: number; fr: number; rl: number; rr: number };
+  // Pressions (kPa)
+  tirePressures: { fl: number; fr: number; rl: number; rr: number };
+  // Températures (Celsius - Center)
+  tireTemps: { flc: number; frc: number; rlc: number; rrc: number };
+  // Températures Freins (Celsius)
+  brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
+  // Types de gomme (ex: "SOFT")
+  tireCompounds: { fl: string; fr: string; rl: string; rr: string };
+
+  // --- Stratégie & État ---
+  leaderLaps?: number;
+  leaderAvgLapTime?: number;
+  strategyEstPitTime: number; // Temps estimé de l'arrêt
+  inPitLane: boolean;
+  inGarage: boolean;
+  pitLimiter: boolean;
+  
+  // --- Dégâts ---
+  damageIndex: number; // Somme des dégâts carrosserie
+  isOverheating: boolean;
 }
 
 export interface Stint {
@@ -82,26 +100,37 @@ export interface StrategyData {
 export interface GameState {
   currentStint: number;
   raceTime: number;
+  sessionTimeRemaining: number;
   stintDuration: number;
   isRaceRunning: boolean;
+  
   trackName: string;
   sessionType: string;
   weather: string;
   airTemp: number;
+  trackTemp: number;
   trackWetness: number;
+  rainIntensity: number;
+
+  // Paramètres voitures
   fuelCons: number;
   veCons: number;
   tankCapacity: number;
+  
+  // Données Course
   raceDurationHours: number;
   avgLapTimeSeconds: number;
-  isEmergency: boolean;
+  
+  // Gestion Équipe
   drivers: Driver[];
   activeDriverId: number | string;
+  
+  // Messages & Notes
   incidents: any[];
   chatMessages: any[];
   stintNotes: Record<string, any>;
   stintAssignments: Record<string, any>;
+  
   position: number;
   telemetry: TelemetryData;
-  stintVirtualEnergy: Record<string, any>;
 }
