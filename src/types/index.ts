@@ -3,8 +3,8 @@
 export interface Driver {
   id: number | string;
   name: string;
-  phone?: string;
   color: string;
+  phone?: string;
   text?: string;
 }
 
@@ -21,72 +21,69 @@ export interface VirtualEnergyData {
   VEaverageCons: number;
 }
 
+// Données complètes reçues du Bridge
 export interface TelemetryData {
-  // --- Données Générales ---
   laps: number;
-  curLap: number;       // Temps tour en cours
-  lastLap: number;      // Dernier temps au tour
-  bestLap: number;      // Meilleur temps
+  curLap: number;
+  lastLap: number;
+  bestLap: number;
   position: number;
   speed: number;
   rpm: number;
   maxRpm: number;
-  gear: number;         // Nouveau
+  gear: number;
   
-  // --- Physiques & Moteur ---
   throttle: number;
   brake: number;
-  clutch: number;       // Nouveau
-  steering: number;     // Nouveau
+  clutch: number;
+  steering: number;
   waterTemp: number;
   oilTemp: number;
   
-  // --- Consommables ---
   fuel: FuelData;
   VE: VirtualEnergyData;
-  batterySoc: number;   // Hybrid Charge
+  batterySoc: number;
 
-  // --- Pneus & Freins ---
-  // Valeurs normalisées (ex: 100% = neuf)
   tires: { fl: number; fr: number; rl: number; rr: number };
-  // Pressions (kPa)
   tirePressures: { fl: number; fr: number; rl: number; rr: number };
-  // Températures (Celsius - Center)
-  tireTemps: { flc: number; frc: number; rlc: number; rrc: number };
-  // Températures Freins (Celsius)
+  tireTemps: { 
+    fl: number[]; // [Inner, Middle, Outer]
+    fr: number[]; 
+    rl: number[]; 
+    rr: number[]; 
+  };
   brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
-  // Types de gomme (ex: "SOFT")
   tireCompounds: { fl: string; fr: string; rl: string; rr: string };
 
-  // --- Stratégie & État ---
   leaderLaps?: number;
   leaderAvgLapTime?: number;
-  strategyEstPitTime: number; // Temps estimé de l'arrêt
+  strategyEstPitTime: number;
   inPitLane: boolean;
   inGarage: boolean;
   pitLimiter: boolean;
   
-  // --- Dégâts ---
-  damageIndex: number; // Somme des dégâts carrosserie
+  damageIndex: number;
   isOverheating: boolean;
 }
 
+// Structure d'un relais (Stint) calculé
 export interface Stint {
-  id: number;
-  stopNum: number;
-  startLap: number;
-  endLap: number;
-  fuel: string;
-  fuelLoad?: number;
-  driver: Driver;
+  id: number;          // Index du relais (0, 1, 2...)
+  stopNum: number;     // Numéro d'arrêt affiché
+  startLap: number;    // Tour de début
+  endLap: number;      // Tour de fin
+  lapsCount: number;   // Nombre de tours du relais
+  fuel: string;        // Info carburant (ex: "FULL" ou "NRG")
+  driver: Driver;      // Pilote assigné
   driverId: number | string;
-  isCurrent: boolean;
-  isNext: boolean;
-  isDone: boolean;
-  note: string;
-  lapsCount: number;
+  
+  isCurrent: boolean;  // Est-ce le relais en cours ?
+  isNext: boolean;     // Est-ce le prochain ?
+  isDone: boolean;     // Est-ce terminé ?
+  note: string;        // Instructions manuelles
 }
 
+// Résultat du calcul stratégique
 export interface StrategyData {
   stints: Stint[];
   totalLaps: number;
@@ -97,6 +94,7 @@ export interface StrategyData {
   pitStopsRemaining: number;
 }
 
+// État global de l'application (Firebase)
 export interface GameState {
   currentStint: number;
   raceTime: number;
@@ -112,24 +110,20 @@ export interface GameState {
   trackWetness: number;
   rainIntensity: number;
 
-  // Paramètres voitures
   fuelCons: number;
   veCons: number;
   tankCapacity: number;
   
-  // Données Course
   raceDurationHours: number;
   avgLapTimeSeconds: number;
   
-  // Gestion Équipe
   drivers: Driver[];
   activeDriverId: number | string;
   
-  // Messages & Notes
   incidents: any[];
   chatMessages: any[];
-  stintNotes: Record<string, any>;
-  stintAssignments: Record<string, any>;
+  stintNotes: Record<string, any>;      // Notes par numéro de relais
+  stintAssignments: Record<string, any>; // Pilote forcé par numéro de relais
   
   position: number;
   telemetry: TelemetryData;
