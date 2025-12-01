@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Settings, Home, Wifi, Flag, AlertTriangle, ArrowRight, Clock, Plus, Trash2, RotateCcw } from 'lucide-react';
+import React from 'react';
+import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
+import { Settings, Home, Wifi, Flag, AlertTriangle, ArrowRight, Clock, Plus, RotateCcw } from 'lucide-react';
 
 import StrategyView from './components/views/StrategyView';
 import MapView from './components/views/MapView';
@@ -22,24 +23,43 @@ const globalCss = `
   .row-done { opacity: 0.4; filter: grayscale(0.8); }
 `;
 
-const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => { 
+// --- COMPOSANT DASHBOARD (Page Principale) ---
+const TeamDashboard = ({ teamId }: { teamId: string }) => { 
+  const navigate = useNavigate();
   
+  // Helpers visuels basés sur l'ID
+  const tId = teamId.toLowerCase();
+  let teamColor = 'bg-slate-600';
+  if (tId.includes('hyper') || tId.includes('red')) teamColor = 'bg-red-600';
+  else if (tId.includes('gt3') || tId.includes('lmgt3')) teamColor = 'bg-orange-500';
+  else if (tId.includes('lmp3')) teamColor = 'bg-purple-600';
+  else if (tId.includes('elms')) teamColor = 'bg-sky-500';
+  else if (tId.includes('lmp2')) teamColor = 'bg-blue-600';
+  
+  const teamName = teamId.toUpperCase().replace('-', ' #');
+
   const { 
       gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData, 
       confirmPitStop, undoPitStop, resetRace, 
       db, CHAT_ID, isHypercar, isLMGT3 
   } = useRaceData(teamId); 
 
-  const [viewMode, setViewMode] = useState("STRATEGY");
-  const [showSettings, setShowSettings] = useState(false);
-  const [chatInput, setChatInput] = useState("");
-  const [username, setUsername] = useState("Engineer");
-  const [globalMessages, setGlobalMessages] = useState<any[]>([]);
+  const [viewMode, setViewMode] = React.useState("STRATEGY");
+  const [showSettings, setShowSettings] = React.useState(false);
+  const [chatInput, setChatInput] = React.useState("");
+  const [username, setUsername] = React.useState("Engineer");
+  const [globalMessages, setGlobalMessages] = React.useState<any[]>([]);
 
   const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
   const nextStint = strategyData?.stints?.find(s => s.isNext);
   const nextDriver = nextStint ? nextStint.driver : null;
 
+  const handleLogout = () => {
+    localStorage.removeItem('teamId');
+    navigate('/');
+  };
+
+  // ... (Fonctions sendMessage, addIncident, etc. inchangées)
   const sendMessage = () => {
       if (!chatInput.trim() || !db) return;
       const newMessage = {
@@ -85,7 +105,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
       {/* HEADER */}
       <div className="h-16 glass-panel flex items-center justify-between px-6 sticky top-0 z-50 shrink-0 w-full border-b border-white/10">
         <div className="flex items-center gap-4">
-          <button onClick={() => onTeamSelect(null)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition-colors"><Home size={20}/></button>
+          <button onClick={handleLogout} className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition-colors" title="Change Team"><Home size={20}/></button>
           <div className={`p-2 rounded transform skew-x-[-10deg] ${teamColor}`}><Flag className="text-white transform skew-x-[10deg]" size={20}/></div>
           <div>
             <h1 className="font-bold text-lg lg:text-xl tracking-tighter text-white italic uppercase">{teamName}</h1>
@@ -94,7 +114,7 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
         </div>
         
         <div className="flex items-center gap-6">
-        <div className="hidden md:flex flex-col items-end mr-2">
+            <div className="hidden md:flex flex-col items-end mr-2">
                <span className="text-white font-black text-sm uppercase tracking-wide">
                  {gameState.trackName || "TRACK"}
                </span>
@@ -192,12 +212,8 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
                    drivers={gameState.drivers}
                    stintNotes={gameState.stintNotes}
                    onAssignDriver={(idx: number, val: any) => {
-                       // CORRECTION MAJEURE ICI :
-                       // On ne fait plus un simple Number(val) qui cassait les ID textuels.
-                       // On cherche le pilote dans la liste pour récupérer son ID original (string ou number).
                        const selectedDriver = gameState.drivers.find(d => String(d.id) === String(val));
                        const realId = selectedDriver ? selectedDriver.id : val;
-
                        const newAssign = {...gameState.stintAssignments, [idx]: realId};
                        syncUpdate({ stintAssignments: newAssign });
                    }}
@@ -260,31 +276,19 @@ const TeamDashboard = ({ teamId, teamName, teamColor, onTeamSelect }: any) => {
   );
 };
 
+// --- ROUTING APP ---
+const StrategyRoute = () => {
+  const teamId = localStorage.getItem('teamId');
+  if (!teamId) return <Navigate to="/" replace />;
+  return <TeamDashboard teamId={teamId} />;
+};
+
 const RaceStrategyApp = () => {
-  const [selectedTeam, setSelectedTeam] = useState<string | null>(null); 
-
-  if (!selectedTeam) {
-    return <LandingPage onSelectTeam={setSelectedTeam} />;
-  }
-
-  const tId = selectedTeam.toLowerCase();
-  // Logique de couleur
-  let teamColor = 'bg-slate-600';
-  if (tId.includes('hyper') || tId.includes('red')) teamColor = 'bg-red-600';
-  else if (tId.includes('gt3') || tId.includes('lmgt3')) teamColor = 'bg-orange-500';
-  else if (tId.includes('lmp3')) teamColor = 'bg-purple-600';
-  else if (tId.includes('elms')) teamColor = 'bg-sky-500'; // LMP2 ELMS
-  else if (tId.includes('lmp2')) teamColor = 'bg-blue-600'; // LMP2 WEC
-  
-  const displayName = selectedTeam.toUpperCase().replace('-', ' #');
-
   return (
-    <TeamDashboard 
-      teamId={selectedTeam} 
-      teamName={displayName}
-      teamColor={teamColor}
-      onTeamSelect={setSelectedTeam} 
-    />
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/strategy" element={<StrategyRoute />} />
+    </Routes>
   );
 };
 

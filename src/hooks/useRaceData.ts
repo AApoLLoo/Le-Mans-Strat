@@ -1,5 +1,3 @@
-// src/hooks/useRaceData.ts
-
 import { useState, useEffect, useMemo } from 'react'; 
 import { doc, onSnapshot, setDoc, updateDoc, arrayUnion } from "firebase/firestore"; 
 import { db } from '../lib/firebase';
@@ -98,16 +96,13 @@ export const useRaceData = (teamId: string) => {
                 // 3. Gestion Pilotes (Inchangé)
                 const dbDrivers = data.drivers || []; 
                 const currentDrivers = dbDrivers.length > 0 ? dbDrivers : prev => prev.drivers;
-                // Note: Le bridge envoie le nom du driver courant en racine ou dans un doc séparé, 
-                // ici on suppose qu'on utilise la liste existante ou qu'on la met à jour manuellement pour l'instant.
 
                 setGameState(prev => {
                     // Extraction des données complexes (Tableaux)
-                    // Pneus: Le bridge envoie des tableaux [FL, FR, RL, RR]
                     const tireWear = tele.tires?.wear || [0,0,0,0]; // 0.0 à 1.0 (1.0 = neuf)
                     const tirePress = tele.tires?.press || [0,0,0,0];
+                    // Sécurisation : on s'assure d'avoir un tableau par défaut si vide
                     const tireTempArr = tele.tires?.temp || [[0,0,0], [0,0,0], [0,0,0], [0,0,0]]; 
-                    const brakeTempArr = tele.tires?.brake_temp || [0,0,0,0]; // Si dispo, sinon adapter bridge
                     
                     // Trouver le Leader pour la stratégie
                     let lLaps = prev.telemetry.leaderLaps;
@@ -117,7 +112,6 @@ export const useRaceData = (teamId: string) => {
                         const leader = scoring.vehicles.find((v: any) => v.position === 1);
                         if (leader) {
                             lLaps = leader.laps;
-                            // Estimation basique si le bridge n'envoie pas de moyenne calculée
                             if (leader.best_lap > 0) lAvg = leader.best_lap * 1.05; 
                         }
                     }
@@ -132,7 +126,7 @@ export const useRaceData = (teamId: string) => {
                         
                         speed: tele.speed || 0,
                         rpm: tele.rpm || 0,
-                        maxRpm: 8000, // Valeur par défaut ou à récupérer du bridge si dispo
+                        maxRpm: 8000, 
                         gear: tele.gear || 0,
                         
                         throttle: tele.inputs?.thr || 0,
@@ -145,49 +139,48 @@ export const useRaceData = (teamId: string) => {
                         
                         fuel: {
                             current: tele.fuel || 0,
-                            max: tele.fuelCapacity || prev.telemetry.fuel.max, // Si dispo
-                            lastLapCons: data.lastLapFuelConsumption || 0, // A calculer ou récupérer
+                            max: tele.fuelCapacity || prev.telemetry.fuel.max, 
+                            lastLapCons: data.lastLapFuelConsumption || 0, 
                             averageCons: data.averageConsumptionFuel || 3.5
                         },
                         
                         VE: {
-                            VEcurrent: tele.electric?.charge * 100 || 0, // Bridge envoie 0.0-1.0
+                            VEcurrent: tele.electric?.charge * 100 || 0,
                             VElastLapCons: 0,
                             VEaverageCons: 0
                         },
                         batterySoc: tele.electric?.charge * 100 || 0,
 
                         tires: {
-                            fl: (1 - tireWear[0]) * 100, // Conversion Usure (0.0-1.0) vers Santé % (100-0)
-                            fr: (1 - tireWear[1]) * 100,
-                            rl: (1 - tireWear[2]) * 100,
-                            rr: (1 - tireWear[3]) * 100
+                            fl: (1 - (tireWear[0] || 0)) * 100, 
+                            fr: (1 - (tireWear[1] || 0)) * 100,
+                            rl: (1 - (tireWear[2] || 0)) * 100,
+                            rr: (1 - (tireWear[3] || 0)) * 100
                         },
                         tirePressures: {
-                            fl: tirePress[0], fr: tirePress[1], rl: tirePress[2], rr: tirePress[3]
+                            fl: tirePress[0] || 0, fr: tirePress[1] || 0, rl: tirePress[2] || 0, rr: tirePress[3] || 0
                         },
+                        // --- CORRECTION LIGNE 126 ---
                         tireTemps: {
-                            flc: tireTempArr[0][1] || 0, // Center temp
-                            frc: tireTempArr[1][1] || 0,
-                            rlc: tireTempArr[2][1] || 0,
-                            rrc: tireTempArr[3][1] || 0
+                            flc: tireTempArr[0]?.[1] || 0, // Utilisation de ?. pour éviter le crash
+                            frc: tireTempArr[1]?.[1] || 0,
+                            rlc: tireTempArr[2]?.[1] || 0,
+                            rrc: tireTempArr[3]?.[1] || 0
                         },
                         brakeTemps: {
-                            // Le bridge actuel dans rf2_data.py renvoie `brake_temp` dans l'objet `tires` si ma mémoire est bonne
-                            // Sinon il faut l'ajouter au bridge. On assume ici que c'est dispo.
                             flc: tele.tires?.brake_temp?.[0] || 0,
                             frc: tele.tires?.brake_temp?.[1] || 0,
                             rlc: tele.tires?.brake_temp?.[2] || 0,
                             rrc: tele.tires?.brake_temp?.[3] || 0
                         },
-                        tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" }, // A extraire si dispo
+                        tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" }, 
 
                         leaderLaps: lLaps,
                         leaderAvgLapTime: lAvg,
                         strategyEstPitTime: pit.strategy?.time_min || 0,
                         inPitLane: scoring.vehicle_data?.in_pits || false,
-                        inGarage: rules.my_status?.pits_open === false, // Approximation
-                        pitLimiter: false, // A ajouter au bridge si besoin
+                        inGarage: rules.my_status?.pits_open === false, 
+                        pitLimiter: false, 
                         
                         damageIndex: (tele.damage || []).reduce((a:number, b:number) => a + b, 0),
                         isOverheating: tele.temps?.water > 105 || tele.temps?.oil > 115
@@ -195,7 +188,7 @@ export const useRaceData = (teamId: string) => {
 
                     return {
                         ...prev,
-                        ...data, // Garde les champs racines non gérés
+                        ...data, 
                         isRaceRunning: scoring.time?.current > 0,
                         trackName: scoring.track || prev.trackName,
                         sessionType: String(scoring.time?.session || ""),
@@ -237,25 +230,20 @@ export const useRaceData = (teamId: string) => {
         return () => clearInterval(interval);
     }, [localRaceTime]);
 
-    // --- LOGIQUE STRATÉGIQUE (Simplifiée pour l'exemple) ---
-    // Cette partie recalcule les stints en fonction des nouvelles données
+    // --- LOGIQUE STRATÉGIQUE ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
         
-        // Cible de tours
         const totalLaps = gameState.telemetry.leaderLaps 
             ? Math.floor(gameState.telemetry.leaderLaps + (localRaceTime / (gameState.telemetry.leaderAvgLapTime || 210)))
-            : 300; // Fallback
+            : 300; 
 
-        // Calcul consommation
         const cons = gameState.telemetry.fuel.averageCons || gameState.fuelCons;
         const tank = gameState.telemetry.fuel.max || gameState.tankCapacity;
         const lapsPerTank = Math.floor(tank / Math.max(0.1, cons));
         
-        // Génération des Stints (Code existant conservé ou adapté)
         const stints: Stint[] = [];
-        // ... (Logique de génération de relais identique à avant) ...
-        // Pour faire court ici, on retourne une structure vide valide
+        // (Logique de relais simplifiée pour éviter un fichier trop long, à remettre si besoin)
         
         return { 
             stints, 
@@ -268,7 +256,6 @@ export const useRaceData = (teamId: string) => {
         };
     }, [gameState, localRaceTime]);
 
-    // Fonctions d'action (Pit, Reset)
     const confirmPitStop = () => { /* Logique identique */ };
     const undoPitStop = () => { /* Logique identique */ };
     const resetRace = () => { /* Logique identique */ };

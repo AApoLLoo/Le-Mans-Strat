@@ -32,7 +32,6 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
     // 1. Récupération des infos
     const trackName = telemetryData?.trackName || "";
     const sessionType = telemetryData?.sessionType || "";
-    // AJOUT : On récupère le nom du serveur
     const serverName = telemetryData?.serverName || "Offline";
 
     // 2. Calcul de l'ID avec le Serveur
@@ -43,11 +42,27 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
     // ID UNIQUE : leaderboard_Circuit_Session_Serveur
     const docId = `leaderboard_${trackId}_${sessId}_${srvId}`; 
 
+    // --- SÉCURISATION DES DONNÉES ---
+    // On convertit tout en nombre pour éviter le crash .toFixed()
+    const currentFuel = Number(telemetryData?.fuel?.current || 0);
+    const avgFuelCons = Number(telemetryData?.fuel?.averageCons || 1); // Eviter division par 0
+    const estLapsFuel = avgFuelCons > 0 ? (currentFuel / avgFuelCons) : 0;
+
+    const currentVE = Number(telemetryData?.VE?.VEcurrent || 0);
+    const lastLapTime = Number(telemetryData?.lapTimeLast || 0);
+
+    // Extraction des usures pneus (sécurisée)
+    const tireWear = [
+        Number(telemetryData?.tires?.fl || 0),
+        Number(telemetryData?.tires?.fr || 0),
+        Number(telemetryData?.tires?.rl || 0),
+        Number(telemetryData?.tires?.rr || 0)
+    ];
+
     useEffect(() => {
-        // On ajoute serverName aux conditions de sécurité
         if (!db || !trackName || !sessionType || !serverName) return;
 
-        console.log("Listening to leaderboard:", docId);
+        // console.log("Listening to leaderboard:", docId);
 
         const unsub = onSnapshot(doc(db, "strategies", docId), (doc) => {
             if (doc.exists()) {
@@ -64,7 +79,7 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
             }
         });
         return () => unsub();
-    }, [docId, trackName, sessionType]); // On dépend de docId maintenant
+    }, [docId, trackName, sessionType, serverName]);
 
     // Helpers
     const getGapString = (val: number) => {
@@ -75,13 +90,14 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
     };
 
     const formatLap = (seconds: number) => {
-        if (!seconds || seconds > 999) return "-:--.---";
+        if (!seconds || seconds > 999 || isNaN(seconds)) return "-:--.---";
         const m = Math.floor(seconds / 60);
         const s = (seconds % 60).toFixed(3).padStart(6, '0');
         return `${m}:${s}`;
     };
 
     const getClassColor = (cls: string) => {
+        if (!cls) return 'border-l-4 border-slate-500';
         if (cls.includes('HYPER')) return 'border-l-4 border-red-600';
         if (cls.includes('LMP2')) return 'border-l-4 border-blue-600';
         if (cls.includes('GT3')) return 'border-l-4 border-orange-500';
@@ -95,22 +111,22 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
                 <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
                     <span className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1"><Fuel size={10}/> Fuel</span>
                     <div className="flex items-end gap-2">
-                        <span className="text-2xl font-mono font-bold text-white">{telemetryData?.fuel?.current?.toFixed(1) || "0.0"} <span className="text-xs text-slate-500">L</span></span>
-                        <span className="text-xs text-slate-400 mb-1">~{((telemetryData?.fuel?.current || 0) / (telemetryData?.fuel?.averageCons || 1)).toFixed(1)} Laps</span>
+                        <span className="text-2xl font-mono font-bold text-white">{currentFuel.toFixed(1)} <span className="text-xs text-slate-500">L</span></span>
+                        <span className="text-xs text-slate-400 mb-1">~{estLapsFuel.toFixed(1)} Laps</span>
                     </div>
                 </div>
                 {isHypercar && (
                     <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
                          <span className="text-[10px] text-sky-400 font-bold uppercase flex items-center gap-1"><Zap size={10}/> Virtual NRG</span>
                          <div className="flex items-end gap-2">
-                            <span className="text-2xl font-mono font-bold text-white">{telemetryData?.VE?.VEcurrent?.toFixed(1) || "0.0"} <span className="text-xs text-slate-500">%</span></span>
+                            <span className="text-2xl font-mono font-bold text-white">{currentVE.toFixed(1)} <span className="text-xs text-slate-500">%</span></span>
                         </div>
                     </div>
                 )}
                 <div className="col-span-2 lg:col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
                     <span className="text-[10px] text-slate-400 font-bold uppercase">Tires</span>
                     <div className="grid grid-cols-2 gap-1 mt-1">
-                        {[telemetryData?.tires?.fl, telemetryData?.tires?.fr, telemetryData?.tires?.rl, telemetryData?.tires?.rr].map((wear: number, i: number) => (
+                        {tireWear.map((wear: number, i: number) => (
                             <div key={i} className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
                                 <div className={`h-full ${wear > 70 ? 'bg-emerald-500' : wear > 40 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{width: `${wear}%`}}></div>
                             </div>
@@ -119,7 +135,7 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
                 </div>
                 <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
                      <span className="text-[10px] text-slate-400 font-bold uppercase">Last Lap</span>
-                     <span className="text-xl font-mono font-bold text-white tracking-tight">{formatLap(telemetryData?.lapTimeLast || 0)}</span>
+                     <span className="text-xl font-mono font-bold text-white tracking-tight">{formatLap(lastLapTime)}</span>
                 </div>
             </div>
 
@@ -142,8 +158,7 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
                     {leaderboard.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-2">
                             <span className="animate-spin text-2xl">↻</span>
-                            {/* Maintenant docId est accessible ici */}
-                            <span className="text-xs">Waiting for data ({docId})...</span>
+                            <span className="text-xs">Waiting for live data...</span>
                         </div>
                     ) : (
                         leaderboard.map((row) => {

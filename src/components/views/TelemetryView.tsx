@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame, Droplet, RefreshCw, Crown, Gauge } from 'lucide-react';
 
-// ... (Gardez les fonctions utilitaires getTireColorGradient, etc. telles quelles) ...
 const getTireColorGradient = (wear: number) => {
   if (wear > 80) return 'bg-gradient-to-t from-emerald-600 to-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)]';
   if (wear > 50) return 'bg-gradient-to-t from-yellow-600 to-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]';
@@ -53,7 +52,7 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
   const { 
       tires, tireCompounds, fuel, laps, VE, 
       curLap, brakeTemps, tireTemps, 
-      throttle, brake, speed, rpm, maxRpm, gear, // Ajout de GEAR
+      throttle, brake, speed, rpm, maxRpm, gear,
       waterTemp, oilTemp, batterySoc,
       leaderLaps, leaderAvgLapTime
   } = telemetryData;
@@ -67,19 +66,20 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
       }
   }, [isHypercar, isLMGT3]);
 
+  // Sécurisation des valeurs pour éviter le crash .toFixed()
   const isVE = showVirtualEnergy && (isHypercar || isLMGT3);
-  const currentResource = isVE ? VE.VEcurrent : fuel.current;
-  const maxResource = isVE ? 100 : fuel.max;
+  let currentResource = Number(isVE ? VE?.VEcurrent : fuel?.current);
+  let maxResource = Number(isVE ? 100 : fuel?.max);
+  
+  if (isNaN(currentResource)) currentResource = 0;
+  if (isNaN(maxResource) || maxResource === 0) maxResource = 100;
+
   const resourcePercentage = Math.min(100, Math.max(0, (currentResource / maxResource) * 100));
   const barColor = isVE 
     ? 'bg-gradient-to-r from-cyan-600 via-cyan-400 to-white shadow-[0_0_20px_rgba(6,182,212,0.6)]' 
     : 'bg-gradient-to-r from-blue-700 via-blue-500 to-blue-300 shadow-[0_0_20px_rgba(59,130,246,0.5)]';
   const label = isVE ? 'VIRTUAL ENERGY' : 'FUEL LEVEL';
   const icon = isVE ? <Zap size={14} className="text-cyan-300 fill-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
-
-  // Calcul d'un Delta fictif basé sur le meilleur tour (car moyLap n'est plus forcément dispo direct)
-  const delta = 0; // A implémenter si vous envoyez le delta temps réel
-  const displayDelta = "-.--";
 
   const renderTire = (name: string, wear: number, brakeT: number, tireT: number, compound: string) => (
     <div className="flex flex-col items-center gap-2 flex-1 h-full justify-center">
@@ -193,8 +193,8 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                                 {isVE ? `${Math.round(currentResource)}%` : `${currentResource.toFixed(1)} L`}
                             </span>
                             <div className="text-[10px] text-right text-white/80 font-mono leading-tight">
-                                <div>LAST: <span className="font-bold">{isVE ? VE.VElastLapCons?.toFixed(1) + '%' : fuel.lastLapCons.toFixed(2)}</span></div>
-                                <div>AVG: <span className="font-bold">{isVE ? VE.VEaverageCons?.toFixed(1) + '%' : fuel.averageCons.toFixed(2)}</span></div>
+                                <div>LAST: <span className="font-bold">{isVE ? VE?.VElastLapCons?.toFixed(1) + '%' : fuel?.lastLapCons?.toFixed(2)}</span></div>
+                                <div>AVG: <span className="font-bold">{isVE ? VE?.VEaverageCons?.toFixed(1) + '%' : fuel?.averageCons?.toFixed(2)}</span></div>
                             </div>
                         </div>
                     </div>
@@ -209,7 +209,7 @@ const TelemetryView = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTim
                     )}
                 </div>
 
-                {/* GEAR / VITESSE (Modifié pour afficher la vitesse en gros) */}
+                {/* GEAR / VITESSE */}
                 <div className="flex-[2] bg-slate-900/40 border border-white/5 rounded-xl p-4 flex flex-col justify-center items-center relative overflow-hidden">
                     <div className="absolute inset-0 bg-indigo-500/5"></div>
                     <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest mb-1">Gear</span>
