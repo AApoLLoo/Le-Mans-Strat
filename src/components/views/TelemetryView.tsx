@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame, Droplet, RefreshCw } from 'lucide-react';
-import type { TelemetryData } from '../../types';
+import type { TelemetryData } from '../../types'; //
 
 const getTireColorGradient = (wear: number) => {
   if (wear > 80) return 'bg-gradient-to-t from-emerald-600 to-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)]';
@@ -29,13 +29,6 @@ const getTempColor = (temp: number, type: 'brake' | 'tire') => {
         if (temp > 85) return 'text-emerald-400 font-bold';
         return 'text-blue-400';
     }
-};
-
-const formatLapTime = (s: number) => {
-    if (isNaN(s) || s <= 0) return "-:--.---";
-    const minutes = Math.floor(s / 60);
-    const seconds = s % 60;
-    return `${minutes}:${seconds.toFixed(3).padStart(6, '0')}`; 
 };
 
 const getWeatherIcon = (weather: string) => {
@@ -77,6 +70,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
       if (isHypercar || isCategoryGT3) setShowVirtualEnergy(true);
   }, [isHypercar, isCategoryGT3]);
 
+  // CORRECTION ICI: Utilisation de fuel.current et fuel.max (au lieu de level/capacity)
   const isVE = showVirtualEnergy && (isHypercar || isCategoryGT3);
   const currentResource = Number(isVE ? VE?.VEcurrent : fuel?.current) || 0;
   const maxResource = Number(isVE ? 100 : fuel?.max) || 100;
@@ -96,7 +90,6 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
     const displayWear = Number(wear) || 0;
     const displayBrakeT = Number(brakeT) || 0;
     const displayPress = Number(pressure) || 0;
-    // Température centrale (Index 1)
     const displayTireT = Number(tireT?.[1]) || 0;
 
     return (
@@ -197,6 +190,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
 
         {/* DATA (Droite) */}
         <div className="col-span-3 flex flex-col gap-3">
+            {/* Gestion Carburant / Energie Virtuelle */}
             <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1">
                 <div className="flex justify-between items-center mb-2">
                     <span className="text-xs font-bold text-slate-400 flex items-center gap-2">{icon} {label}</span>
@@ -209,20 +203,41 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
                 <div className="text-[10px] text-slate-400 mt-1">Last: {lastLapCons.toFixed(2)} | Avg: {avgCons.toFixed(2)}</div>
             </div>
 
+            {/* Gestion Hybride (Batterie Réelle) */}
             {isHypercar && (
                 <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
-                    <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Zap size={12}/> Hybrid</span>
-                    <div className="flex justify-between items-center text-sm">
-                        <span className="text-slate-300">Battery</span>
-                        <span className="font-bold text-emerald-400">{Math.round(Number(batterySoc))}%</span>
+                    <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Zap size={12}/> Hybrid System</span>
+                    
+                    {/* SoC Batterie */}
+                    <div className="mb-3">
+                        <div className="flex justify-between items-center text-sm mb-1">
+                            <span className="text-slate-300">SoC</span>
+                            <span className="font-bold text-emerald-400">{Math.round(Number(batterySoc))}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-400" style={{width: `${Math.min(100, Math.max(0, Number(batterySoc)))}%`}}></div>
+                        </div>
                     </div>
-                    <div className="flex justify-between items-center text-sm mt-1">
-                        <span className="text-slate-300">Motor Temp</span>
-                        <span className="font-bold text-white">{Math.round(Number(electric?.motorTemp || 0))}°C</span>
+
+                    <div className="grid grid-cols-2 gap-2 text-sm mt-1">
+                        <div>
+                            <span className="text-slate-500 text-[10px] block">TEMP MOTEUR</span>
+                            {/* CORRECTION ICI: Utilisation de electric.motorTemp */}
+                            <span className={`font-bold ${Number(electric?.motorTemp) > 100 ? 'text-red-400 animate-pulse' : 'text-white'}`}>
+                                {Math.round(Number(electric?.motorTemp || 0))}°C
+                            </span>
+                        </div>
+                        <div className="text-right">
+                             <span className="text-slate-500 text-[10px] block">COUPLE</span>
+                             <span className="font-bold text-cyan-300">
+                                {Math.round(Number(electric?.torque || 0))} Nm
+                             </span>
+                        </div>
                     </div>
                 </div>
             )}
 
+            {/* Températures Moteur Thermique */}
             <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
                  <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Thermometer size={12}/> Engine</span>
                  <div className="grid grid-cols-2 gap-2 text-center">

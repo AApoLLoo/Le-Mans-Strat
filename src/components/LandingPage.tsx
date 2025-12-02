@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/firebase';
-// AJOUT : Import de deleteDoc
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { Clock, Plus, Users, ChevronRight, User, X, Trash2, Car } from 'lucide-react';
+import { Clock, Plus, Users, X, Trash2, Car, User } from 'lucide-react';
 import type { GameState, Driver } from '../types';
 
 // État par défaut
@@ -182,7 +181,6 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   
-  // CORRECTION 1: On récupère TOUTE la collection sans filtre (orderBy) pour éviter que les docs mal formés (sans createdAt) soient cachés
   const [strategies, loading] = useCollection(
     collection(db, "strategies")
   );
@@ -198,7 +196,7 @@ const LandingPage = () => {
           await setDoc(doc(db, "strategies", teamId), {
               ...DEFAULT_GAME_STATE,
               id: teamId,
-              carCategory: category,
+              carCategory: category, // IMPORTANT: C'est ici que la catégorie est stockée
               drivers: drivers,
               activeDriverId: drivers[0]?.id,
               createdAt: new Date().toISOString(),
@@ -210,9 +208,8 @@ const LandingPage = () => {
       }
   };
 
-  // NOUVEAU : Fonction de suppression
   const handleDeleteTeam = async (e: React.MouseEvent, teamId: string) => {
-      e.stopPropagation(); // Empêche d'entrer dans la session quand on clique sur supprimer
+      e.stopPropagation();
       if (window.confirm(`Delete Line Up "${teamId.toUpperCase()}"? This cannot be undone.`)) {
           try {
               await deleteDoc(doc(db, "strategies", teamId));
@@ -222,12 +219,11 @@ const LandingPage = () => {
       }
   };
 
-  // CORRECTION 2: Tri côté client pour afficher tous les résultats proprement
+  // Tri côté client
   const activeTeams = strategies?.docs.map(doc => ({
     id: doc.id,
     ...doc.data()
   })).sort((a: any, b: any) => {
-      // Si createdAt n'existe pas, on met une date ancienne pour qu'il soit en bas
       const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return dateB - dateA;
@@ -255,7 +251,7 @@ const LandingPage = () => {
           <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-500 drop-shadow-2xl">
             LE MANS <span className="text-indigo-500">24H</span>
           </h1>
-          <p className="text-slate-400 text-lg uppercase tracking-[0.3em] font-bold">Strategic Command Center</p>
+          <p className="text-slate-400 text-lg uppercase tracking-[0.3em] font-bold">Strategic Command Center by FBT</p>
         </div>
 
         {/* Bouton Création */}
@@ -291,75 +287,79 @@ const LandingPage = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {activeTeams.map((team: any) => (
-                <div 
-                  key={team.id}
-                  onClick={() => handleJoinTeam(team.id)}
-                  className="group bg-slate-900/50 border border-white/10 hover:border-indigo-500/50 rounded-xl p-5 cursor-pointer transition-all duration-300 hover:bg-slate-800/80 hover:shadow-2xl hover:shadow-indigo-500/10 relative overflow-hidden"
-                >
-                  {/* BOUTON SUPPRIMER */}
-                  <button 
-                    onClick={(e) => handleDeleteTeam(e, team.id)}
-                    className="absolute top-2 right-2 p-2 text-slate-600 hover:text-red-500 z-20 transition-colors opacity-0 group-hover:opacity-100"
-                    title="Delete Line Up"
+              {activeTeams.map((team: any) => {
+                // CORRECTION : Logique de récupération plus sûre
+                const displayCategory = team.carCategory || team.telemetry?.carCategory || "Unknown";
+
+                return (
+                  <div 
+                    key={team.id}
+                    onClick={() => handleJoinTeam(team.id)}
+                    className="group bg-slate-900/50 border border-white/10 hover:border-indigo-500/50 rounded-xl p-5 cursor-pointer transition-all duration-300 hover:bg-slate-800/80 hover:shadow-2xl hover:shadow-indigo-500/10 relative overflow-hidden"
                   >
-                    <Trash2 size={18}/>
-                  </button>
+                    <button 
+                      onClick={(e) => handleDeleteTeam(e, team.id)}
+                      className="absolute top-2 right-2 p-2 text-slate-600 hover:text-red-500 z-20 transition-colors opacity-0 group-hover:opacity-100"
+                      title="Delete Line Up"
+                    >
+                      <Trash2 size={18}/>
+                    </button>
 
-                  <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
-                    <Users size={80} className="text-white"/>
+                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                      <Users size={80} className="text-white"/>
+                    </div>
+
+                    <div className="relative z-10 space-y-4">
+                      <div className="flex justify-between items-start pr-8">
+                        <div>
+                          <div className="text-2xl font-black text-white italic tracking-tight group-hover:text-indigo-400 transition-colors truncate max-w-[200px]">
+                            {team.id.toUpperCase()}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getCategoryColor(displayCategory)}`}>
+                              {displayCategory}
+                            </span>
+                            {team.carNumber && <span className="text-[10px] font-bold px-2 py-0.5 bg-white/5 text-slate-400 border border-white/10 rounded">#{team.carNumber}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-black/40 rounded-lg p-3 border border-white/5">
+                        <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
+                          <User size={10}/> On Track
+                        </div>
+                        <div className="font-mono text-emerald-400 font-bold truncate">
+                          {team.driverName || "NO DRIVER"}
+                        </div>
+                      </div>
+
+                      {team.drivers && team.drivers.length > 0 && (
+                          <div className="space-y-1">
+                              <div className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">Lineup</div>
+                              <div className="flex flex-wrap gap-2">
+                                  {team.drivers.map((d: any) => (
+                                      <span key={d.id} className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-white/5">
+                                          {d.name}
+                                      </span>
+                                  ))}
+                              </div>
+                          </div>
+                      )}
+
+                      <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500">
+                        <div className="flex items-center gap-1">
+                          <Clock size={10}/>
+                          <span>{team.lastPacketTime ? new Date(team.lastPacketTime).toLocaleTimeString() : "--:--"}</span>
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${team.isRaceRunning ? 'text-emerald-500' : 'text-slate-500'}`}>
+                          <div className={`w-1.5 h-1.5 rounded-full ${team.isRaceRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`}></div>
+                          {team.isRaceRunning ? "LIVE" : "OFFLINE"}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="relative z-10 space-y-4">
-                    <div className="flex justify-between items-start pr-8">
-                      <div>
-                        <div className="text-2xl font-black text-white italic tracking-tight group-hover:text-indigo-400 transition-colors truncate max-w-[200px]">
-                          {team.id.toUpperCase()}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getCategoryColor(team.carCategory)}`}>
-                            {team.carCategory || "CATEGORY"}
-                          </span>
-                          {team.carNumber && <span className="text-[10px] font-bold px-2 py-0.5 bg-white/5 text-slate-400 border border-white/10 rounded">#{team.carNumber}</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-black/40 rounded-lg p-3 border border-white/5">
-                      <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
-                        <User size={10}/> On Track
-                      </div>
-                      <div className="font-mono text-emerald-400 font-bold truncate">
-                        {team.driverName || "NO DRIVER"}
-                      </div>
-                    </div>
-
-                    {team.drivers && team.drivers.length > 0 && (
-                        <div className="space-y-1">
-                            <div className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">Lineup</div>
-                            <div className="flex flex-wrap gap-2">
-                                {team.drivers.map((d: any) => (
-                                    <span key={d.id} className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-white/5">
-                                        {d.name}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500">
-                      <div className="flex items-center gap-1">
-                        <Clock size={10}/>
-                        <span>{team.lastPacketTime ? new Date(team.lastPacketTime).toLocaleTimeString() : "--:--"}</span>
-                      </div>
-                      <div className={`flex items-center gap-1.5 ${team.isRaceRunning ? 'text-emerald-500' : 'text-slate-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${team.isRaceRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`}></div>
-                        {team.isRaceRunning ? "LIVE" : "OFFLINE"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

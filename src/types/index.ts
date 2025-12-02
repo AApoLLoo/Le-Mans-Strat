@@ -41,13 +41,11 @@ export interface TelemetryData {
   maxRpm: number;
   gear: number;
   carCategory: string;
-  
   // Inputs
   throttle: number;
   brake: number;
   clutch: number;
   steering: number;
-
   // Moteur Thermique
   waterTemp: number;
   oilTemp: number;

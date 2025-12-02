@@ -1,10 +1,10 @@
+// src/components/views/ChatView.tsx
 import React, { useEffect, useRef } from 'react';
 import { Send } from 'lucide-react';
 
 const ChatView = ({ messages, username, setUsername, chatInput, setChatInput, onSendMessage }) => {
   const chatEndRef = useRef(null);
 
-  // Scroll automatique vers le bas à chaque nouveau message
   useEffect(() => {
     if (chatEndRef.current) {
         chatEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -17,7 +17,12 @@ const ChatView = ({ messages, username, setUsername, chatInput, setChatInput, on
           {(messages || []).map((msg) => (
               <div key={msg.id} className={`flex flex-col ${msg.user === username ? 'items-end' : 'items-start'}`}>
                   <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${msg.teamColor === 'bg-red-600' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}>{msg.team}</span>
+                      {/* MODIFICATION : Ajout de la catégorie dans la bulle */}
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase flex items-center gap-1 ${msg.teamColor === 'bg-red-600' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}>
+                          {msg.team}
+                          {msg.category && <span className="font-mono font-normal opacity-80 text-[8px]">[{msg.category}]</span>}
+                      </span>
+                      
                       <span className="text-[10px] font-bold text-indigo-300">{msg.user}</span>
                       <span className="text-[9px] text-slate-500">{msg.time}</span>
                   </div>
@@ -28,6 +33,7 @@ const ChatView = ({ messages, username, setUsername, chatInput, setChatInput, on
           ))}
           <div ref={chatEndRef} />
       </div>
+      {/* ... (Footer input inchangé) */}
       <div className="p-3 bg-black/40 border-t border-slate-800 flex gap-2">
           <input 
             type="text" 

@@ -50,7 +50,7 @@ export const useRaceData = (teamId: string) => {
 
     // Détection catégorie via ID
     const tId = teamId.toLowerCase();
-    const isHypercar = tId.includes('hyper') || tId.includes('red');
+    const isHypercar = tId.includes('Hyper') || tId.includes('red');
     const isLMGT3 = tId.includes('gt3') || tId.includes('lmgt3');
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms');
@@ -115,7 +115,7 @@ export const useRaceData = (teamId: string) => {
                         rpm: Number(tele.rpm || 0), 
                         maxRpm: 8000, 
                         gear: Number(tele.gear || 0),
-                        carCategory: data.carCategory || "Unknown",
+                        carCategory: scoring.vehicles.class || "Unknown",
                         
                         // Physiques
                         throttle: Number(tele.inputs?.thr || 0), 
@@ -153,8 +153,8 @@ export const useRaceData = (teamId: string) => {
 
                         // Pneus & Freins
                         tires: { 
-                            fl: (1-(tireWear[0]||0))*100, fr: (1-(tireWear[1]||0))*100, 
-                            rl: (1-(tireWear[2]||0))*100, rr: (1-(tireWear[3]||0))*100 
+                            fl: ((tireWear[0]||0))*100, fr: ((tireWear[1]||0))*100, 
+                            rl: ((tireWear[2]||0))*100, rr: ((tireWear[3]||0))*100 
                         },
                         tirePressures: { 
                             fl: Number(tirePress[0]||0), fr: Number(tirePress[1]||0), 

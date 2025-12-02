@@ -61,13 +61,19 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
 
   // ... (Fonctions sendMessage, addIncident, etc. inchangées)
   const sendMessage = () => {
-      if (!chatInput.trim() || !db) return;
-      const newMessage = {
-          id: Date.now(), user: username, team: teamName, teamColor: teamColor, text: chatInput,
-          time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-      };
-      updateDoc(doc(db, "strategies", CHAT_ID), { messages: arrayUnion(newMessage) });
-      setChatInput("");
+    if (!chatInput.trim() || !db) return;
+    const newMessage = {
+        id: Date.now(), 
+        user: username, 
+        team: teamName, 
+        teamColor: teamColor, 
+        // AJOUT : On inclut la catégorie dans le message
+        category: gameState.telemetry.carCategory || "Cat?",
+        text: chatInput,
+        time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+    };
+    updateDoc(doc(db, "strategies", CHAT_ID), { messages: arrayUnion(newMessage) });
+    setChatInput("");
   };
 
   const addIncident = () => {
