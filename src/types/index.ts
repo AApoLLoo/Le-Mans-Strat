@@ -49,13 +49,13 @@ export interface TelemetryData {
   // Moteur Thermique
   waterTemp: number;
   oilTemp: number;
-  
   // Consommables & Hybride
   fuel: FuelData;
   VE: VirtualEnergyData;
   batterySoc: number;
-  electric: ElectricData; // AJOUTÉ
-
+  electric: ElectricData; // AJOUT
+    targetFuelCons: number;
+    targetVECons: number;
   // Pneus & Freins
   tires: { fl: number; fr: number; rl: number; rr: number }; // Usure %
   tirePressures: { fl: number; fr: number; rl: number; rr: number }; // kPa
@@ -93,13 +93,14 @@ export interface Stint {
 }
 
 export interface StrategyData {
-  stints: Stint[];
-  totalLaps: number;
-  lapsPerTank: number;
-  activeFuelCons: number;
-  activeVECons: number;
-  activeLapTime: number;
-  pitStopsRemaining: number;
+    stints: Stint[];
+    totalLaps: number;
+    lapsPerTank: number;
+    activeFuelCons: number;
+    activeVECons: number;
+    activeLapTime: number;
+    pitStopsRemaining: number;
+    targetFuelCons: number;
 }
 
 export interface GameState {

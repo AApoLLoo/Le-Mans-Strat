@@ -228,10 +228,10 @@ export const useRaceData = (teamId: string) => {
         return () => clearInterval(interval);
     }, [localRaceTime]);
 
-    // --- CALCULATEUR STRATÉGIQUE (Inchangé) ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
 
+        // 1. Tours Totaux
         let totalLapsTarget = 300;
         const leaderLaps = gameState.telemetry.leaderLaps || 0;
         const leaderAvg = gameState.telemetry.leaderAvgLapTime || 210;
@@ -244,23 +244,26 @@ export const useRaceData = (teamId: string) => {
             totalLapsTarget = Math.floor(myLaps + (localRaceTime / myAvg));
         }
 
+        // 2. Conso
         const useVE = isHypercar || isLMGT3;
-        // Protection contre undefined sur VEaverageCons
-        const veStats = gameState.telemetry.VE || { VEcurrent: 100, VElastLapCons: 0, VEaverageCons: 0 };
-
         const activeFuelCons = Math.max(0.1, gameState.telemetry.fuel.averageCons || gameState.fuelCons);
-        const activeVECons = Math.max(0.1, veStats.VEaverageCons || gameState.veCons);
+        const activeVECons = Math.max(0.1, gameState.telemetry.VE?.VEaverageCons || gameState.veCons);
         const tankCapacity = Math.max(1, gameState.telemetry.fuel.max || gameState.tankCapacity);
 
+        // 3. Relais Max
         const lapsPerTank = Math.floor(tankCapacity / activeFuelCons);
         const lapsPerVE = activeVECons > 0 ? Math.floor(100 / activeVECons) : 999;
         const lapsPerStint = Math.max(1, useVE ? Math.min(lapsPerVE, lapsPerTank) : lapsPerTank);
 
+        // 4. Génération Relais & CALCUL CIBLE
         const stints: Stint[] = [];
         const currentLap = gameState.telemetry.laps;
         const currentStintIndex = gameState.currentStint;
+        let targetFuelCons = 0; // Init
 
+        // Passés
         for (let i = 0; i < currentStintIndex; i++) {
+            // ... (code inchangé pour les relais passés)
             const driverId = gameState.stintAssignments[i] || gameState.drivers[i % gameState.drivers.length]?.id;
             const d = getSafeDriver(gameState.drivers.find(drv => drv.id === driverId));
             stints.push({
@@ -270,17 +273,32 @@ export const useRaceData = (teamId: string) => {
             });
         }
 
+        // Actuel
+        const currentStintEndLap = Math.min(totalLapsTarget, (currentStintIndex + 1) * lapsPerStint);
         stints.push({
             id: currentStintIndex, stopNum: currentStintIndex + 1, startLap: currentLap,
-            endLap: Math.min(totalLapsTarget, (currentStintIndex + 1) * lapsPerStint),
+            endLap: currentStintEndLap,
             lapsCount: lapsPerStint, fuel: "CURRENT", driver: activeDriver, driverId: activeDriver.id,
             isCurrent: true, isNext: false, isDone: false, note: String(gameState.stintNotes[currentStintIndex+1] || "")
         });
 
+        // --- CALCUL INTELLIGENT DE LA CIBLE ---
+        // Fuel restant / Tours restants dans le relais théorique
+        const fuelRemaining = gameState.telemetry.fuel.current;
+        const lapsRemainingInStint = currentStintEndLap - currentLap;
+
+        if (lapsRemainingInStint > 0 && fuelRemaining > 0) {
+            // On retire une petite marge de sécurité (ex: 0.5L) pour ne pas tomber en panne dans le tour de rentrée
+            targetFuelCons = (fuelRemaining - 0.5) / lapsRemainingInStint;
+        } else {
+            targetFuelCons = activeFuelCons; // Fallback
+        }
+
+        // Futurs (code inchangé)
         let nextStartLap = (currentStintIndex + 1) * lapsPerStint;
         let nextIdx = currentStintIndex + 1;
-
         while (nextStartLap < totalLapsTarget) {
+            // ... (copier le bloc 'Futurs' existant du fichier précédent)
             let driverId = gameState.stintAssignments[nextIdx];
             if (!driverId && gameState.drivers.length > 0) {
                 const prevDriverId = stints[stints.length - 1].driverId;
@@ -296,26 +314,14 @@ export const useRaceData = (teamId: string) => {
             if (isLast) fuelInfo = (lapsThisStint * activeFuelCons).toFixed(1) + "L";
 
             stints.push({
-                id: nextIdx,
-                stopNum: nextIdx + 1,
-                startLap: Math.floor(nextStartLap),
-                endLap: Math.floor(nextStartLap + lapsThisStint),
-                lapsCount: Math.floor(lapsThisStint),
-                fuel: fuelInfo,
-                driver: d,
-                driverId: d.id,
-                isCurrent: false,
-                isNext: nextIdx === currentStintIndex + 1,
-                isDone: false,
-                note: String(gameState.stintNotes[nextIdx+1] || "")
+                id: nextIdx, stopNum: nextIdx + 1, startLap: Math.floor(nextStartLap), endLap: Math.floor(nextStartLap + lapsThisStint),
+                lapsCount: Math.floor(lapsThisStint), fuel: fuelInfo, driver: d, driverId: d.id,
+                isCurrent: false, isNext: nextIdx === currentStintIndex + 1, isDone: false, note: String(gameState.stintNotes[nextIdx+1] || "")
             });
-
-            nextStartLap += lapsPerStint;
-            nextIdx++;
-            if (nextIdx > 100) break;
+            nextStartLap += lapsPerStint; nextIdx++; if (nextIdx > 100) break;
         }
 
-        return { stints, totalLaps: totalLapsTarget, lapsPerTank, activeFuelCons, activeVECons, activeLapTime: myAvg, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex) };
+        return { stints, totalLaps: totalLapsTarget, lapsPerTank, activeFuelCons, activeVECons, activeLapTime: myAvg, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex), targetFuelCons };
     }, [gameState, localRaceTime, isHypercar, isLMGT3]);
 
     const confirmPitStop = () => { /* ... */ };

@@ -274,6 +274,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                     weather={gameState.weather}
                     airTemp={gameState.airTemp}
                     trackWetness={gameState.trackWetness}
+                    targetFuelCons={strategyData.targetFuelCons}
                  />
                )}
                {viewMode === "MAP" && <MapView />}

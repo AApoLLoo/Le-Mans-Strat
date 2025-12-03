@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Disc, Battery, Fuel, Zap, Activity, Flag, Trophy, Clock, CloudRain, Sun, Cloud, Thermometer, Flame, Droplet, RefreshCw } from 'lucide-react';
+import React, { useState } from 'react';
+import {Fuel, Zap,CloudRain, Sun, Cloud, Thermometer, RefreshCw } from 'lucide-react';
 import type { TelemetryData } from '../../types';
 
 const getTireColorGradient = (wear: number) => {
@@ -49,16 +49,17 @@ interface TelemetryViewProps {
     weather: string;
     airTemp: number;
     trackWetness: number;
+    targetFuelCons?: number;
 }
 
 const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTimeSeconds, weather, airTemp, trackWetness }) => {
     const {
-        tires, tireCompounds, fuel, laps, VE, electric,
+        tires, tireCompounds, fuel, VE, electric,
         brakeTemps, tireTemps, tirePressures,
         throttle, brake, clutch, steering,
         speed, rpm, maxRpm, gear,
         waterTemp, oilTemp, batterySoc,
-        carCategory
+        carCategory,targetFuelCons,
     } = telemetryData;
 
     const moyLap = Number(telemetryData.curLap) || 0;
@@ -70,10 +71,6 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
     const isCategoryGT3 = isLMGT3 || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('gt3') || carCategory.toLowerCase().includes('lmgt3')));
     const isCategoryHypercar = isHypercar || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('hyper') || carCategory.toLowerCase().includes('lmh') || carCategory.toLowerCase().includes('lmdh') || carCategory.toLowerCase().includes('gtop')));
 
-    useEffect(() => {
-        // Si c'est une catégorie utilisant l'énergie virtuelle, on l'affiche par défaut
-        if (isCategoryHypercar || isCategoryGT3) setShowVirtualEnergy(true);
-    }, [isCategoryHypercar, isCategoryGT3]);
 
     const isVE = showVirtualEnergy && (isCategoryHypercar || isCategoryGT3);
     const currentResource = Number(isVE ? VE?.VEcurrent : fuel?.current) || 0;
@@ -82,7 +79,10 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
 
     const lastLapCons = Number(isVE ? VE?.VElastLapCons : fuel?.lastLapCons) || 0;
     const avgCons = Number(isVE ? VE?.VEaverageCons : fuel?.averageCons) || 0;
-
+    const safeTarget = targetFuelCons || avgCons;
+    const fuelDelta = avgCons - safeTarget;
+    const fuelStatusColor = fuelDelta > 0.1 ? 'text-red-500 animate-pulse' : (fuelDelta < -0.1 ? 'text-emerald-400' : 'text-slate-400');
+    const fuelStatusText = fuelDelta > 0.1 ? 'LIFT & COAST' : (fuelDelta < -0.1 ? 'SAFE' : 'ON TARGET');
     const barColor = isVE ? 'bg-cyan-500' : 'bg-blue-500';
     const label = isVE ? 'VIRTUAL ENERGY' : 'FUEL LEVEL';
     const icon = isVE ? <Zap size={14} className="text-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
@@ -186,6 +186,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
                         <div className="space-y-2">
                             <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{width: `${Number(throttle)*100}%`}}></div></div>
                             <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-red-500" style={{width: `${Number(brake)*100}%`}}></div></div>
+                            <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width: `${Number(clutch)*100}%`}}></div></div>
                         </div>
                         <div className="flex justify-center items-center">
                             <div className="text-xs text-slate-500 font-bold uppercase">Steering: {Math.round(Number(steering)*100)}%</div>
@@ -196,17 +197,35 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
                 {/* DATA (Droite) */}
                 <div className="col-span-3 flex flex-col gap-3">
                     {/* Gestion Carburant / Energie Virtuelle */}
-                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1">
+                    {/* Gestion Carburant / Energie Virtuelle INTELLIGENTE */}
+                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1 relative overflow-hidden">
                         <div className="flex justify-between items-center mb-2">
                             <span className="text-xs font-bold text-slate-400 flex items-center gap-2">{icon} {label}</span>
-                            {/* FIX: Utilisation de la catégorie détectée pour le bouton */}
                             {(isCategoryHypercar || isCategoryGT3) && <button onClick={() => setShowVirtualEnergy(!showVirtualEnergy)} className="text-slate-500 hover:text-white"><RefreshCw size={12}/></button>}
                         </div>
-                        <div className="h-4 bg-slate-950 rounded border border-slate-700 overflow-hidden mb-2">
+
+                        {/* Jauge */}
+                        <div className="h-4 bg-slate-950 rounded border border-slate-700 overflow-hidden mb-2 relative">
                             <div className={`h-full ${barColor} transition-all duration-500`} style={{width: `${resourcePercentage}%`}}></div>
+                            {/* Petit marqueur de target (optionnel) */}
                         </div>
-                        <div className="text-2xl font-black text-white">{currentResource.toFixed(1)} <span className="text-sm text-slate-500">{isVE ? '%' : 'L'}</span></div>
-                        <div className="text-[10px] text-slate-400 mt-1">Last: {lastLapCons.toFixed(2)} | Avg: {avgCons.toFixed(2)}</div>
+
+                        <div className="flex justify-between items-end">
+                            <div>
+                                <div className="text-2xl font-black text-white leading-none">{currentResource.toFixed(1)} <span className="text-sm text-slate-500">{isVE ? '%' : 'L'}</span></div>
+                                <div className="text-[10px] text-slate-400 mt-1">Last: {lastLapCons.toFixed(2)}</div>
+                            </div>
+
+                            {/* NOUVELLE SECTION TARGET */}
+                            <div className="text-right">
+                                <div className="text-[9px] font-bold text-slate-500 uppercase">Target</div>
+                                <div className={`text-xl font-mono font-bold ${fuelStatusColor}`}>
+                                    {avgCons.toFixed(2)}
+                                    <span className="text-[10px] text-slate-500 ml-1">/ {safeTarget.toFixed(2)}</span>
+                                </div>
+                                <div className={`text-[9px] font-black ${fuelStatusColor} uppercase tracking-wider`}>{fuelStatusText}</div>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Gestion Hybride (Batterie Réelle) - S'affiche si Hypercar détectée */}
