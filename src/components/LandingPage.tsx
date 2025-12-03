@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
+import { supabase } from '../lib/supabaseClient.ts';
 import { Clock, Plus, Users, X, Trash2, Car, User } from 'lucide-react';
 import type { GameState, Driver } from '../types';
 
@@ -57,7 +57,7 @@ const CATEGORIES = ["Hypercar", "LMP2", "LMP2 (ELMS)", "LMP3", "GT3"];
 const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate: (name: string, category: string, drivers: Driver[]) => void }) => {
     const [teamName, setTeamName] = useState("");
     const [category, setCategory] = useState("Hypercar");
-    const [drivers, setDrivers] = useState<Driver[]>([
+    const [drivers, setDrivers] = useState<Driver[]>(() => [
         { id: Date.now(), name: "", color: "#3b82f6" }
     ]);
 
@@ -178,12 +178,12 @@ const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate:
 const LandingPage = () => {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [strategies, setStrategies] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [strategies, setStrategies] = useState<import('../types').StrategyRow[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
   // Fetch initial list and subscribe to realtime changes
   React.useEffect(() => {
-    let channel: any = null;
+    let channel: ReturnType<typeof supabase['channel']> | null = null;
     (async () => {
       try {
         const { data, error } = await supabase.from('strategies').select('*');
@@ -204,7 +204,7 @@ const LandingPage = () => {
         .subscribe();
     } catch (e) { console.error('Supabase subscribe strategies error', e); }
 
-    return () => { try { if (channel) channel.unsubscribe(); } catch (e) {} };
+    return () => { try { if (channel) channel.unsubscribe(); } catch (err) { console.error('Unsubscribe error', err); } };
   }, []);
 
   const handleJoinTeam = (teamId: string) => {
@@ -255,9 +255,9 @@ const LandingPage = () => {
       }
   };
 
-  const activeTeams = (strategies || []).slice().sort((a: any, b: any) => {
-      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+  const activeTeams = (strategies || []).slice().sort((a, b) => {
+      const dateA = a.createdAt ? new Date(String(a.createdAt)).getTime() : 0;
+      const dateB = b.createdAt ? new Date(String(b.createdAt)).getTime() : 0;
       return dateB - dateA;
   }) || [];
 
@@ -319,7 +319,7 @@ const LandingPage = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {activeTeams.map((team: any) => {
+              {activeTeams.map((team: import('../types').StrategyRow) => {
                 // CORRECTION : Logique de récupération plus sûre
                 const displayCategory = team.carCategory || team.telemetry?.carCategory || "Unknown";
 
@@ -369,11 +369,11 @@ const LandingPage = () => {
                           <div className="space-y-1">
                               <div className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">Lineup</div>
                               <div className="flex flex-wrap gap-2">
-                                  {team.drivers.map((d: any) => (
-                                      <span key={d.id} className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-white/5">
-                                          {d.name}
-                                      </span>
-                                  ))}
+                                  {team.drivers.map((d: import('../types').Driver) => (
+                                       <span key={d.id} className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-white/5">
+                                           {d.name}
+                                       </span>
+                                   ))}
                               </div>
                           </div>
                       )}

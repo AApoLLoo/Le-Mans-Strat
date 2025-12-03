@@ -11,11 +11,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
-    "firebase": "^10.14.1",
     "lucide-react": "^0.309.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-firebase-hooks": "^5.1.1",
     "react-router-dom": "^7.9.6"
   },
   "devDependencies": {

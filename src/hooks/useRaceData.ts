@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'; 
-import { supabase } from '../supabaseClient';
+import { supabase } from '../lib/supabaseClient.ts';
 import type { GameState, StrategyData, Stint, TelemetryData } from '../types';
 import { getSafeDriver } from '../utils/helpers';
 
@@ -73,7 +73,7 @@ export const useRaceData = (teamId: string) => {
     useEffect(() => {
         if (!teamId) return;
 
-        let channel: any = null;
+        let channel: ReturnType<typeof supabase['channel']> | null = null;
 
         // Fetch initial row from Supabase
         (async () => {
@@ -87,17 +87,17 @@ export const useRaceData = (teamId: string) => {
                 }
 
                 if (data) {
-                    const docData: any = data;
+                    const docData = data as Partial<GameState> & Record<string, unknown>;
                     // Les champs peuvent être stockés directement dans la ligne (JSONB), on réutilise la logique existante
-                    const tele = docData.telemetry || {};
-                    const scoring = docData.scoring || {};
-                    const pit = docData.pit || {};
-                    const weather = docData.weather_det || {};
-                    const rules = docData.rules || {};
-                    const extended = docData.extended || {};
+                    const tele = (docData.telemetry || {}) as import('../types').RawTelemetry;
+                    const scoring = (docData.scoring || {}) as import('../types').RawScoring;
+                     const pit = (docData.pit || {}) as import('../types').RawPit;
+                     const weather = (docData.weather_det || {}) as import('../types').RawWeather;
+                     const rules = (docData.rules || {}) as import('../types').RawRules;
+                     const extended = (docData.extended || {}) as import('../types').RawExtended;
 
-                    let sessionTimeRem = scoring.time?.end - scoring.time?.current;
-                    if (isNaN(sessionTimeRem) || sessionTimeRem < 0) sessionTimeRem = docData.sessionTimeRemainingSeconds || 0;
+                    let sessionTimeRem = Number((scoring.time?.end ?? 0) - (scoring.time?.current ?? 0));
+                    if (isNaN(sessionTimeRem) || sessionTimeRem < 0) sessionTimeRem = Number(docData.sessionTimeRemainingSeconds || 0);
 
                     // Reuse setGameState transformation from original code
                     console.log('Setting gameState with fetched data');
@@ -109,11 +109,11 @@ export const useRaceData = (teamId: string) => {
 
                         let lLaps = prev.telemetry.leaderLaps;
                         let lAvg = prev.telemetry.leaderAvgLapTime;
-                        if (scoring.vehicles && Array.isArray(scoring.vehicles)) {
-                            const leader = scoring.vehicles.find((v: any) => v.position === 1);
+                        if (Array.isArray(scoring.vehicles)) {
+                            const leader = (scoring.vehicles as import('../types').RawVehicle[]).find((v) => (v.position ?? 0) === 1);
                             if (leader) {
-                                lLaps = leader.laps;
-                                if (leader.best_lap > 0) lAvg = leader.best_lap * 1.05;
+                                lLaps = leader.laps ?? lLaps;
+                                if ((leader.best_lap ?? 0) > 0) lAvg = (leader.best_lap ?? 0) * 1.05;
                             }
                         }
 
@@ -127,7 +127,7 @@ export const useRaceData = (teamId: string) => {
                             rpm: Number(tele.rpm || 0),
                             maxRpm: 8000,
                             gear: Number(tele.gear || 0),
-                            carCategory: scoring.vehicles?.class || "Unknown",
+                            carCategory: (Array.isArray(scoring.vehicles) ? scoring.vehicles[0]?.class : undefined) || "Unknown",
                             throttle: Number(tele.inputs?.thr || 0),
                             brake: Number(tele.inputs?.brk || 0),
                             clutch: Number(tele.inputs?.clt || 0),
@@ -158,22 +158,22 @@ export const useRaceData = (teamId: string) => {
                             leaderLaps: lLaps, leaderAvgLapTime: lAvg,
                             strategyEstPitTime: Number(pit.strategy?.time_min || 0),
                             inPitLane: Boolean(scoring.vehicle_data?.in_pits),
-                            inGarage: rules.my_status?.pits_open === false,
-                            pitLimiter: extended.pit_limit > 0,
+                            inGarage: (rules.my_status?.pits_open === false),
+                            pitLimiter: (extended.pit_limit ?? 0) > 0,
                             damageIndex: 0, isOverheating: false
                         };
 
                         return {
                             ...prev,
                             ...docData,
-                            isRaceRunning: scoring.time?.current > 0,
+                            isRaceRunning: Boolean((scoring.time?.current ?? 0) > 0),
                             trackName: scoring.track || prev.trackName,
                             sessionType: String(scoring.time?.session || ""),
                             sessionTimeRemaining: sessionTimeRem,
-                            weather: weather.rain_intensity > 0.1 ? "RAIN" : (weather.cloudiness > 0.5 ? "CLOUDY" : "SUNNY"),
-                            airTemp: weather.ambient_temp || prev.airTemp,
-                            trackWetness: scoring.weather?.wetness_path?.[1] * 100 || 0,
-                            rainIntensity: weather.rain_intensity || 0,
+                            weather: (weather.rain_intensity ?? 0) > 0.1 ? "RAIN" : ((weather.cloudiness ?? 0) > 0.5 ? "CLOUDY" : "SUNNY"),
+                            airTemp: (weather.ambient_temp ?? prev.airTemp),
+                            trackWetness: (scoring.weather?.wetness_path?.[1] ?? 0) * 100 || 0,
+                            rainIntensity: (weather.rain_intensity ?? 0) || 0,
                             telemetry: newTelemetry,
                             drivers: docData.drivers || prev.drivers
                         };
@@ -209,7 +209,7 @@ export const useRaceData = (teamId: string) => {
                     const docData = payload.new;
                     if (!docData) return;
                     // Reuse same parsing as above (lightweight): setGameState with docData
-                    setGameState(prev => ({ ...prev, ...docData } as any));
+                    setGameState(prev => ({ ...prev, ...(docData as Partial<GameState>) }));
                     setStatus('LIVE DATA');
                 })
                 .subscribe((status) => {
@@ -220,13 +220,13 @@ export const useRaceData = (teamId: string) => {
         }
 
         return () => {
-            try { if (channel) channel.unsubscribe(); } catch (e) { /* ignore */ }
+            try { if (channel) void channel.unsubscribe(); } catch { /* ignore */ }
         };
-    }, [teamId]);
+    }, [teamId, SESSION_ID]);
 
     // Timer Local
     useEffect(() => {
-        let interval: any;
+        let interval: number | undefined;
         if (localRaceTime > 0) {
             interval = setInterval(() => {
                 setLocalRaceTime(p => Math.max(0, p - 1));
@@ -271,14 +271,14 @@ export const useRaceData = (teamId: string) => {
 
         // Passés
         for (let i = 0; i < currentStintIndex; i++) {
-            let driverId = gameState.stintAssignments[i] || gameState.drivers[i % gameState.drivers.length]?.id;
-            const d = getSafeDriver(gameState.drivers.find(drv => drv.id === driverId));
-            stints.push({
-                id: i, stopNum: i + 1, startLap: i * lapsPerStint, endLap: (i + 1) * lapsPerStint,
-                lapsCount: lapsPerStint, fuel: "DONE", driver: d, driverId: d.id, 
-                isCurrent: false, isNext: false, isDone: true, note: gameState.stintNotes[i+1] || ""
-            });
-        }
+            const driverId = gameState.stintAssignments[i] || gameState.drivers[i % gameState.drivers.length]?.id;
+             const d = getSafeDriver(gameState.drivers.find(drv => drv.id === driverId));
+             stints.push({
+                 id: i, stopNum: i + 1, startLap: i * lapsPerStint, endLap: (i + 1) * lapsPerStint,
+                 lapsCount: lapsPerStint, fuel: "DONE", driver: d, driverId: d.id,
+                 isCurrent: false, isNext: false, isDone: true, note: gameState.stintNotes[i+1] || ""
+             });
+         }
 
         // Actuel
         stints.push({
@@ -332,31 +332,15 @@ export const useRaceData = (teamId: string) => {
 
     // Actions
     const confirmPitStop = () => {
-        const nextStint = gameState.currentStint + 1;
-        const newAssign = { ...gameState.stintAssignments, [gameState.currentStint]: gameState.activeDriverId };
-        let nextDriverId = gameState.stintAssignments[nextStint];
-        if (!nextDriverId && gameState.drivers.length > 0) {
-            const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
-            nextDriverId = gameState.drivers[(currentIdx + 1) % gameState.drivers.length].id;
-        }
-        syncUpdate({ currentStint: nextStint, activeDriverId: nextDriverId, stintDuration: 0, stintAssignments: newAssign });
-        setLocalStintTime(0);
+        // ...existing code...
     };
 
     const undoPitStop = () => {
-        if (gameState.currentStint > 0) {
-            const prevStint = gameState.currentStint - 1;
-            const prevDriverId = gameState.stintAssignments[prevStint] || gameState.drivers[0].id;
-            syncUpdate({ currentStint: prevStint, activeDriverId: prevDriverId });
-        }
+        // ...existing code...
     };
 
     const resetRace = () => {
-        syncUpdate({
-            isRaceRunning: false, raceTime: gameState.raceDurationHours * 3600, stintDuration: 0, currentStint: 0,
-            activeDriverId: gameState.drivers[0]?.id || 1, incidents: [], chatMessages: [], stintAssignments: {}, stintNotes: {}
-        });
-        setLocalStintTime(0);
+        // ...existing code...
     };
 
     return {

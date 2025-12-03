@@ -122,10 +122,84 @@ export interface GameState {
   avgLapTimeSeconds: number;
   drivers: Driver[];
   activeDriverId: number | string;
-  incidents: any[];
-  chatMessages: any[];
-  stintNotes: Record<string, any>;
-  stintAssignments: Record<string, any>;
+  incidents: Incident[];
+  chatMessages: ChatMessage[];
+  stintNotes: Record<string, string | number>;
+  stintAssignments: Record<string, number | string>;
   position: number;
   telemetry: TelemetryData;
+}
+
+export interface Incident {
+  id: number | string;
+  time: string;
+  lap: number;
+  text: string;
+}
+
+export interface ChatMessage {
+  id: number | string;
+  user: string;
+  team?: string;
+  teamColor?: string;
+  category?: string;
+  text: string;
+  time: string;
+}
+
+export interface RawTelemetry {
+  laps?: number;
+  times?: { current?: number };
+  speed?: number;
+  rpm?: number;
+  gear?: number;
+  inputs?: { thr?: number; brk?: number; clt?: number; str?: number };
+  temps?: { water?: number; oil?: number };
+  fuel?: number;
+  fuelCapacity?: number;
+  electric?: Record<string, number> | undefined;
+  tires?: { wear?: number[]; press?: number[]; temp?: Record<string, number[]>; brake_temp?: number[] };
+}
+
+export interface RawVehicle {
+  position?: number;
+  laps?: number;
+  best_lap?: number;
+  class?: string;
+  in_pits?: boolean;
+}
+
+export interface RawScoring {
+  time?: { end?: number; current?: number; session?: string };
+  vehicles?: RawVehicle[];
+  vehicle_data?: { in_pits?: boolean; last_lap?: number; best_lap?: number; position?: number };
+  track?: string;
+  weather?: { wetness_path?: number[] };
+}
+
+export interface RawPit { strategy?: { time_min?: number } }
+export interface RawWeather { rain_intensity?: number; cloudiness?: number; ambient_temp?: number }
+export interface RawRules { my_status?: { pits_open?: boolean } }
+export interface RawExtended { pit_limit?: number }
+
+export interface RawDoc extends Partial<GameState> {
+  scoring?: RawScoring;
+  telemetry?: RawTelemetry;
+  pit?: RawPit;
+  weather_det?: RawWeather;
+  rules?: RawRules;
+  extended?: RawExtended;
+  sessionTimeRemainingSeconds?: number;
+  drivers?: Driver[];
+  createdAt?: string;
+  id?: string;
+  messages?: ChatMessage[];
+  lastPacketTime?: number;
+  carCategory?: string;
+  driverName?: string;
+  carNumber?: number;
+}
+
+export interface StrategyRow extends RawDoc {
+  id: string;
 }

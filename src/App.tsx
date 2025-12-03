@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { Settings, Home, Wifi, Flag, AlertTriangle, ArrowRight, Clock, Plus, RotateCcw } from 'lucide-react';
-import { supabase } from './supabaseClient';
+import { supabase } from './lib/supabaseClient.ts';
 
 import StrategyView from './components/views/StrategyView';
 import MapView from './components/views/MapView';
@@ -48,7 +48,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
   const [showSettings, setShowSettings] = React.useState(false);
   const [chatInput, setChatInput] = React.useState("");
   const [username, setUsername] = React.useState("Engineer");
-  const [globalMessages, setGlobalMessages] = React.useState<any[]>([]);
+  const [globalMessages] = React.useState<import('./types').ChatMessage[]>([]);
 
   const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
   const nextStint = strategyData?.stints?.find(s => s.isNext);
@@ -83,11 +83,15 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                 // Fallback to read-modify-update
                 console.log('Falling back to read-update');
                 const { data: row, error: fetchErr } = await supabase.from('strategies').select('messages').eq('id', CHAT_ID).maybeSingle();
-                if (fetchErr) throw fetchErr;
-                const msgs = (row?.messages as any[]) || [];
+                if (fetchErr) {
+                    console.error('Fetch messages failed', fetchErr);
+                }
+                const msgs = (Array.isArray(row?.messages) ? row?.messages : []) as import('./types').ChatMessage[];
                 const updated = [...msgs, newMessage];
                 const { error: upErr } = await supabase.from('strategies').update({ messages: updated }).eq('id', CHAT_ID);
-                if (upErr) throw upErr;
+                if (upErr) {
+                    console.error('Fallback update error', upErr);
+                }
                 console.log('Fallback update success');
             } else {
                 console.log('RPC append_message success');
@@ -123,7 +127,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
       syncUpdate({ drivers: gameState.drivers.filter(d => d.id !== id) });
   };
 
-  const updateDriverInfo = (id: number | string, field: string, val: any) => {
+  const updateDriverInfo = (id: number | string, field: string, val: string | number) => {
       syncUpdate({ drivers: gameState.drivers.map(d => d.id === id ? { ...d, [field]: val } : d) });
   };
 
@@ -213,7 +217,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                  
                  <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
                     {gameState.incidents.length === 0 && <div className="text-center text-xs text-slate-700 py-4">No events</div>}
-                    {gameState.incidents.map((inc: any) => (
+                    {gameState.incidents.map((inc: import('./types').Incident) => (
                         <div key={inc.id} className="bg-slate-900/80 p-3 rounded border-l-2 border-amber-500 hover:bg-slate-800 transition-colors">
                             <div className="flex justify-between text-[10px] text-slate-400 font-mono mb-1">
                                 <span className="text-amber-500 font-bold">{inc.time}</span>
@@ -239,14 +243,14 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                  <StrategyView 
                    strategyData={strategyData}
                    drivers={gameState.drivers}
-                   stintNotes={gameState.stintNotes}
-                   onAssignDriver={(idx: number, val: any) => {
+                   stintNotes={Object.fromEntries(Object.entries(gameState.stintNotes || {}).map(([k,v]) => [k, String(v)]))}
+                    onAssignDriver={(idx: number, val: string | number) => {
                        const selectedDriver = gameState.drivers.find(d => String(d.id) === String(val));
                        const realId = selectedDriver ? selectedDriver.id : val;
                        const newAssign = {...gameState.stintAssignments, [idx]: realId};
                        syncUpdate({ stintAssignments: newAssign });
                    }}
-                   onUpdateNote={(stopNum: any, val: any) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [stopNum]: val }})}
+                   onUpdateNote={(stopNum: string | number, val: string | number) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [String(stopNum)]: val }})}
                    isHypercar={isHypercar}
                    isLMGT3={isLMGT3} 
                    telemetryData={gameState.telemetry}

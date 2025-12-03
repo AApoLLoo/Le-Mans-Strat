@@ -1,6 +1,6 @@
 import { Fuel, Zap } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../../supabaseClient';
+import { supabase } from '../../lib/supabaseClient.ts';
 
 interface LeaderboardEntry {
     pos: number;
@@ -19,14 +19,12 @@ interface LeaderboardEntry {
 }
 
 interface LiveTimingProps {
-    telemetryData: any;
+    telemetryData: import('../../types').TelemetryData;
     isHypercar: boolean;
 }
 
 const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }) => {
     const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [_, setLastUpdate] = useState(0);
 
     // 1. Récupération des infos
     const trackName = telemetryData?.trackName || "";
@@ -61,25 +59,23 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
     useEffect(() => {
         if (!trackName || !sessionType || !serverName) return;
 
-        let channel: any = null;
+        let channel: ReturnType<typeof supabase['channel']> | null = null;
 
         (async () => {
-            console.log('Fetching leaderboard for docId:', docId);
             try {
-                const { data, error } = await supabase.from('strategies').select('json').eq('id', docId).maybeSingle();
+                const { data, error } = await supabase.from('strategies').select('json').eq('id', docId).maybeSingle() as { data: import('../../types').StrategyRow | null, error: any };
                 if (error) {
                     console.error('Supabase fetch leaderboard error', error);
-                } else {
-                    console.log('Fetched leaderboard data:', data);
                 }
                 if (data && data.json) {
                     try {
-                        const entries = JSON.parse(data.json);
+                        const parsed = typeof (data as any).json === 'string' ? JSON.parse((data as any).json) : (data as any).json;
+                        const entries = Array.isArray(parsed) ? parsed : [];
                         setLeaderboard(entries);
-                        setLastUpdate(Date.now());
                         console.log('Leaderboard set with entries:', entries);
-                    } catch (e) {
-                        console.error('Error parsing leaderboard', e);
+                    } catch (err) {
+                        console.error('Error parsing leaderboard', err);
+                        setLeaderboard([]);
                     }
                 } else {
                     setLeaderboard([]);
@@ -90,28 +86,22 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
             }
         })();
 
-        console.log('Setting up realtime subscription for leaderboard docId:', docId);
         try {
             channel = supabase.channel(`public:strategies:${docId}`)
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'strategies', filter: `id=eq.${docId}` }, (payload) => {
-                    console.log('Realtime leaderboard payload received:', payload);
-                    const newRow = payload.new;
+                    const newRow = payload.new as import('../../types').StrategyRow | undefined;
                     if (!newRow) return;
                     try {
-                        const entries = newRow.json ? JSON.parse(newRow.json) : [];
+                        const parsed = typeof (newRow as any).json === 'string' ? JSON.parse((newRow as any).json) : (newRow as any).json;
+                        const entries = Array.isArray(parsed) ? parsed : [];
                         setLeaderboard(entries);
-                        setLastUpdate(Date.now());
                         console.log('Realtime leaderboard updated:', entries);
-                    } catch (e) { console.error('Error parsing realtime leaderboard', e); }
+                    } catch (err) { console.error('Error parsing realtime leaderboard', err); }
                 })
-                .subscribe((status) => {
-                    console.log('Leaderboard subscription status:', status);
-                });
-        } catch (e) {
-            console.error('Supabase subscribe leaderboard error', e);
-        }
+                .subscribe();
+        } catch (e) { console.error('Supabase subscribe leaderboard error', e); }
 
-        return () => { try { if (channel) channel.unsubscribe(); } catch (e) {} };
+        return () => { try { if (channel) channel.unsubscribe(); } catch (err) { console.error('Unsubscribe leaderboard error', err); } };
     }, [docId, trackName, sessionType, serverName]);
 
     // Helpers
@@ -140,7 +130,7 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
     return (
         <div className="flex flex-col h-full gap-4">
             {/* TOP BAR */}
-            <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 bg-slate-900/50 p-3 rounded-xl border border-white/5 shadow-lg shrink-0">
+            <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 bg-slate-900/50 p-3 rounded-xl border border-white/5">
                 <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
                     <span className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1"><Fuel size={10}/> Fuel</span>
                     <div className="flex items-end gap-2">
@@ -196,7 +186,7 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
                     ) : (
                         leaderboard.map((row) => {
                             const isMe = row.driver === telemetryData?.driverName;
-                            
+
                             return (
                                 <div key={row.num + row.class} className={`grid grid-cols-12 gap-2 p-2 items-center text-xs font-mono border-b border-white/5 hover:bg-white/5 transition-colors ${isMe ? 'bg-indigo-900/20' : ''} ${getClassColor(row.class)}`}>
                                     <div className="col-span-1 text-center font-bold text-white text-sm">{row.pos}</div>
