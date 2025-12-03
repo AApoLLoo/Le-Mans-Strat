@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
 import { Fuel, Zap } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { supabase } from '../../supabaseClient';
 
 interface LeaderboardEntry {
     pos: number;
@@ -60,25 +59,59 @@ const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }
     ];
 
     useEffect(() => {
-        if (!db || !trackName || !sessionType || !serverName) return;
+        if (!trackName || !sessionType || !serverName) return;
 
-        // console.log("Listening to leaderboard:", docId);
+        let channel: any = null;
 
-        const unsub = onSnapshot(doc(db, "strategies", docId), (doc) => {
-            if (doc.exists()) {
-                const data = doc.data();
-                try {
-                    const entries = JSON.parse(data.json);
-                    setLeaderboard(entries);
-                    setLastUpdate(Date.now());
-                } catch (e) {
-                    console.error("Error parsing leaderboard", e);
+        (async () => {
+            console.log('Fetching leaderboard for docId:', docId);
+            try {
+                const { data, error } = await supabase.from('strategies').select('json').eq('id', docId).maybeSingle();
+                if (error) {
+                    console.error('Supabase fetch leaderboard error', error);
+                } else {
+                    console.log('Fetched leaderboard data:', data);
                 }
-            } else {
-                setLeaderboard([]);
+                if (data && data.json) {
+                    try {
+                        const entries = JSON.parse(data.json);
+                        setLeaderboard(entries);
+                        setLastUpdate(Date.now());
+                        console.log('Leaderboard set with entries:', entries);
+                    } catch (e) {
+                        console.error('Error parsing leaderboard', e);
+                    }
+                } else {
+                    setLeaderboard([]);
+                    console.log('No leaderboard data, set empty');
+                }
+            } catch (e) {
+                console.error('Leaderboard fetch exception', e);
             }
-        });
-        return () => unsub();
+        })();
+
+        console.log('Setting up realtime subscription for leaderboard docId:', docId);
+        try {
+            channel = supabase.channel(`public:strategies:${docId}`)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'strategies', filter: `id=eq.${docId}` }, (payload) => {
+                    console.log('Realtime leaderboard payload received:', payload);
+                    const newRow = payload.new;
+                    if (!newRow) return;
+                    try {
+                        const entries = newRow.json ? JSON.parse(newRow.json) : [];
+                        setLeaderboard(entries);
+                        setLastUpdate(Date.now());
+                        console.log('Realtime leaderboard updated:', entries);
+                    } catch (e) { console.error('Error parsing realtime leaderboard', e); }
+                })
+                .subscribe((status) => {
+                    console.log('Leaderboard subscription status:', status);
+                });
+        } catch (e) {
+            console.error('Supabase subscribe leaderboard error', e);
+        }
+
+        return () => { try { if (channel) channel.unsubscribe(); } catch (e) {} };
     }, [docId, trackName, sessionType, serverName]);
 
     // Helpers

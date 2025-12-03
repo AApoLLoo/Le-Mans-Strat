@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { Settings, Home, Wifi, Flag, AlertTriangle, ArrowRight, Clock, Plus, RotateCcw } from 'lucide-react';
+import { supabase } from './supabaseClient';
 
 import StrategyView from './components/views/StrategyView';
 import MapView from './components/views/MapView';
@@ -12,7 +13,6 @@ import SettingsModal from './components/SettingsModal';
 
 import { useRaceData } from './hooks/useRaceData';
 import { getSafeDriver, formatTime } from './utils/helpers';
-import { updateDoc, doc, arrayUnion } from "firebase/firestore";
 
 const globalCss = `
   :root, body, #root { width: 100vw; height: 100vh; margin: 0; padding: 0; max-width: none !important; overflow: hidden; background-color: #020408; }
@@ -41,8 +41,8 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
   const { 
       gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData, 
       confirmPitStop, undoPitStop, resetRace, 
-      db, CHAT_ID, isHypercar, isLMGT3 
-  } = useRaceData(teamId); 
+      CHAT_ID, isHypercar, isLMGT3
+  } = useRaceData(teamId);
 
   const [viewMode, setViewMode] = React.useState("STRATEGY");
   const [showSettings, setShowSettings] = React.useState(false);
@@ -59,21 +59,44 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
     navigate('/');
   };
 
-  // ... (Fonctions sendMessage, addIncident, etc. inchangées)
   const sendMessage = () => {
-    if (!chatInput.trim() || !db) return;
+    if (!chatInput.trim()) return;
     const newMessage = {
-        id: Date.now(), 
-        user: username, 
-        team: teamName, 
-        teamColor: teamColor, 
-        // AJOUT : On inclut la catégorie dans le message
+        id: Date.now(),
+        user: username,
+        team: teamName,
+        teamColor: teamColor,
         category: gameState.telemetry.carCategory || "Cat?",
         text: chatInput,
         time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
     };
-    updateDoc(doc(db, "strategies", CHAT_ID), { messages: arrayUnion(newMessage) });
-    setChatInput("");
+
+    console.log('Sending message:', newMessage);
+
+    (async () => {
+        // Try RPC append_message (atomic) first
+        try {
+            console.log('Trying RPC append_message');
+            const { error } = await supabase.rpc('append_message', { p_id: CHAT_ID, p_msg: newMessage });
+            if (error) {
+                console.error('RPC append_message failed:', error);
+                // Fallback to read-modify-update
+                console.log('Falling back to read-update');
+                const { data: row, error: fetchErr } = await supabase.from('strategies').select('messages').eq('id', CHAT_ID).maybeSingle();
+                if (fetchErr) throw fetchErr;
+                const msgs = (row?.messages as any[]) || [];
+                const updated = [...msgs, newMessage];
+                const { error: upErr } = await supabase.from('strategies').update({ messages: updated }).eq('id', CHAT_ID);
+                if (upErr) throw upErr;
+                console.log('Fallback update success');
+            } else {
+                console.log('RPC append_message success');
+            }
+        } catch (e) {
+            console.error('Send message error:', e);
+        }
+        setChatInput("");
+    })();
   };
 
   const addIncident = () => {
@@ -299,3 +322,4 @@ const RaceStrategyApp = () => {
 };
 
 export default RaceStrategyApp;
+

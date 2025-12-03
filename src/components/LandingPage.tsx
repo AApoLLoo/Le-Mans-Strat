@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db } from '../lib/firebase';
-import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { useCollection } from 'react-firebase-hooks/firestore';
+import { supabase } from '../supabaseClient';
 import { Clock, Plus, Users, X, Trash2, Car, User } from 'lucide-react';
 import type { GameState, Driver } from '../types';
 
@@ -180,10 +178,34 @@ const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate:
 const LandingPage = () => {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  
-  const [strategies, loading] = useCollection(
-    collection(db, "strategies")
-  );
+  const [strategies, setStrategies] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch initial list and subscribe to realtime changes
+  React.useEffect(() => {
+    let channel: any = null;
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('strategies').select('*');
+        if (error) console.error('Supabase fetch strategies error', error);
+        setStrategies(data || []);
+        setLoading(false);
+      } catch (e) { console.error('Fetch strategies exception', e); setLoading(false); }
+    })();
+
+    try {
+      channel = supabase.channel('public:strategies')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'strategies' }, (payload) => {
+          const ev = payload.eventType;
+          if (ev === 'INSERT') setStrategies(prev => [payload.new, ...prev]);
+          else if (ev === 'UPDATE') setStrategies(prev => prev.map(p => p.id === payload.new.id ? payload.new : p));
+          else if (ev === 'DELETE') setStrategies(prev => prev.filter(p => p.id !== payload.old.id));
+        })
+        .subscribe();
+    } catch (e) { console.error('Supabase subscribe strategies error', e); }
+
+    return () => { try { if (channel) channel.unsubscribe(); } catch (e) {} };
+  }, []);
 
   const handleJoinTeam = (teamId: string) => {
     localStorage.setItem('teamId', teamId);
@@ -192,18 +214,25 @@ const LandingPage = () => {
 
   const handleCreateSession = async (name: string, category: string, drivers: Driver[]) => {
       const teamId = name.replace(/\s+/g, '-').toLowerCase();
+      console.log('Creating session:', teamId, category, drivers);
       try {
-          await setDoc(doc(db, "strategies", teamId), {
+          const { error } = await supabase.from('strategies').upsert({
               ...DEFAULT_GAME_STATE,
               id: teamId,
-              carCategory: category, // IMPORTANT: C'est ici que la catégorie est stockée
+              carCategory: category,
               drivers: drivers,
               activeDriverId: drivers[0]?.id,
               createdAt: new Date().toISOString(),
               lastPacketTime: Date.now()
           });
+          if (error) {
+              console.error('Supabase upsert error:', error);
+          } else {
+              console.log('Session created successfully');
+          }
           handleJoinTeam(teamId);
       } catch (e) {
+          console.error("Error creating session:", e);
           alert("Error creating session: " + e);
       }
   };
@@ -211,19 +240,22 @@ const LandingPage = () => {
   const handleDeleteTeam = async (e: React.MouseEvent, teamId: string) => {
       e.stopPropagation();
       if (window.confirm(`Delete Line Up "${teamId.toUpperCase()}"? This cannot be undone.`)) {
+          console.log('Deleting team:', teamId);
           try {
-              await deleteDoc(doc(db, "strategies", teamId));
+              const { error } = await supabase.from('strategies').delete().eq('id', teamId);
+              if (error) {
+                  console.error('Supabase delete error:', error);
+              } else {
+                  console.log('Team deleted successfully');
+              }
           } catch (err) {
+              console.error("Error deleting team:", err);
               alert("Error deleting team: " + err);
           }
       }
   };
 
-  // Tri côté client
-  const activeTeams = strategies?.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  })).sort((a: any, b: any) => {
+  const activeTeams = (strategies || []).slice().sort((a: any, b: any) => {
       const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return dateB - dateA;
@@ -376,3 +408,4 @@ const LandingPage = () => {
 };
 
 export default LandingPage;
+

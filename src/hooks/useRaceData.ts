@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'; 
-import { doc, onSnapshot, updateDoc, arrayUnion, setDoc } from "firebase/firestore"; 
-import { db } from '../lib/firebase';
+import { supabase } from '../supabaseClient';
 import type { GameState, StrategyData, Stint, TelemetryData } from '../types';
 import { getSafeDriver } from '../utils/helpers';
 
@@ -55,158 +54,174 @@ export const useRaceData = (teamId: string) => {
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms');
 
-    // Fonction de mise à jour Firebase
-    const syncUpdate = (data: Partial<GameState>) => {
-        if (!db) return;
-        updateDoc(doc(db, "strategies", SESSION_ID), data).catch(e => console.error("Update Error", e));
+    // Fonction de mise à jour via Supabase
+    const syncUpdate = async (data: Partial<GameState>) => {
+        console.log('syncUpdate called with data:', data);
+        try {
+            const { error } = await supabase.from('strategies').update(data).eq('id', SESSION_ID);
+            if (error) {
+                console.error('Supabase update error:', error);
+            } else {
+                console.log('Supabase update success for id:', SESSION_ID);
+            }
+        } catch (e) {
+            console.error('Supabase update exception:', e);
+        }
     };
 
     // --- CONNEXION FIREBASE ---
     useEffect(() => {
-        if (!db || !teamId) return;
-        const docRef = doc(db, "strategies", SESSION_ID);
-        
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                
-                // Récupération sécurisée des sous-objets
-                const tele = data.telemetry || {};
-                const scoring = data.scoring || {};
-                const pit = data.pit || {};
-                const weather = data.weather_det || {};
-                const rules = data.rules || {};
-                const extended = data.extended || {};
+        if (!teamId) return;
 
-                // Calcul temps restant
-                let sessionTimeRem = scoring.time?.end - scoring.time?.current;
-                if (isNaN(sessionTimeRem) || sessionTimeRem < 0) sessionTimeRem = data.sessionTimeRemainingSeconds || 0;
+        let channel: any = null;
 
-                // Mise à jour état global
-                setGameState(prev => {
-                    // Extraction données imbriquées (Sécurisation)
-                    const tireWear = tele.tires?.wear || [0,0,0,0];
-                    const tirePress = tele.tires?.press || [0,0,0,0];
-                    // Température pneus: Dictionnaire de tableaux { fl: [...], ... }
-                    const tTemps = tele.tires?.temp || {};
-                    // Données électriques
-                    const elec = tele.electric || {};
-                    
-                    // Gestion Leader (pour estimation tours totaux)
-                    let lLaps = prev.telemetry.leaderLaps;
-                    let lAvg = prev.telemetry.leaderAvgLapTime;
-                    if (scoring.vehicles && Array.isArray(scoring.vehicles)) {
-                        const leader = scoring.vehicles.find((v: any) => v.position === 1);
-                        if (leader) {
-                            lLaps = leader.laps;
-                            if (leader.best_lap > 0) lAvg = leader.best_lap * 1.05; 
+        // Fetch initial row from Supabase
+        (async () => {
+            console.log('Fetching initial data for SESSION_ID:', SESSION_ID);
+            try {
+                const { data, error } = await supabase.from('strategies').select('*').eq('id', SESSION_ID).maybeSingle();
+                if (error) {
+                    console.error('Supabase fetch error', error);
+                } else {
+                    console.log('Fetched data:', data);
+                }
+
+                if (data) {
+                    const docData: any = data;
+                    // Les champs peuvent être stockés directement dans la ligne (JSONB), on réutilise la logique existante
+                    const tele = docData.telemetry || {};
+                    const scoring = docData.scoring || {};
+                    const pit = docData.pit || {};
+                    const weather = docData.weather_det || {};
+                    const rules = docData.rules || {};
+                    const extended = docData.extended || {};
+
+                    let sessionTimeRem = scoring.time?.end - scoring.time?.current;
+                    if (isNaN(sessionTimeRem) || sessionTimeRem < 0) sessionTimeRem = docData.sessionTimeRemainingSeconds || 0;
+
+                    // Reuse setGameState transformation from original code
+                    console.log('Setting gameState with fetched data');
+                    setGameState(prev => {
+                        const tireWear = tele.tires?.wear || [0,0,0,0];
+                        const tirePress = tele.tires?.press || [0,0,0,0];
+                        const tTemps = tele.tires?.temp || {};
+                        const elec = tele.electric || {};
+
+                        let lLaps = prev.telemetry.leaderLaps;
+                        let lAvg = prev.telemetry.leaderAvgLapTime;
+                        if (scoring.vehicles && Array.isArray(scoring.vehicles)) {
+                            const leader = scoring.vehicles.find((v: any) => v.position === 1);
+                            if (leader) {
+                                lLaps = leader.laps;
+                                if (leader.best_lap > 0) lAvg = leader.best_lap * 1.05;
+                            }
                         }
-                    }
 
-                    const newTelemetry: TelemetryData = {
-                        // Données Générales
-                        laps: Number(tele.laps || scoring.vehicle_data?.laps || prev.telemetry.laps),
-                        curLap: Number(tele.times?.current || 0),
-                        lastLap: Number(scoring.vehicle_data?.last_lap || prev.telemetry.lastLap),
-                        bestLap: Number(scoring.vehicle_data?.best_lap || prev.telemetry.bestLap),
-                        position: Number(scoring.vehicle_data?.position || prev.telemetry.position),
-                        
-                        speed: Number(tele.speed || 0), 
-                        rpm: Number(tele.rpm || 0), 
-                        maxRpm: 8000, 
-                        gear: Number(tele.gear || 0),
-                        carCategory: scoring.vehicles.class || "Unknown",
-                        
-                        // Physiques
-                        throttle: Number(tele.inputs?.thr || 0), 
-                        brake: Number(tele.inputs?.brk || 0), 
-                        clutch: Number(tele.inputs?.clt || 0), 
-                        steering: Number(tele.inputs?.str || 0),
-                        
-                        waterTemp: Number(tele.temps?.water || 0), 
-                        oilTemp: Number(tele.temps?.oil || 0),
-                        
-                        // Conso
-                        fuel: { 
-                            current: Number(tele.fuel || 0), 
-                            max: Number(tele.fuelCapacity || prev.telemetry.fuel.max), 
-                            lastLapCons: Number(data.lastLapFuelConsumption || 0), 
-                            averageCons: Number(data.averageConsumptionFuel || prev.fuelCons)
-                        },
-                        
-                        // Hybride
-                        VE: { 
-                            VEcurrent: Number(elec.charge || 0) * 100, 
-                            VElastLapCons: 0, 
-                            VEaverageCons: 0 
-                        },
-                        batterySoc: Number(elec.charge || 0) * 100,
-                        
-                        electric: {
-                            charge: Number(elec.charge || 0),
-                            torque: Number(elec.torque || 0),
-                            rpm: Number(elec.rpm || 0),
-                            motorTemp: Number(elec.temp_motor || 0),
-                            waterTemp: Number(elec.temp_water || 0),
-                            state: Number(elec.state || 0)
-                        },
+                        const newTelemetry: TelemetryData = {
+                            laps: Number(tele.laps || scoring.vehicle_data?.laps || prev.telemetry.laps),
+                            curLap: Number(tele.times?.current || 0),
+                            lastLap: Number(scoring.vehicle_data?.last_lap || prev.telemetry.lastLap),
+                            bestLap: Number(scoring.vehicle_data?.best_lap || prev.telemetry.bestLap),
+                            position: Number(scoring.vehicle_data?.position || prev.telemetry.position),
+                            speed: Number(tele.speed || 0),
+                            rpm: Number(tele.rpm || 0),
+                            maxRpm: 8000,
+                            gear: Number(tele.gear || 0),
+                            carCategory: scoring.vehicles?.class || "Unknown",
+                            throttle: Number(tele.inputs?.thr || 0),
+                            brake: Number(tele.inputs?.brk || 0),
+                            clutch: Number(tele.inputs?.clt || 0),
+                            steering: Number(tele.inputs?.str || 0),
+                            waterTemp: Number(tele.temps?.water || 0),
+                            oilTemp: Number(tele.temps?.oil || 0),
+                            fuel: {
+                                current: Number(tele.fuel || 0),
+                                max: Number(tele.fuelCapacity || prev.telemetry.fuel.max),
+                                lastLapCons: Number(docData.lastLapFuelConsumption || 0),
+                                averageCons: Number(docData.averageConsumptionFuel || prev.fuelCons)
+                            },
+                            VE: { VEcurrent: Number(elec.charge || 0) * 100, VElastLapCons: 0, VEaverageCons: 0 },
+                            batterySoc: Number(elec.charge || 0) * 100,
+                            electric: {
+                                charge: Number(elec.charge || 0),
+                                torque: Number(elec.torque || 0),
+                                rpm: Number(elec.rpm || 0),
+                                motorTemp: Number(elec.temp_motor || 0),
+                                waterTemp: Number(elec.temp_water || 0),
+                                state: Number(elec.state || 0)
+                            },
+                            tires: { fl: ((tireWear[0]||0))*100, fr: ((tireWear[1]||0))*100, rl: ((tireWear[2]||0))*100, rr: ((tireWear[3]||0))*100 },
+                            tirePressures: { fl: Number(tirePress[0]||0), fr: Number(tirePress[1]||0), rl: Number(tirePress[2]||0), rr: Number(tirePress[3]||0) },
+                            tireTemps: { fl: tTemps.fl || [], fr: tTemps.fr || [], rl: tTemps.rl || [], rr: tTemps.rr || [] },
+                            brakeTemps: { flc: Number(tele.tires?.brake_temp?.[0]||0), frc: Number(tele.tires?.brake_temp?.[1]||0), rlc: Number(tele.tires?.brake_temp?.[2]||0), rrc: Number(tele.tires?.brake_temp?.[3]||0) },
+                            tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" },
+                            leaderLaps: lLaps, leaderAvgLapTime: lAvg,
+                            strategyEstPitTime: Number(pit.strategy?.time_min || 0),
+                            inPitLane: Boolean(scoring.vehicle_data?.in_pits),
+                            inGarage: rules.my_status?.pits_open === false,
+                            pitLimiter: extended.pit_limit > 0,
+                            damageIndex: 0, isOverheating: false
+                        };
 
-                        // Pneus & Freins
-                        tires: { 
-                            fl: ((tireWear[0]||0))*100, fr: ((tireWear[1]||0))*100, 
-                            rl: ((tireWear[2]||0))*100, rr: ((tireWear[3]||0))*100 
-                        },
-                        tirePressures: { 
-                            fl: Number(tirePress[0]||0), fr: Number(tirePress[1]||0), 
-                            rl: Number(tirePress[2]||0), rr: Number(tirePress[3]||0) 
-                        },
-                        tireTemps: { 
-                            fl: tTemps.fl || [], fr: tTemps.fr || [], 
-                            rl: tTemps.rl || [], rr: tTemps.rr || [] 
-                        },
-                        brakeTemps: { 
-                            flc: Number(tele.tires?.brake_temp?.[0]||0), frc: Number(tele.tires?.brake_temp?.[1]||0), 
-                            rlc: Number(tele.tires?.brake_temp?.[2]||0), rrc: Number(tele.tires?.brake_temp?.[3]||0) 
-                        },
-                        tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" },
+                        return {
+                            ...prev,
+                            ...docData,
+                            isRaceRunning: scoring.time?.current > 0,
+                            trackName: scoring.track || prev.trackName,
+                            sessionType: String(scoring.time?.session || ""),
+                            sessionTimeRemaining: sessionTimeRem,
+                            weather: weather.rain_intensity > 0.1 ? "RAIN" : (weather.cloudiness > 0.5 ? "CLOUDY" : "SUNNY"),
+                            airTemp: weather.ambient_temp || prev.airTemp,
+                            trackWetness: scoring.weather?.wetness_path?.[1] * 100 || 0,
+                            rainIntensity: weather.rain_intensity || 0,
+                            telemetry: newTelemetry,
+                            drivers: docData.drivers || prev.drivers
+                        };
+                    });
 
-                        // Stratégie & Etat
-                        leaderLaps: lLaps, leaderAvgLapTime: lAvg,
-                        strategyEstPitTime: Number(pit.strategy?.time_min || 0),
-                        inPitLane: Boolean(scoring.vehicle_data?.in_pits),
-                        inGarage: rules.my_status?.pits_open === false, 
-                        pitLimiter: extended.pit_limit > 0, 
-                        damageIndex: 0, isOverheating: false
-                    };
-
-                    return {
-                        ...prev,
-                        ...data, // Fusion des données brutes
-                        isRaceRunning: scoring.time?.current > 0,
-                        trackName: scoring.track || prev.trackName,
-                        sessionType: String(scoring.time?.session || ""),
-                        sessionTimeRemaining: sessionTimeRem,
-                        weather: weather.rain_intensity > 0.1 ? "RAIN" : (weather.cloudiness > 0.5 ? "CLOUDY" : "SUNNY"),
-                        airTemp: weather.ambient_temp || prev.airTemp,
-                        trackWetness: scoring.weather?.wetness_path?.[1] * 100 || 0,
-                        rainIntensity: weather.rain_intensity || 0,
-                        telemetry: newTelemetry,
-                        drivers: data.drivers || prev.drivers
-                    };
-                });
-                
-                if (sessionTimeRem > 0) setLocalRaceTime(sessionTimeRem);
-                setStatus("LIVE DATA");
-            } else {
-                setDoc(docRef, { createdAt: new Date(), trackName: "WAITING BRIDGE..." }, { merge: true });
-                setStatus("WAITING BRIDGE");
+                    if (sessionTimeRem > 0) setLocalRaceTime(sessionTimeRem);
+                    setStatus("LIVE DATA");
+                } else {
+                    // If no row, create initial one
+                    console.log('No data found, creating initial row');
+                    try {
+                        const { error: upsertError } = await supabase.from('strategies').upsert({ id: SESSION_ID, createdAt: new Date().toISOString(), trackName: 'WAITING BRIDGE...' });
+                        if (upsertError) {
+                            console.error('Supabase upsert error', upsertError);
+                        } else {
+                            console.log('Initial row created');
+                        }
+                        setStatus('WAITING BRIDGE');
+                    } catch (e) { console.error('Supabase upsert exception', e); }
+                }
+            } catch (err) {
+                console.error('Supabase fetch exception', err);
+                setStatus('ERROR');
             }
-        }, (error) => {
-            console.error("Firebase Error:", error);
-            setStatus("ERROR");
-        });
+        })();
 
-        return () => unsubscribe();
+        // Subscribe to realtime changes for this session ID
+        console.log('Setting up realtime subscription for SESSION_ID:', SESSION_ID);
+        try {
+            channel = supabase.channel(`public:strategies:${SESSION_ID}`)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'strategies', filter: `id=eq.${SESSION_ID}` }, (payload) => {
+                    console.log('Realtime payload received:', payload);
+                    const docData = payload.new;
+                    if (!docData) return;
+                    // Reuse same parsing as above (lightweight): setGameState with docData
+                    setGameState(prev => ({ ...prev, ...docData } as any));
+                    setStatus('LIVE DATA');
+                })
+                .subscribe((status) => {
+                    console.log('Subscription status:', status);
+                });
+        } catch (e) {
+            console.error('Supabase subscribe error', e);
+        }
+
+        return () => {
+            try { if (channel) channel.unsubscribe(); } catch (e) { /* ignore */ }
+        };
     }, [teamId]);
 
     // Timer Local
@@ -293,10 +308,18 @@ export const useRaceData = (teamId: string) => {
             if (isLast) fuelInfo = (lapsThisStint * activeFuelCons).toFixed(1) + "L";
 
             stints.push({
-                id: nextIdx, stopNum: nextIdx + 1, startLap: Math.floor(nextStartLap), 
-                endLap: Math.floor(nextStartLap + lapsThisStint), lapsCount: Math.floor(lapsThisStint),
-                fuel: fuelInfo, driver: d, driverId: d.id, isCurrent: false, isNext: nextIdx === currentStintIndex + 1, 
-                isDone: false, note: gameState.stintNotes[nextIdx+1] || ""
+                id: nextIdx,
+                stopNum: nextIdx + 1,
+                startLap: Math.floor(nextStartLap),
+                endLap: Math.floor(nextStartLap + lapsThisStint),
+                lapsCount: Math.floor(lapsThisStint),
+                fuel: fuelInfo,
+                driver: d,
+                driverId: d.id,
+                isCurrent: false,
+                isNext: nextIdx === currentStintIndex + 1,
+                isDone: false,
+                note: gameState.stintNotes[nextIdx+1] || ""
             });
 
             nextStartLap += lapsPerStint;
@@ -313,8 +336,8 @@ export const useRaceData = (teamId: string) => {
         const newAssign = { ...gameState.stintAssignments, [gameState.currentStint]: gameState.activeDriverId };
         let nextDriverId = gameState.stintAssignments[nextStint];
         if (!nextDriverId && gameState.drivers.length > 0) {
-             const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
-             nextDriverId = gameState.drivers[(currentIdx + 1) % gameState.drivers.length].id;
+            const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
+            nextDriverId = gameState.drivers[(currentIdx + 1) % gameState.drivers.length].id;
         }
         syncUpdate({ currentStint: nextStint, activeDriverId: nextDriverId, stintDuration: 0, stintAssignments: newAssign });
         setLocalStintTime(0);
@@ -329,15 +352,15 @@ export const useRaceData = (teamId: string) => {
     };
 
     const resetRace = () => {
-        syncUpdate({ 
-            isRaceRunning: false, raceTime: gameState.raceDurationHours * 3600, stintDuration: 0, currentStint: 0, 
-            activeDriverId: gameState.drivers[0]?.id || 1, incidents: [], chatMessages: [], stintAssignments: {}, stintNotes: {} 
+        syncUpdate({
+            isRaceRunning: false, raceTime: gameState.raceDurationHours * 3600, stintDuration: 0, currentStint: 0,
+            activeDriverId: gameState.drivers[0]?.id || 1, incidents: [], chatMessages: [], stintAssignments: {}, stintNotes: {}
         });
         setLocalStintTime(0);
     };
 
     return {
         gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData,
-        confirmPitStop, undoPitStop, resetRace, db, CHAT_ID, isHypercar, isLMGT3, isLMP3, isLMP2ELMS
+        confirmPitStop, undoPitStop, resetRace, CHAT_ID, isHypercar, isLMGT3, isLMP3, isLMP2ELMS
     };
 };
