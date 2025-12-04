@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
-import {Fuel, Zap,CloudRain, Sun, Cloud, Thermometer, RefreshCw } from 'lucide-react';
-import type { TelemetryData } from '../../types';
+import { Fuel, Zap, CloudRain, Sun, Cloud, Thermometer, RefreshCw, Plus, Minus, XCircle } from 'lucide-react';
+import type { TelemetryData, WeatherNode } from '../../types';
+import WeatherWidget from './WeatherWidget';
+
+// --- FONCTIONS UTILITAIRES ---
 
 const getTireColorGradient = (wear: number) => {
     if (wear > 80) return 'bg-gradient-to-t from-emerald-600 to-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)]';
@@ -40,6 +43,8 @@ const getWeatherIcon = (weather: string) => {
     }
 };
 
+// --- COMPOSANT PRINCIPAL ---
+
 interface TelemetryViewProps {
     telemetryData: TelemetryData;
     isHypercar: boolean;
@@ -49,46 +54,73 @@ interface TelemetryViewProps {
     weather: string;
     airTemp: number;
     trackWetness: number;
+
+    // Cibles (Targets)
     targetFuelCons?: number;
+    targetVECons?: number;
+    onSetFuelTarget?: (val: number | null) => void;
+    onSetVETarget?: (val: number | null) => void;
+
+    // Météo
+    weatherForecast?: WeatherNode[];
 }
 
-const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar, isLMGT3, position, avgLapTimeSeconds, weather, airTemp, trackWetness }) => {
+const TelemetryView: React.FC<TelemetryViewProps> = ({
+                                                         telemetryData, isHypercar, isLMGT3, position,
+                                                         weather, airTemp, trackWetness,
+                                                         targetFuelCons, targetVECons, onSetFuelTarget, onSetVETarget,
+                                                         weatherForecast
+                                                     }) => {
     const {
-        tires, tireCompounds, fuel, VE, electric,
+        tires, tireCompounds, fuel, VE, electric, batterySoc, carCategory,
         brakeTemps, tireTemps, tirePressures,
         throttle, brake, clutch, steering,
-        speed, rpm, maxRpm, gear,
-        waterTemp, oilTemp, batterySoc,
-        carCategory,targetFuelCons,
+        speed, rpm, maxRpm, gear, waterTemp, oilTemp
     } = telemetryData;
 
     const moyLap = Number(telemetryData.curLap) || 0;
-    const [showVirtualEnergy, setShowVirtualEnergy] = useState(false);
     const compounds = tireCompounds || { fl: "---", fr: "---", rl: "---", rr: "---" };
 
-    // --- FIX: DÉTECTION ROBUSTE DES CATÉGORIES ---
-    // On combine la prop (venant de l'ID) ET la donnée télémétrie (venant du jeu)
     const isCategoryGT3 = isLMGT3 || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('gt3') || carCategory.toLowerCase().includes('lmgt3')));
     const isCategoryHypercar = isHypercar || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('hyper') || carCategory.toLowerCase().includes('lmh') || carCategory.toLowerCase().includes('lmdh') || carCategory.toLowerCase().includes('gtop')));
 
-
+    const [showVirtualEnergy, setShowVirtualEnergy] = useState(true);
     const isVE = showVirtualEnergy && (isCategoryHypercar || isCategoryGT3);
+
+    // --- LOGIQUE RESSOURCES ---
     const currentResource = Number(isVE ? VE?.VEcurrent : fuel?.current) || 0;
     const maxResource = Number(isVE ? 100 : fuel?.max) || 100;
     const resourcePercentage = Math.min(100, Math.max(0, (currentResource / maxResource) * 100));
 
     const lastLapCons = Number(isVE ? VE?.VElastLapCons : fuel?.lastLapCons) || 0;
     const avgCons = Number(isVE ? VE?.VEaverageCons : fuel?.averageCons) || 0;
-    const safeTarget = targetFuelCons || avgCons;
-    const fuelDelta = avgCons - safeTarget;
-    const fuelStatusColor = fuelDelta > 0.1 ? 'text-red-500 animate-pulse' : (fuelDelta < -0.1 ? 'text-emerald-400' : 'text-slate-400');
-    const fuelStatusText = fuelDelta > 0.1 ? 'LIFT & COAST' : (fuelDelta < -0.1 ? 'SAFE' : 'ON TARGET');
+
+    // --- LOGIQUE CIBLES ---
+    const currentTarget = isVE ? (targetVECons || avgCons) : (targetFuelCons || avgCons);
+    const setTargetFunc = isVE ? onSetVETarget : onSetFuelTarget;
+
+    const deltaCons = avgCons - currentTarget;
+    const threshold = isVE ? 0.5 : 0.1;
+
+    let statusColor = 'text-slate-400';
+    let statusText = 'TARGET';
+
+    if (deltaCons > threshold) {
+        statusColor = 'text-red-500 animate-pulse';
+        statusText = 'LIFT';
+    } else if (deltaCons < -threshold) {
+        statusColor = 'text-emerald-400';
+        statusText = 'SAFE';
+    } else {
+        statusText = 'OK';
+    }
+
+    const adjustTarget = (delta: number) => { if (setTargetFunc) setTargetFunc(Number((currentTarget + delta).toFixed(2))); };
+    const resetTarget = () => { if (setTargetFunc) setTargetFunc(null); };
+
     const barColor = isVE ? 'bg-cyan-500' : 'bg-blue-500';
     const label = isVE ? 'VIRTUAL ENERGY' : 'FUEL LEVEL';
     const icon = isVE ? <Zap size={14} className="text-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
-
-    const delta = moyLap - avgLapTimeSeconds;
-    const displayDelta = delta !== 0 ? `${delta > 0 ? '+' : ''}${Math.abs(delta).toFixed(2)}` : '-.--';
 
     const renderTire = (name: string, wear: number, pressure: number, brakeT: number, tireT: number[], compound: string) => {
         const displayWear = Number(wear) || 0;
@@ -109,18 +141,9 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
                 </div>
 
                 <div className="flex justify-between text-[9px] font-mono text-slate-300 mt-1">
-                    <div className="flex flex-col items-center">
-                        <span className="text-slate-500">PRESS</span>
-                        <span className="text-white font-bold">{displayPress.toFixed(1)}</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                        <span className="text-slate-500">TEMP</span>
-                        <span className={getTempColor(displayTireT, 'tire')}>{Math.round(displayTireT)}°</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                        <span className="text-slate-500">BRAKE</span>
-                        <span className={getTempColor(displayBrakeT, 'brake')}>{Math.round(displayBrakeT)}°</span>
-                    </div>
+                    <div className="flex flex-col items-center"><span className="text-slate-500">PRESS</span><span className="text-white font-bold">{displayPress.toFixed(1)}</span></div>
+                    <div className="flex flex-col items-center"><span className="text-slate-500">TEMP</span><span className={getTempColor(displayTireT, 'tire')}>{Math.round(displayTireT)}°</span></div>
+                    <div className="flex flex-col items-center"><span className="text-slate-500">BRAKE</span><span className={getTempColor(displayBrakeT, 'brake')}>{Math.round(displayBrakeT)}°</span></div>
                 </div>
             </div>
         );
@@ -137,15 +160,14 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
                         <span className="text-xs font-bold text-slate-200 tracking-wide">{weather}</span>
                     </div>
                     <div className="flex gap-4 text-xs">
-                        {/* FIX: Arrondi de la température AIR */}
                         <div><span className="text-slate-500 font-bold">AIR</span> <span className="text-white">{Math.round(airTemp)}°C</span></div>
                         <div><span className="text-slate-500 font-bold">TRACK</span> <span className="text-blue-300">{trackWetness}%</span></div>
                     </div>
                 </div>
                 <div className="flex items-center gap-6">
                     <div className="text-right">
-                        <div className="text-[9px] text-slate-500 font-bold uppercase">Lap Delta</div>
-                        <div className="font-mono text-xl font-bold text-white">{displayDelta}</div>
+                        <div className="text-[9px] text-slate-500 font-bold uppercase">Moyenne LapTime</div>
+                        <div className="font-mono text-xl font-bold text-white">{moyLap}</div>
                     </div>
                     <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center text-2xl font-black text-white italic">{position}</div>
                 </div>
@@ -167,7 +189,6 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
 
                 {/* DASHBOARD (Centre) */}
                 <div className="col-span-6 bg-slate-900/30 border border-white/5 rounded-xl p-6 flex flex-col justify-between relative">
-                    {/* RPM Bar */}
                     <div className="w-full h-6 bg-slate-950 rounded overflow-hidden relative mb-4 border border-slate-700">
                         <div className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 transition-all duration-75" style={{width: `${(Number(rpm)/Number(maxRpm))*100}%`}}></div>
                     </div>
@@ -196,44 +217,50 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
 
                 {/* DATA (Droite) */}
                 <div className="col-span-3 flex flex-col gap-3">
-                    {/* Gestion Carburant / Energie Virtuelle */}
-                    {/* Gestion Carburant / Energie Virtuelle INTELLIGENTE */}
-                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1 relative overflow-hidden">
+
+                    {/* WIDGET CONSO INTELLIGENT */}
+                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1 relative overflow-hidden group">
                         <div className="flex justify-between items-center mb-2">
                             <span className="text-xs font-bold text-slate-400 flex items-center gap-2">{icon} {label}</span>
-                            {(isCategoryHypercar || isCategoryGT3) && <button onClick={() => setShowVirtualEnergy(!showVirtualEnergy)} className="text-slate-500 hover:text-white"><RefreshCw size={12}/></button>}
+                            {(isCategoryHypercar || isCategoryGT3) && (
+                                <button onClick={() => setShowVirtualEnergy(!showVirtualEnergy)} className="text-slate-500 hover:text-white transition-colors">
+                                    <RefreshCw size={12}/>
+                                </button>
+                            )}
                         </div>
-
-                        {/* Jauge */}
                         <div className="h-4 bg-slate-950 rounded border border-slate-700 overflow-hidden mb-2 relative">
                             <div className={`h-full ${barColor} transition-all duration-500`} style={{width: `${resourcePercentage}%`}}></div>
-                            {/* Petit marqueur de target (optionnel) */}
                         </div>
-
                         <div className="flex justify-between items-end">
                             <div>
-                                <div className="text-2xl font-black text-white leading-none">{currentResource.toFixed(1)} <span className="text-sm text-slate-500">{isVE ? '%' : 'L'}</span></div>
+                                <div className="text-2xl font-black text-white leading-none">
+                                    {currentResource.toFixed(1)} <span className="text-sm text-slate-500">{isVE ? '%' : 'L'}</span>
+                                </div>
                                 <div className="text-[10px] text-slate-400 mt-1">Last: {lastLapCons.toFixed(2)}</div>
                             </div>
 
-                            {/* NOUVELLE SECTION TARGET */}
-                            <div className="text-right">
-                                <div className="text-[9px] font-bold text-slate-500 uppercase">Target</div>
-                                <div className={`text-xl font-mono font-bold ${fuelStatusColor}`}>
-                                    {avgCons.toFixed(2)}
-                                    <span className="text-[10px] text-slate-500 ml-1">/ {safeTarget.toFixed(2)}</span>
+                            <div className="text-right flex flex-col items-end">
+                                <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                                    Target
+                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 rounded px-1 border border-slate-700">
+                                        <button onClick={() => adjustTarget(isVE ? -0.5 : -0.1)} className="p-0.5 hover:text-white text-slate-400"><Minus size={10}/></button>
+                                        <button onClick={resetTarget} className="p-0.5 hover:text-blue-400 text-slate-400"><XCircle size={10}/></button>
+                                        <button onClick={() => adjustTarget(isVE ? 0.5 : 0.1)} className="p-0.5 hover:text-white text-slate-400"><Plus size={10}/></button>
+                                    </div>
                                 </div>
-                                <div className={`text-[9px] font-black ${fuelStatusColor} uppercase tracking-wider`}>{fuelStatusText}</div>
+                                <div className={`text-xl font-mono font-bold ${statusColor}`}>
+                                    {avgCons.toFixed(2)}
+                                    <span className="text-[10px] text-slate-500 ml-1">/ {currentTarget.toFixed(2)}</span>
+                                </div>
+                                <div className={`text-[10px] font-black ${statusColor} uppercase tracking-wider bg-black/20 px-1 rounded`}>{statusText}</div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Gestion Hybride (Batterie Réelle) - S'affiche si Hypercar détectée */}
+                    {/* HYBRIDE */}
                     {isCategoryHypercar && (
                         <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
                             <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Zap size={12}/> Hybrid System</span>
-
-                            {/* SoC Batterie */}
                             <div className="mb-3">
                                 <div className="flex justify-between items-center text-sm mb-1">
                                     <span className="text-slate-300">SoC</span>
@@ -243,38 +270,25 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({ telemetryData, isHypercar
                                     <div className="h-full bg-emerald-400" style={{width: `${Math.min(100, Math.max(0, Number(batterySoc)))}%`}}></div>
                                 </div>
                             </div>
-
                             <div className="grid grid-cols-2 gap-2 text-sm mt-1">
-                                <div>
-                                    <span className="text-slate-500 text-[10px] block">TEMP MOTEUR</span>
-                                    <span className={`font-bold ${Number(electric?.motorTemp) > 100 ? 'text-red-400 animate-pulse' : 'text-white'}`}>
-                                {Math.round(Number(electric?.motorTemp || 0))}°C
-                            </span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-slate-500 text-[10px] block">COUPLE</span>
-                                    <span className="font-bold text-cyan-300">
-                                {Math.round(Number(electric?.torque || 0))} Nm
-                             </span>
-                                </div>
+                                <div><span className="text-slate-500 text-[10px] block">TEMP MOTEUR</span><span className={`font-bold ${Number(electric?.motorTemp) > 100 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{Math.round(Number(electric?.motorTemp || 0))}°C</span></div>
+                                <div className="text-right"><span className="text-slate-500 text-[10px] block">COUPLE</span><span className="font-bold text-cyan-300">{Math.round(Number(electric?.torque || 0))} Nm</span></div>
                             </div>
                         </div>
                     )}
 
-                    {/* Températures Moteur Thermique */}
+                    {/* TEMPÉRATURES */}
                     <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
                         <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Thermometer size={12}/> Engine</span>
                         <div className="grid grid-cols-2 gap-2 text-center">
-                            <div className="bg-black/30 p-1 rounded">
-                                <div className="text-[9px] text-slate-500">OIL</div>
-                                <div className="font-mono font-bold text-amber-500">{Math.round(Number(oilTemp))}°</div>
-                            </div>
-                            <div className="bg-black/30 p-1 rounded">
-                                <div className="text-[9px] text-slate-500">WATER</div>
-                                <div className="font-mono font-bold text-blue-400">{Math.round(Number(waterTemp))}°</div>
-                            </div>
+                            <div className="bg-black/30 p-1 rounded"><div className="text-[9px] text-slate-500">OIL</div><div className="font-mono font-bold text-amber-500">{Math.round(Number(oilTemp))}°</div></div>
+                            <div className="bg-black/30 p-1 rounded"><div className="text-[9px] text-slate-500">WATER</div><div className="font-mono font-bold text-blue-400">{Math.round(Number(waterTemp))}°</div></div>
                         </div>
                     </div>
+
+                    {/* WIDGET MÉTÉO */}
+                    <WeatherWidget forecast={weatherForecast || []} />
+
                 </div>
 
             </div>

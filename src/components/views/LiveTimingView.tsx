@@ -1,222 +1,167 @@
-import { Fuel, Zap } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabaseClient.ts';
+import React, { useState } from 'react';
+// import { Clock, Flag, AlertTriangle } from 'lucide-react';
+import type { RawVehicle, TelemetryData } from '../../types';
+// import { formatTime } from '../../utils/helpers';
 
-interface LeaderboardEntry {
-    pos: number;
-    num: string;
-    driver: string;
-    car: string;
-    class: string;
-    laps: number;
-    gap: number;
-    int: number;
-    last: number;
-    best: number;
-    pit: boolean;
-    stops: number;
-    state: number;
+interface LiveTimingViewProps {
+    telemetryData: TelemetryData;
+    isHypercar: boolean; // Pour filtrer ou mettre en avant (optionnel)
+    vehicles?: RawVehicle[]; // On récupère la liste complète
 }
 
-interface LiveTimingProps {
-    telemetryData: import('../../types').TelemetryData;
-    isHypercar: boolean;
-}
+// Couleurs des catégories (WEC style)
+const CLASS_COLORS: Record<string, string> = {
+    'hypercar': 'border-l-4 border-l-red-600',
+    'lmp2': 'border-l-4 border-l-blue-600',
+    'gt3': 'border-l-4 border-l-orange-500',
+    'lmgt3': 'border-l-4 border-l-orange-500',
+    'default': 'border-l-4 border-l-slate-500'
+};
 
-const LiveTimingView: React.FC<LiveTimingProps> = ({ telemetryData, isHypercar }) => {
-    const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
+    const [filterClass, setFilterClass] = useState<string>('ALL');
 
-    // 1. Récupération des infos
-    const trackName = telemetryData?.trackName || "";
-    const sessionType = telemetryData?.sessionType || "";
-    const serverName = telemetryData?.serverName || "Offline";
+    // Fonction de tri (Position)
+    const sortedVehicles = [...vehicles].sort((a, b) => (a.position || 999) - (b.position || 999));
 
-    // 2. Calcul de l'ID avec le Serveur
-    const trackId = trackName.replace(/\s/g, '');
-    const sessId = sessionType.replace(/\s/g, '');
-    const srvId = serverName.replace(/\s/g, '');
-    
-    // ID UNIQUE : leaderboard_Circuit_Session_Serveur
-    const docId = `leaderboard_${trackId}_${sessId}_${srvId}`; 
+    // Filtrage
+    const filteredVehicles = sortedVehicles.filter(v => {
+        if (filterClass === 'ALL') return true;
+        const c = (v.class || "").toLowerCase();
+        return c.includes(filterClass.toLowerCase());
+    });
 
-    // --- SÉCURISATION DES DONNÉES ---
-    // On convertit tout en nombre pour éviter le crash .toFixed()
-    const currentFuel = Number(telemetryData?.fuel?.current || 0);
-    const avgFuelCons = Number(telemetryData?.fuel?.averageCons || 1); // Eviter division par 0
-    const estLapsFuel = avgFuelCons > 0 ? (currentFuel / avgFuelCons) : 0;
-
-    const currentVE = Number(telemetryData?.VE?.VEcurrent || 0);
-    const lastLapTime = Number(telemetryData?.lapTimeLast || 0);
-
-    // Extraction des usures pneus (sécurisée)
-    const tireWear = [
-        Number(telemetryData?.tires?.fl || 0),
-        Number(telemetryData?.tires?.fr || 0),
-        Number(telemetryData?.tires?.rl || 0),
-        Number(telemetryData?.tires?.rr || 0)
-    ];
-
-    useEffect(() => {
-        if (!trackName || !sessionType || !serverName) return;
-
-        let channel: ReturnType<typeof supabase['channel']> | null = null;
-
-        (async () => {
-            try {
-                const { data, error } = await supabase.from('strategies').select('json').eq('id', docId).maybeSingle() as { data: import('../../types').StrategyRow | null, error: any };
-                if (error) {
-                    console.error('Supabase fetch leaderboard error', error);
-                }
-                if (data && data.json) {
-                    try {
-                        const parsed = typeof (data as any).json === 'string' ? JSON.parse((data as any).json) : (data as any).json;
-                        const entries = Array.isArray(parsed) ? parsed : [];
-                        setLeaderboard(entries);
-                        console.log('Leaderboard set with entries:', entries);
-                    } catch (err) {
-                        console.error('Error parsing leaderboard', err);
-                        setLeaderboard([]);
-                    }
-                } else {
-                    setLeaderboard([]);
-                    console.log('No leaderboard data, set empty');
-                }
-            } catch (e) {
-                console.error('Leaderboard fetch exception', e);
-            }
-        })();
-
-        try {
-            channel = supabase.channel(`public:strategies:${docId}`)
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'strategies', filter: `id=eq.${docId}` }, (payload) => {
-                    const newRow = payload.new as import('../../types').StrategyRow | undefined;
-                    if (!newRow) return;
-                    try {
-                        const parsed = typeof (newRow as any).json === 'string' ? JSON.parse((newRow as any).json) : (newRow as any).json;
-                        const entries = Array.isArray(parsed) ? parsed : [];
-                        setLeaderboard(entries);
-                        console.log('Realtime leaderboard updated:', entries);
-                    } catch (err) { console.error('Error parsing realtime leaderboard', err); }
-                })
-                .subscribe();
-        } catch (e) { console.error('Supabase subscribe leaderboard error', e); }
-
-        return () => { try { if (channel) channel.unsubscribe(); } catch (err) { console.error('Unsubscribe leaderboard error', err); } };
-    }, [docId, trackName, sessionType, serverName]);
-
-    // Helpers
-    const getGapString = (val: number) => {
-        if (val === 0) return "-";
-        if (val > 0) return `+${val.toFixed(1)}`;
-        if (val < 0) return `${Math.floor(val)}L`;
-        return val.toFixed(1);
+    // Fonction pour formater les chronos (1:23.456)
+    const formatLap = (seconds?: number) => {
+        if (!seconds || seconds <= 0) return "-:--.---";
+        const mins = Math.floor(seconds / 60);
+        const secs = (seconds % 60).toFixed(3);
+        return `${mins}:${secs.padStart(6, '0')}`;
     };
 
-    const formatLap = (seconds: number) => {
-        if (!seconds || seconds > 999 || isNaN(seconds)) return "-:--.---";
-        const m = Math.floor(seconds / 60);
-        const s = (seconds % 60).toFixed(3).padStart(6, '0');
-        return `${m}:${s}`;
-    };
-
-    const getClassColor = (cls: string) => {
-        if (!cls) return 'border-l-4 border-slate-500';
-        if (cls.includes('HYPER')) return 'border-l-4 border-red-600';
-        if (cls.includes('LMP2')) return 'border-l-4 border-blue-600';
-        if (cls.includes('GT3')) return 'border-l-4 border-orange-500';
-        return 'border-l-4 border-slate-500';
+    // Fonction pour formater les écarts (+1.234 ou +1L)
+    const formatGap = (gap?: number) => {
+        if (gap === undefined || gap === null) return "";
+        if (gap === 0) return "-";
+        // Si l'écart est très grand (> 1 tour environ 200s+ sur certains circuits), c'est souvent un tour de retard
+        // Note: Le jeu envoie parfois le gap en temps même pour les retardataires, parfois non.
+        return `+${gap.toFixed(1)}`;
     };
 
     return (
-        <div className="flex flex-col h-full gap-4">
-            {/* TOP BAR */}
-            <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 bg-slate-900/50 p-3 rounded-xl border border-white/5">
-                <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1"><Fuel size={10}/> Fuel</span>
-                    <div className="flex items-end gap-2">
-                        <span className="text-2xl font-mono font-bold text-white">{currentFuel.toFixed(1)} <span className="text-xs text-slate-500">L</span></span>
-                        <span className="text-xs text-slate-400 mb-1">~{estLapsFuel.toFixed(1)} Laps</span>
-                    </div>
-                </div>
-                {isHypercar && (
-                    <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
-                         <span className="text-[10px] text-sky-400 font-bold uppercase flex items-center gap-1"><Zap size={10}/> Virtual NRG</span>
-                         <div className="flex items-end gap-2">
-                            <span className="text-2xl font-mono font-bold text-white">{currentVE.toFixed(1)} <span className="text-xs text-slate-500">%</span></span>
-                        </div>
-                    </div>
-                )}
-                <div className="col-span-2 lg:col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Tires</span>
-                    <div className="grid grid-cols-2 gap-1 mt-1">
-                        {tireWear.map((wear: number, i: number) => (
-                            <div key={i} className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
-                                <div className={`h-full ${wear > 70 ? 'bg-emerald-500' : wear > 40 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{width: `${wear}%`}}></div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                <div className="col-span-2 bg-slate-800/50 p-2 rounded flex flex-col justify-between">
-                     <span className="text-[10px] text-slate-400 font-bold uppercase">Last Lap</span>
-                     <span className="text-xl font-mono font-bold text-white tracking-tight">{formatLap(lastLapTime)}</span>
-                </div>
+        <div className="h-full flex flex-col bg-[#0b0f19] overflow-hidden">
+
+            {/* --- FILTRES --- */}
+            <div className="flex gap-2 p-2 border-b border-white/10 bg-slate-900/50">
+                {['ALL', 'HYPERCAR', 'LMP2', 'GT3'].map(cls => (
+                    <button
+                        key={cls}
+                        onClick={() => setFilterClass(cls)}
+                        className={`px-3 py-1 rounded text-[10px] font-bold transition-colors ${filterClass === cls ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                    >
+                        {cls}
+                    </button>
+                ))}
             </div>
 
-            {/* LEADERBOARD */}
-            <div className="flex-1 overflow-hidden bg-slate-900/80 rounded-xl border border-white/5 flex flex-col">
-                <div className="grid grid-cols-12 gap-2 p-3 bg-black/40 text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5">
-                    <div className="col-span-1 text-center">Pos</div>
-                    <div className="col-span-1 text-center">Class</div>
-                    <div className="col-span-1 text-center">#</div>
-                    <div className="col-span-3">Driver / Team</div>
-                    <div className="col-span-1 text-right">Gap</div>
-                    <div className="col-span-1 text-right">Int</div>
-                    <div className="col-span-1 text-center">Last</div>
-                    <div className="col-span-1 text-center">Best</div>
-                    <div className="col-span-1 text-center">Stops</div>
-                    <div className="col-span-1 text-center">State</div>
-                </div>
+            {/* --- TABLEAU --- */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-900 text-[10px] font-bold text-slate-500 uppercase sticky top-0 z-10">
+                    <tr>
+                        <th className="p-2 w-12 text-center">Pos</th>
+                        <th className="p-2">Driver / Team</th>
+                        <th className="p-2 w-20 text-right">Gap</th>
+                        <th className="p-2 w-20 text-right">Int.</th>
+                        <th className="p-2 w-24 text-right">Last Lap</th>
+                        <th className="p-2 w-24 text-right">Best Lap</th>
+                        <th className="p-2 w-16 text-center">S1</th>
+                        <th className="p-2 w-16 text-center">S2</th>
+                        <th className="p-2 w-16 text-center">S3</th>
+                        <th className="p-2 w-10 text-center">Pit</th>
+                    </tr>
+                    </thead>
+                    <tbody className="text-xs font-mono text-slate-300">
+                    {filteredVehicles.map((v) => {
+                        const isMe = v.is_player === 1;
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    {leaderboard.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-2">
-                            <span className="animate-spin text-2xl">↻</span>
-                            <span className="text-xs">Waiting for live data...</span>
-                        </div>
-                    ) : (
-                        leaderboard.map((row) => {
-                            const isMe = row.driver === telemetryData?.driverName;
+                        // Style de ligne
+                        let rowClass = "border-b border-white/5 hover:bg-white/5 transition-colors";
+                        if (isMe) rowClass += " bg-indigo-900/20";
+                        if (v.in_pits) rowClass += " text-purple-300"; // En violet si au stand
+                        if (v.status === 2) rowClass += " text-red-500 line-through opacity-50"; // DNF
 
-                            return (
-                                <div key={row.num + row.class} className={`grid grid-cols-12 gap-2 p-2 items-center text-xs font-mono border-b border-white/5 hover:bg-white/5 transition-colors ${isMe ? 'bg-indigo-900/20' : ''} ${getClassColor(row.class)}`}>
-                                    <div className="col-span-1 text-center font-bold text-white text-sm">{row.pos}</div>
-                                    <div className="col-span-1 text-center">
-                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${row.class.includes('HYP') ? 'bg-red-900/50 text-red-200' : row.class.includes('GT') ? 'bg-orange-900/50 text-orange-200' : 'bg-blue-900/50 text-blue-200'}`}>
-                                            {row.class.substring(0,3)}
-                                        </span>
-                                    </div>
-                                    <div className="col-span-1 text-center text-slate-300">{row.num}</div>
-                                    <div className="col-span-3 truncate">
-                                        <div className="font-bold text-white truncate">{row.driver}</div>
-                                        <div className="text-[9px] text-slate-500 truncate">{row.car}</div>
-                                    </div>
-                                    <div className="col-span-1 text-right text-yellow-500">{row.pos === 1 ? '-' : getGapString(row.gap)}</div>
-                                    <div className="col-span-1 text-right text-slate-400">{getGapString(row.int)}</div>
-                                    <div className="col-span-1 text-center text-slate-300">{formatLap(row.last)}</div>
-                                    <div className="col-span-1 text-center text-purple-400">{formatLap(row.best)}</div>
-                                    <div className="col-span-1 text-center text-slate-500">{row.stops}</div>
-                                    <div className="col-span-1 text-center flex justify-center">
-                                        {row.pit ? (
-                                            <span className="bg-yellow-500 text-black px-1 rounded text-[9px] font-bold animate-pulse">PIT</span>
-                                        ) : (
-                                            <span className="text-emerald-500 text-[9px]">TRK</span>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })
-                    )}
-                </div>
+                        // Style catégorie
+                        let catKey = 'default';
+                        const cStr = (v.class || "").toLowerCase();
+                        if (cStr.includes('hyper')) catKey = 'hypercar';
+                        else if (cStr.includes('lmp2')) catKey = 'lmp2';
+                        else if (cStr.includes('gt3')) catKey = 'gt3';
+
+                        // Calcul Secteurs (Simplifié)
+                        // Le jeu envoie les temps cumulés (Split 1, Split 2).
+                        // S1 = Split1. S2 = Split2 - Split1. S3 = LastLap - Split2 (Approximatif pour le tour précédent)
+                        const s1 = v.sectors_cur?.[0] || 0;
+                        const s2_cumul = v.sectors_cur?.[1] || 0;
+                        const s2 = (s2_cumul > s1) ? s2_cumul - s1 : 0;
+
+                        return (
+                            <tr key={v.id || Math.random()} className={`${rowClass} ${CLASS_COLORS[catKey]}`}>
+                                {/* POS */}
+                                <td className="p-2 text-center font-bold text-white text-sm">
+                                    {v.position}
+                                </td>
+
+                                {/* PILOTE */}
+                                <td className="p-2">
+                                    <div className="font-bold truncate max-w-[150px]">{v.driver}</div>
+                                    <div className="text-[9px] text-slate-500 truncate">{v.vehicle}</div>
+                                </td>
+
+                                {/* GAP LEADER */}
+                                <td className="p-2 text-right text-yellow-400">
+                                    {v.position === 1 ? 'Leader' : formatGap(v.gap_leader)}
+                                </td>
+
+                                {/* INTERVAL (Gap Next) */}
+                                <td className="p-2 text-right text-slate-400">
+                                    {formatGap(v.gap_next)}
+                                </td>
+
+                                {/* LAST LAP */}
+                                <td className="p-2 text-right font-bold">
+                                    {formatLap(v.last_lap)}
+                                </td>
+
+                                {/* BEST LAP */}
+                                <td className="p-2 text-right text-purple-400">
+                                    {formatLap(v.best_lap)}
+                                </td>
+
+                                {/* SECTEURS */}
+                                <td className="p-2 text-center text-[10px] text-slate-500">
+                                    {s1 > 0 ? s1.toFixed(1) : '-'}
+                                </td>
+                                <td className="p-2 text-center text-[10px] text-slate-500">
+                                    {s2 > 0 ? s2.toFixed(1) : '-'}
+                                </td>
+                                <td className="p-2 text-center text-[10px] text-slate-500">
+                                    -
+                                </td>
+
+                                {/* PITS */}
+                                <td className="p-2 text-center">
+                                    {v.in_pits ? (
+                                        <span className="bg-purple-600 text-white px-1 rounded text-[9px] font-bold animate-pulse">IN</span>
+                                    ) : (
+                                        <span className="text-slate-600">{v.pit_stops}</span>
+                                    )}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
