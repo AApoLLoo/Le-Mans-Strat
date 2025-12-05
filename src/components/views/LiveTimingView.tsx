@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
-// import { Clock, Flag, AlertTriangle } from 'lucide-react';
 import type { RawVehicle, TelemetryData } from '../../types';
-// import { formatTime } from '../../utils/helpers';
 
 interface LiveTimingViewProps {
     telemetryData: TelemetryData;
-    isHypercar: boolean; // Pour filtrer ou mettre en avant (optionnel)
-    vehicles?: RawVehicle[]; // On récupère la liste complète
+    isHypercar: boolean;
+    vehicles?: RawVehicle[];
 }
 
 // Couleurs des catégories (WEC style)
@@ -21,7 +19,7 @@ const CLASS_COLORS: Record<string, string> = {
 const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
     const [filterClass, setFilterClass] = useState<string>('ALL');
 
-    // Fonction de tri (Position)
+    // Tri par position
     const sortedVehicles = [...vehicles].sort((a, b) => (a.position || 999) - (b.position || 999));
 
     // Filtrage
@@ -31,7 +29,7 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
         return c.includes(filterClass.toLowerCase());
     });
 
-    // Fonction pour formater les chronos (1:23.456)
+    // Helpers de formatage
     const formatLap = (seconds?: number) => {
         if (!seconds || seconds <= 0) return "-:--.---";
         const mins = Math.floor(seconds / 60);
@@ -39,12 +37,9 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
         return `${mins}:${secs.padStart(6, '0')}`;
     };
 
-    // Fonction pour formater les écarts (+1.234 ou +1L)
     const formatGap = (gap?: number) => {
         if (gap === undefined || gap === null) return "";
         if (gap === 0) return "-";
-        // Si l'écart est très grand (> 1 tour environ 200s+ sur certains circuits), c'est souvent un tour de retard
-        // Note: Le jeu envoie parfois le gap en temps même pour les retardataires, parfois non.
         return `+${gap.toFixed(1)}`;
     };
 
@@ -52,7 +47,7 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
         <div className="h-full flex flex-col bg-[#0b0f19] overflow-hidden">
 
             {/* --- FILTRES --- */}
-            <div className="flex gap-2 p-2 border-b border-white/10 bg-slate-900/50">
+            <div className="flex gap-2 p-2 border-b border-white/10 bg-slate-900/50 shrink-0">
                 {['ALL', 'HYPERCAR', 'LMP2', 'GT3'].map(cls => (
                     <button
                         key={cls}
@@ -67,7 +62,7 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
             {/* --- TABLEAU --- */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
                 <table className="w-full text-left border-collapse">
-                    <thead className="bg-slate-900 text-[10px] font-bold text-slate-500 uppercase sticky top-0 z-10">
+                    <thead className="bg-slate-900 text-[10px] font-bold text-slate-500 uppercase sticky top-0 z-10 shadow-md">
                     <tr>
                         <th className="p-2 w-12 text-center">Pos</th>
                         <th className="p-2">Driver / Team</th>
@@ -77,7 +72,8 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         <th className="p-2 w-24 text-right">Best Lap</th>
                         <th className="p-2 w-16 text-center">S1</th>
                         <th className="p-2 w-16 text-center">S2</th>
-                        <th className="p-2 w-16 text-center">S3</th>
+                        <th className="p-2 w-16 text-center">Stint</th>
+                        <th className="p-2 w-16 text-center">Fuel</th>
                         <th className="p-2 w-10 text-center">Pit</th>
                     </tr>
                     </thead>
@@ -88,8 +84,8 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         // Style de ligne
                         let rowClass = "border-b border-white/5 hover:bg-white/5 transition-colors";
                         if (isMe) rowClass += " bg-indigo-900/20";
-                        if (v.in_pits) rowClass += " text-purple-300"; // En violet si au stand
-                        if (v.status === 2) rowClass += " text-red-500 line-through opacity-50"; // DNF
+                        if (v.in_pits) rowClass += " text-purple-300";
+                        if (v.status === 2) rowClass += " text-red-500 line-through opacity-50";
 
                         // Style catégorie
                         let catKey = 'default';
@@ -99,57 +95,42 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         else if (cStr.includes('gt3')) catKey = 'gt3';
 
                         // Calcul Secteurs (Simplifié)
-                        // Le jeu envoie les temps cumulés (Split 1, Split 2).
-                        // S1 = Split1. S2 = Split2 - Split1. S3 = LastLap - Split2 (Approximatif pour le tour précédent)
                         const s1 = v.sectors_cur?.[0] || 0;
                         const s2_cumul = v.sectors_cur?.[1] || 0;
                         const s2 = (s2_cumul > s1) ? s2_cumul - s1 : 0;
 
+                        // Barre de fuel estimée
+                        const maxLaps = v.class?.includes('Hyper') ? 13 : 12;
+                        const fuelPct = Math.max(0, 100 - ((v.stint_laps || 0) / maxLaps * 100));
+                        let fuelColor = 'bg-emerald-500';
+                        if (fuelPct < 30) fuelColor = 'bg-yellow-500';
+                        if (fuelPct < 10) fuelColor = 'bg-red-500 animate-pulse';
+
                         return (
                             <tr key={v.id || Math.random()} className={`${rowClass} ${CLASS_COLORS[catKey]}`}>
-                                {/* POS */}
-                                <td className="p-2 text-center font-bold text-white text-sm">
-                                    {v.position}
-                                </td>
-
-                                {/* PILOTE */}
+                                <td className="p-2 text-center font-bold text-white text-sm">{v.position}</td>
                                 <td className="p-2">
                                     <div className="font-bold truncate max-w-[150px]">{v.driver}</div>
                                     <div className="text-[9px] text-slate-500 truncate">{v.vehicle}</div>
                                 </td>
+                                <td className="p-2 text-right text-yellow-400">{v.position === 1 ? 'Leader' : formatGap(v.gap_leader)}</td>
+                                <td className="p-2 text-right text-slate-400">{formatGap(v.gap_next)}</td>
+                                <td className="p-2 text-right font-bold">{formatLap(v.last_lap)}</td>
+                                <td className="p-2 text-right text-purple-400">{formatLap(v.best_lap)}</td>
+                                <td className="p-2 text-center text-[10px] text-slate-500">{s1 > 0 ? s1.toFixed(1) : '-'}</td>
+                                <td className="p-2 text-center text-[10px] text-slate-500">{s2 > 0 ? s2.toFixed(1) : '-'}</td>
 
-                                {/* GAP LEADER */}
-                                <td className="p-2 text-right text-yellow-400">
-                                    {v.position === 1 ? 'Leader' : formatGap(v.gap_leader)}
-                                </td>
+                                {/* Stint Laps */}
+                                <td className="p-2 text-center text-slate-300">{v.stint_laps || 0}L</td>
 
-                                {/* INTERVAL (Gap Next) */}
-                                <td className="p-2 text-right text-slate-400">
-                                    {formatGap(v.gap_next)}
-                                </td>
-
-                                {/* LAST LAP */}
-                                <td className="p-2 text-right font-bold">
-                                    {formatLap(v.last_lap)}
-                                </td>
-
-                                {/* BEST LAP */}
-                                <td className="p-2 text-right text-purple-400">
-                                    {formatLap(v.best_lap)}
+                                {/* Fuel Estimation */}
+                                <td className="p-2 align-middle">
+                                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                        <div className={`h-full ${fuelColor}`} style={{ width: `${fuelPct}%` }}></div>
+                                    </div>
                                 </td>
 
-                                {/* SECTEURS */}
-                                <td className="p-2 text-center text-[10px] text-slate-500">
-                                    {s1 > 0 ? s1.toFixed(1) : '-'}
-                                </td>
-                                <td className="p-2 text-center text-[10px] text-slate-500">
-                                    {s2 > 0 ? s2.toFixed(1) : '-'}
-                                </td>
-                                <td className="p-2 text-center text-[10px] text-slate-500">
-                                    -
-                                </td>
-
-                                {/* PITS */}
+                                {/* Pit Status */}
                                 <td className="p-2 text-center">
                                     {v.in_pits ? (
                                         <span className="bg-purple-600 text-white px-1 rounded text-[9px] font-bold animate-pulse">IN</span>

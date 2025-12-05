@@ -10,6 +10,7 @@ export const useRaceData = (teamId: string) => {
     const [manualFuelTarget, setManualFuelTarget] = useState<number | null>(null);
     const [manualVETarget, setManualVETarget] = useState<number | null>(null);
 
+    // --- ÉTAT INITIAL ---
     const [gameState, setGameState] = useState<GameState>({
         currentStint: 0,
         raceTime: 24 * 3600,
@@ -19,9 +20,17 @@ export const useRaceData = (teamId: string) => {
         trackName: "WAITING...",
         sessionType: "-",
         weather: "SUNNY",
+        trackMap: [],
+        // NOUVEAUX ETATS FLAGS
+        scActive: false,
+        yellowFlag: false,
+        isRain: false,
+
         weatherForecast: [],
         allVehicles: [],
         lapHistory: [],
+        stintConfig: {},
+
         airTemp: 25, trackTemp: 25, trackWetness: 0, rainIntensity: 0,
         fuelCons: 3.65, veCons: 2.5, tankCapacity: 105,
         raceDurationHours: 24, avgLapTimeSeconds: 210,
@@ -53,6 +62,9 @@ export const useRaceData = (teamId: string) => {
 
     const lastProcessedLapRef = useRef<number>(-1);
 
+    // Ref pour l'auto-logging
+    const prevStatusRef = useRef({ inPit: false, sc: false, yellow: false, rain: false });
+
     const tId = teamId.toLowerCase();
     const isHypercar = tId.includes('hyper') || tId.includes('red');
     const isLMGT3 = tId.includes('gt3') || tId.includes('lmgt3');
@@ -62,9 +74,7 @@ export const useRaceData = (teamId: string) => {
     const syncUpdate = async (data: Partial<GameState>) => {
         try {
             await supabase.from('strategies').update(data).eq('id', SESSION_ID);
-        } catch (e) {
-            console.error('Supabase update exception:', e);
-        }
+        } catch (e) { console.error(e); }
     };
 
     const processGameUpdate = useCallback((prev: GameState, docData: Partial<GameState> & Record<string, unknown>): GameState => {
@@ -100,6 +110,11 @@ export const useRaceData = (teamId: string) => {
         } else {
             currentVEValue = Number(elec.charge || 0) * 100;
         }
+
+        // Extraction des drapeaux
+        const scActive = Boolean(rules.sc?.active);
+        const yellowFlag = Boolean(scoring.flags?.yellow_global);
+        const isRain = (weather.rain_intensity ?? 0) > 0.1;
 
         const newTelemetry: TelemetryData = {
             ...prev.telemetry,
@@ -143,8 +158,7 @@ export const useRaceData = (teamId: string) => {
             tirePressures: { fl: Number(tirePress[0]||0), fr: Number(tirePress[1]||0), rl: Number(tirePress[2]||0), rr: Number(tirePress[3]||0) },
             tireTemps: { fl: tTemps.fl || [], fr: tTemps.fr || [], rl: tTemps.rl || [], rr: tTemps.rr || [] },
             brakeTemps: { flc: Number(tele.tires?.brake_temp?.[0]||0), frc: Number(tele.tires?.brake_temp?.[1]||0), rlc: Number(tele.tires?.brake_temp?.[2]||0), rrc: Number(tele.tires?.brake_temp?.[3]||0) },
-            leaderLaps: lLaps,
-            leaderAvgLapTime: lAvg,
+            leaderLaps: lLaps, leaderAvgLapTime: lAvg,
             strategyEstPitTime: Number(pit.strategy?.time_min || 0),
             strategyPitFuel: Number(pit.strategy?.fuel_to_add || 0),
             strategyPitLaps: Number(pit.strategy?.laps_to_add || 0),
@@ -156,9 +170,15 @@ export const useRaceData = (teamId: string) => {
         return {
             ...prev,
             ...docData,
+
             weatherForecast: (docData.weatherForecast as any[]) || prev.weatherForecast || [],
             allVehicles: (scoring.vehicles as import('../types').RawVehicle[]) || prev.allVehicles || [],
             lapHistory: (docData.lapHistory as LapData[]) || prev.lapHistory || [],
+            stintConfig: (docData.stintConfig as Record<string, import('../types').StintConfig>) || prev.stintConfig || {},
+            stintNotes: (docData.stintNotes as Record<string, string>) || prev.stintNotes || {},
+            trackMap: (docData.trackMap as MapPoint[]) || prev.trackMap || [],
+            // Update Flags
+            scActive, yellowFlag, isRain,
 
             isRaceRunning: Boolean((scoring.time?.current ?? 0) > 0),
             trackName: scoring.track || prev.trackName,
@@ -193,10 +213,39 @@ export const useRaceData = (teamId: string) => {
             };
             const newHistory = [...gameState.lapHistory, lastLapData];
             syncUpdate({ lapHistory: newHistory });
-            console.log("🏁 Lap Saved:", lastLapData);
         }
         if (currentLap > 0) lastProcessedLapRef.current = currentLap;
     }, [gameState.telemetry.laps]);
+
+    // --- AUTO-LOGGING (NOUVEAU) ---
+    useEffect(() => {
+        if (!gameState.isRaceRunning) return;
+
+        const current = {
+            inPit: gameState.telemetry.inPitLane,
+            sc: gameState.scActive,
+            yellow: gameState.yellowFlag,
+            rain: gameState.isRain
+        };
+        const prev = prevStatusRef.current;
+
+        const newIncidents: import('../types').Incident[] = [];
+        const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        const lap = `L${gameState.telemetry.laps}`;
+
+        if (current.inPit && !prev.inPit) newIncidents.push({ id: Date.now(), time, lap, text: "PIT ENTRY" });
+        if (!current.inPit && prev.inPit) newIncidents.push({ id: Date.now(), time, lap, text: "PIT EXIT" });
+        if (current.sc && !prev.sc) newIncidents.push({ id: Date.now()+1, time, lap, text: "⚠️ SAFETY CAR DEPLOYED" });
+        if (!current.sc && prev.sc) newIncidents.push({ id: Date.now()+1, time, lap, text: "🟢 SC ENDING" });
+        if (current.rain && !prev.rain) newIncidents.push({ id: Date.now()+3, time, lap, text: "🌧️ RAIN STARTED" });
+
+        if (newIncidents.length > 0) {
+            const updatedIncidents = [...newIncidents, ...gameState.incidents].slice(0, 50);
+            syncUpdate({ incidents: updatedIncidents });
+        }
+
+        prevStatusRef.current = current;
+    }, [gameState.telemetry.inPitLane, gameState.scActive, gameState.yellowFlag, gameState.isRain, gameState.isRaceRunning]);
 
     // --- SUPABASE CONNECT ---
     useEffect(() => {
@@ -231,14 +280,13 @@ export const useRaceData = (teamId: string) => {
         return () => { try { if (channel) void channel.unsubscribe(); } catch { } };
     }, [teamId, SESSION_ID, processGameUpdate]);
 
-    // Timer Local
+    // --- TIMER LOCAL & PILOTES ---
     useEffect(() => {
         let interval: number | undefined;
         if (localRaceTime > 0) {
             interval = setInterval(() => {
                 setLocalRaceTime(p => Math.max(0, p - 1));
                 setLocalStintTime(p => p + 1);
-                // Timer Pilotes
                 setGameState(prev => {
                     if (!prev.isRaceRunning) return prev;
                     const activeId = prev.activeDriverId;
@@ -253,14 +301,23 @@ export const useRaceData = (teamId: string) => {
         return () => clearInterval(interval);
     }, [localRaceTime]);
 
-    // Sauvegarde drivers toutes les 30s
+    // Sauvegarde drivers
     useEffect(() => {
         const saveInterval = setInterval(() => {
             if (gameState.isRaceRunning) syncUpdate({ drivers: gameState.drivers });
         }, 30000);
         return () => clearInterval(saveInterval);
     }, [gameState.drivers, gameState.isRaceRunning]);
-
+    // --- SAUVEGARDE TRACÉ DE LA CARTE ---
+    const saveTrackMap = useCallback((points: MapPoint[]) => {
+        // On ne sauvegarde que si on a un tracé significatif (> 50 points)
+        // et pour éviter de spammer, on pourrait vérifier si c'est déjà fait,
+        // mais Supabase gère bien les updates ponctuels.
+        if (points.length > 50) {
+            syncUpdate({ trackMap: points });
+            console.log("🗺️ Track Map Saved to DB (" + points.length + " points)");
+        }
+    }, [SESSION_ID]);
     // --- CALCULATEUR STRATÉGIQUE ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
@@ -327,8 +384,7 @@ export const useRaceData = (teamId: string) => {
         const myGapToLeader = myCarScoring ? Number(myCarScoring.gap_leader || 0) : 0;
         const myProjectedGap = myGapToLeader + totalPitLoss;
         let predictedPos = 1; let carAhead = null; let carBehind = null; let minGapAhead = 9999; let minGapBehind = 9999; let trafficCount = 0;
-        const allVehicles = ((gameState as any).scoring?.vehicles || []) as any[];
-        const sortedVehicles = [...allVehicles].sort((a, b) => Number(a.gap_leader) - Number(b.gap_leader));
+        const sortedVehicles = [...gameState.allVehicles].sort((a, b) => Number(a.gap_leader) - Number(b.gap_leader));
         for (let i = 0; i < sortedVehicles.length; i++) {
             const v = sortedVehicles[i];
             if (v.is_player) continue;
@@ -365,16 +421,28 @@ export const useRaceData = (teamId: string) => {
     };
 
     const resetRace = () => {
-        if(confirm("⚠️ RESET COMPLET DE LA COURSE ?")) {
-            syncUpdate({ isRaceRunning: false, raceTime: gameState.raceDurationHours*3600, stintDuration: 0, currentStint: 0, incidents: [], lapHistory: [] });
+        if(confirm("⚠️ RESET COMPLET ?")) {
+            syncUpdate({
+                isRaceRunning: false, raceTime: gameState.raceDurationHours*3600,
+                stintDuration: 0, currentStint: 0, incidents: [], lapHistory: [],
+                drivers: gameState.drivers.map(d => ({...d, totalDriveTime: 0})),
+                stintConfig: {}, stintNotes: {}
+            });
             setLocalRaceTime(gameState.raceDurationHours*3600);
             setLocalStintTime(0);
         }
     };
 
+    const updateStintConfig = (index: number, key: keyof import('../types').StintConfig, value: any) => {
+        const newConfig = { ...gameState.stintConfig };
+        if (!newConfig[index]) newConfig[index] = {};
+        newConfig[index] = { ...newConfig[index], [key]: value };
+        syncUpdate({ stintConfig: newConfig });
+    };
+
     return {
         gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData,
         confirmPitStop, undoPitStop, resetRace, CHAT_ID, isHypercar, isLMGT3, isLMP3, isLMP2ELMS,
-        setManualFuelTarget, setManualVETarget
+        setManualFuelTarget, setManualVETarget, updateStintConfig, saveTrackMap
     };
 };

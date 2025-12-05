@@ -73,13 +73,21 @@ export interface TelemetryData {
     isOverheating: boolean;
 }
 
+// Configuration manuelle d'un relais (Éditeur Stratégie)
+export interface StintConfig {
+    driverId?: number | string;
+    tyres?: string;
+    fuel?: number | 'FULL';
+    repaired?: boolean;
+}
+
 export interface Stint {
     id: number;
     stopNum: number;
     startLap: number;
     endLap: number;
     fuel: string;
-    fuelLoad?: number;
+    tyres?: string; // Ajout
     driver: Driver;
     driverId: number | string;
     isCurrent: boolean;
@@ -129,6 +137,10 @@ export interface RawVehicle {
     status?: number;
     x?: number;
     z?: number;
+    // Champs calculés
+    stint_laps?: number;
+    last_pit_lap?: number;
+    predicted_pit_lap?: number;
 }
 
 export interface LapData {
@@ -151,9 +163,18 @@ export interface GameState {
     trackName: string;
     sessionType: string;
     weather: string;
+    scActive: boolean;   // Safety Car
+    yellowFlag: boolean; // Drapeau Jaune
+    isRain: boolean;
+    trackMap: MapPoint[];
+    // Données riches
     weatherForecast: WeatherNode[];
     allVehicles: RawVehicle[];
     lapHistory: LapData[];
+
+    // Configuration Stratégie
+    stintConfig: Record<string, StintConfig>;
+
     airTemp: number;
     trackTemp: number;
     trackWetness: number;
@@ -168,9 +189,16 @@ export interface GameState {
     incidents: Incident[];
     chatMessages: ChatMessage[];
     stintNotes: Record<string, string | number>;
-    stintAssignments: Record<string, number | string>;
+    stintAssignments: Record<string, number | string>; // Legacy, gardé pour compatibilité
     position: number;
     telemetry: TelemetryData;
+
+    // Timers
+    lastDriverSwapTime?: number;
+}
+export interface MapPoint {
+    x: number;
+    z: number;
 }
 
 export interface Incident {
@@ -190,6 +218,7 @@ export interface ChatMessage {
     time: string;
 }
 
+// Types Raw (Supabase/Bridge)
 export interface RawTelemetry {
     laps?: number;
     times?: { current?: number };
@@ -229,6 +258,7 @@ export interface RawDoc extends Partial<GameState> {
     drivers?: Driver[];
     createdAt?: string;
     id?: string;
+    trackMap?: MapPoint[];
     messages?: ChatMessage[];
     lastPacketTime?: number;
     carCategory?: string;
@@ -240,6 +270,7 @@ export interface RawDoc extends Partial<GameState> {
     averageConsumptionVE?: number;
     weatherForecast?: WeatherNode[];
     lapHistory?: LapData[];
+    stintConfig?: Record<string, StintConfig>;
 }
 
 export interface StrategyRow extends RawDoc {

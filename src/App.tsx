@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
-import { Settings, Home, Wifi, Flag, Clock, RotateCcw,ArrowRight, AlertTriangle, Plus, Users} from 'lucide-react';
+import { Settings, Home, Wifi, Flag, Clock, RotateCcw, ArrowRight, AlertTriangle, Plus} from 'lucide-react';
 import { supabase } from './lib/supabaseClient.ts';
 
 import StrategyView from './components/views/StrategyView';
@@ -41,7 +41,8 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
         gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData,
         confirmPitStop, undoPitStop, resetRace,
         CHAT_ID, isHypercar, isLMGT3,
-        setManualFuelTarget, setManualVETarget
+        setManualFuelTarget, setManualVETarget,
+        updateStintConfig // Pour l'éditeur de stratégie
     } = useRaceData(teamId);
 
     const [viewMode, setViewMode] = useState("STRATEGY");
@@ -169,9 +170,10 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                                     {formatTime(localStintTime)}
                                 </div>
                             </div>
+                            {/* Affichage du temps total si disponible (supposons que vous l'ayez ajouté aux drivers) */}
                             <div className="bg-slate-800/50 border border-white/5 rounded p-2">
                                 <div className="text-[9px] text-slate-400 font-bold uppercase flex items-center gap-1">
-                                    <Users size={10}/> Total Drive
+                                    <Clock size={10}/> Total Drive
                                 </div>
                                 <div className="font-mono text-xl font-bold text-slate-200">
                                     {formatTime(activeDriver.totalDriveTime || 0)}
@@ -242,6 +244,9 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                                 strategyData={strategyData}
                                 currentLap={gameState.telemetry.laps}
                                 telemetry={gameState.telemetry}
+                                drivers={gameState.drivers}
+                                onUpdateStint={updateStintConfig}
+                                onUpdateNote={(idx, val) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [idx]: val } })}
                             />
                         )}
                         {viewMode === "LIVE" && (
@@ -270,7 +275,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                                 onSetVETarget={setManualVETarget}
                             />
                         )}
-                        {viewMode === "MAP" && <MapView vehicles={gameState.allVehicles} myCarId={gameState.telemetry.position} />}
+                        {viewMode === "MAP" && <MapView vehicles={gameState.allVehicles} myCarId={gameState.telemetry.position} savedMap={gameState.trackMap} onSaveMap={useRaceData(teamId).saveTrackMap} />}
                         {viewMode === "ANALYSIS" && <AnalysisView history={gameState.lapHistory} />}
                         {viewMode === "CHAT" && (
                             <ChatView
