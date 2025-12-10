@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { supabase } from '../lib/supabaseClient.ts';
+import { io, Socket } from 'socket.io-client';
 import type { GameState, StrategyData, Stint, TelemetryData, LapData } from '../types';
 import { getSafeDriver } from '../utils/helpers';
+
+// Adresse de votre VPS OVH
+const VPS_URL = "http://51.178.87.25:5000";
 
 export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId;
@@ -10,7 +13,7 @@ export const useRaceData = (teamId: string) => {
     const [manualFuelTarget, setManualFuelTarget] = useState<number | null>(null);
     const [manualVETarget, setManualVETarget] = useState<number | null>(null);
 
-    // --- ÉTAT INITIAL ---
+    // --- ÉTAT INITIAL (VOTRE ANCIEN CODE) ---
     const [gameState, setGameState] = useState<GameState>({
         currentStint: 0,
         raceTime: 24 * 3600,
@@ -61,9 +64,10 @@ export const useRaceData = (teamId: string) => {
     const [localStintTime, setLocalStintTime] = useState(0);
 
     const lastProcessedLapRef = useRef<number>(-1);
-
-    // Ref pour l'auto-logging
     const prevStatusRef = useRef({ inPit: false, sc: false, yellow: false, rain: false });
+
+    // Référence pour garder la socket active
+    const socketRef = useRef<Socket | null>(null);
 
     const tId = teamId.toLowerCase();
     const isHypercar = tId.includes('hyper') || tId.includes('red');
@@ -71,12 +75,21 @@ export const useRaceData = (teamId: string) => {
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms');
 
-    const syncUpdate = async (data: Partial<GameState>) => {
-        try {
-            await supabase.from('strategies').update(data).eq('id', SESSION_ID);
-        } catch (e) { console.error(e); }
-    };
+    // --- NOUVELLE FONCTION DE SYNCHRONISATION (VERS LE VPS) ---
+    const syncUpdate = useCallback((changes: Partial<GameState>) => {
+        // 1. Mise à jour locale immédiate (Optimistic UI)
+        setGameState(prev => ({ ...prev, ...changes }));
 
+        // 2. Envoi au VPS pour sauvegarde DB et diffusion aux autres
+        if (socketRef.current && socketRef.current.connected) {
+            socketRef.current.emit('update_strategy', {
+                teamId: SESSION_ID,
+                changes: changes
+            });
+        }
+    }, [SESSION_ID]);
+
+    // --- LOGIQUE DE TRAITEMENT DES DONNÉES (VOTRE ANCIEN CODE ADAPTÉ) ---
     const processGameUpdate = useCallback((prev: GameState, docData: Partial<GameState> & Record<string, unknown>): GameState => {
         const tele = (docData.telemetry || {}) as any;
         const scoring = (docData.scoring || {}) as any;
@@ -111,65 +124,83 @@ export const useRaceData = (teamId: string) => {
             currentVEValue = Number(elec.charge || 0) * 100;
         }
 
-        // Extraction des drapeaux
         const scActive = Boolean(rules.sc?.active);
         const yellowFlag = Boolean(scoring.flags?.yellow_global);
         const isRain = (weather.rain_intensity ?? 0) > 0.1;
 
-        const newTelemetry: TelemetryData = {
+        // Détection si c'est un packet de télémétrie ou juste une update de strat
+        const hasNewTelemetry = tele.speed !== undefined || scoring.vehicle_data !== undefined;
+
+        const newTelemetry: TelemetryData = hasNewTelemetry ? {
             ...prev.telemetry,
             laps: Number(tele.laps || scoring.vehicle_data?.laps || prev.telemetry.laps),
-            curLap: Number(tele.times?.current || 0),
+            curLap: Number(tele.times?.current || prev.telemetry.curLap),
             lastLap: Number(scoring.vehicle_data?.last_lap || prev.telemetry.lastLap),
             bestLap: Number(scoring.vehicle_data?.best_lap || prev.telemetry.bestLap),
             position: Number(scoring.vehicle_data?.position || prev.telemetry.position),
-            speed: Number(tele.speed || 0),
-            rpm: Number(tele.rpm || 0),
+            speed: Number(tele.speed || prev.telemetry.speed),
+            rpm: Number(tele.rpm || prev.telemetry.rpm),
             maxRpm: 8000,
-            gear: Number(tele.gear || 0),
+            gear: Number(tele.gear !== undefined ? tele.gear : prev.telemetry.gear),
             carCategory: (Array.isArray(scoring.vehicles) ? scoring.vehicles[0]?.class : undefined) || prev.telemetry.carCategory,
-            throttle: Number(tele.inputs?.thr || 0),
-            brake: Number(tele.inputs?.brk || 0),
-            clutch: Number(tele.inputs?.clt || 0),
-            steering: Number(tele.inputs?.str || 0),
-            waterTemp: Number(tele.temps?.water || 0),
-            oilTemp: Number(tele.temps?.oil || 0),
+            throttle: Number(tele.inputs?.thr !== undefined ? tele.inputs.thr : prev.telemetry.throttle),
+            brake: Number(tele.inputs?.brk !== undefined ? tele.inputs.brk : prev.telemetry.brake),
+            clutch: Number(tele.inputs?.clt !== undefined ? tele.inputs.clt : prev.telemetry.clutch),
+            steering: Number(tele.inputs?.str !== undefined ? tele.inputs.str : prev.telemetry.steering),
+            waterTemp: Number(tele.temps?.water || prev.telemetry.waterTemp),
+            oilTemp: Number(tele.temps?.oil || prev.telemetry.oilTemp),
             fuel: {
-                current: Number(tele.fuel || 0),
+                current: Number(tele.fuel || prev.telemetry.fuel.current),
                 max: Number(tele.fuelCapacity || prev.telemetry.fuel.max),
-                lastLapCons: Number(docData.lastLapFuelConsumption || 0),
+                lastLapCons: Number(docData.lastLapFuelConsumption || prev.telemetry.fuel.lastLapCons),
                 averageCons: Number(docData.averageConsumptionFuel || prev.fuelCons)
             },
             VE: {
                 VEcurrent: currentVEValue,
-                VElastLapCons: Number(docData.lastLapVEConsumption || 0),
+                VElastLapCons: Number(docData.lastLapVEConsumption || prev.telemetry.VE.VElastLapCons),
                 VEaverageCons: Number(docData.averageConsumptionVE || prev.veCons)
             },
-            batterySoc: Number(elec.charge || 0) * 100,
+            batterySoc: Number(elec.charge || prev.telemetry.batterySoc/100) * 100,
             electric: {
-                charge: Number(elec.charge || 0),
-                torque: Number(elec.torque || 0),
-                rpm: Number(elec.rpm || 0),
-                motorTemp: Number(elec.temp_motor || 0),
-                waterTemp: Number(elec.temp_water || 0),
-                state: Number(elec.state || 0)
+                charge: Number(elec.charge || prev.telemetry.electric.charge),
+                torque: Number(elec.torque || prev.telemetry.electric.torque),
+                rpm: Number(elec.rpm || prev.telemetry.electric.rpm),
+                motorTemp: Number(elec.temp_motor || prev.telemetry.electric.motorTemp),
+                waterTemp: Number(elec.temp_water || prev.telemetry.electric.waterTemp),
+                state: Number(elec.state || prev.telemetry.electric.state)
             },
-            tires: { fl: ((tireWear[0]||0))*100, fr: ((tireWear[1]||0))*100, rl: ((tireWear[2]||0))*100, rr: ((tireWear[3]||0))*100 },
-            tirePressures: { fl: Number(tirePress[0]||0), fr: Number(tirePress[1]||0), rl: Number(tirePress[2]||0), rr: Number(tirePress[3]||0) },
-            tireTemps: { fl: tTemps.fl || [], fr: tTemps.fr || [], rl: tTemps.rl || [], rr: tTemps.rr || [] },
-            brakeTemps: { flc: Number(tele.tires?.brake_temp?.[0]||0), frc: Number(tele.tires?.brake_temp?.[1]||0), rlc: Number(tele.tires?.brake_temp?.[2]||0), rrc: Number(tele.tires?.brake_temp?.[3]||0) },
+            tires: {
+                fl: (tireWear[0] !== undefined ? tireWear[0]*100 : prev.telemetry.tires.fl),
+                fr: (tireWear[1] !== undefined ? tireWear[1]*100 : prev.telemetry.tires.fr),
+                rl: (tireWear[2] !== undefined ? tireWear[2]*100 : prev.telemetry.tires.rl),
+                rr: (tireWear[3] !== undefined ? tireWear[3]*100 : prev.telemetry.tires.rr)
+            },
+            tirePressures: {
+                fl: Number(tirePress[0]||prev.telemetry.tirePressures.fl),
+                fr: Number(tirePress[1]||prev.telemetry.tirePressures.fr),
+                rl: Number(tirePress[2]||prev.telemetry.tirePressures.rl),
+                rr: Number(tirePress[3]||prev.telemetry.tirePressures.rr)
+            },
+            tireTemps: { fl: tTemps.fl || prev.telemetry.tireTemps.fl, fr: tTemps.fr || prev.telemetry.tireTemps.fr, rl: tTemps.rl || prev.telemetry.tireTemps.rl, rr: tTemps.rr || prev.telemetry.tireTemps.rr },
+            brakeTemps: {
+                flc: Number(tele.tires?.brake_temp?.[0]||prev.telemetry.brakeTemps.flc),
+                frc: Number(tele.tires?.brake_temp?.[1]||prev.telemetry.brakeTemps.frc),
+                rlc: Number(tele.tires?.brake_temp?.[2]||prev.telemetry.brakeTemps.rlc),
+                rrc: Number(tele.tires?.brake_temp?.[3]||prev.telemetry.brakeTemps.rrc)
+            },
+            tireCompounds: tele.tires?.compounds || prev.telemetry.tireCompounds,
             leaderLaps: lLaps, leaderAvgLapTime: lAvg,
-            strategyEstPitTime: Number(pit.strategy?.time_min || 0),
-            strategyPitFuel: Number(pit.strategy?.fuel_to_add || 0),
-            strategyPitLaps: Number(pit.strategy?.laps_to_add || 0),
-            inPitLane: Boolean(scoring.vehicle_data?.in_pits),
+            strategyEstPitTime: Number(pit.strategy?.time_min || prev.telemetry.strategyEstPitTime),
+            strategyPitFuel: Number(pit.strategy?.fuel_to_add || prev.telemetry.strategyPitFuel),
+            strategyPitLaps: Number(pit.strategy?.laps_to_add || prev.telemetry.strategyPitLaps),
+            inPitLane: Boolean(scoring.vehicle_data?.in_pits ?? prev.telemetry.inPitLane),
             inGarage: (rules.my_status?.pits_open === false),
             pitLimiter: (extended.pit_limit ?? 0) > 0,
-        };
+        } : prev.telemetry;
 
         return {
             ...prev,
-            ...docData,
+            ...docData, // Écrase les champs de base (ex: drivers, incidents) s'ils sont présents dans le payload
 
             weatherForecast: (docData.weatherForecast as any[]) || prev.weatherForecast || [],
             allVehicles: (scoring.vehicles as import('../types').RawVehicle[]) || prev.allVehicles || [],
@@ -177,23 +208,65 @@ export const useRaceData = (teamId: string) => {
             stintConfig: (docData.stintConfig as Record<string, import('../types').StintConfig>) || prev.stintConfig || {},
             stintNotes: (docData.stintNotes as Record<string, string>) || prev.stintNotes || {},
             trackMap: (docData.trackMap as MapPoint[]) || prev.trackMap || [],
-            // Update Flags
-            scActive, yellowFlag, isRain,
 
-            isRaceRunning: Boolean((scoring.time?.current ?? 0) > 0),
+            scActive: rules.sc ? scActive : prev.scActive,
+            yellowFlag: scoring.flags ? yellowFlag : prev.yellowFlag,
+            isRain: weather.rain_intensity ? isRain : prev.isRain,
+
+            isRaceRunning: scoring.time ? Boolean((scoring.time?.current ?? 0) > 0) : prev.isRaceRunning,
             trackName: scoring.track || prev.trackName,
-            sessionType: String(scoring.time?.session || ""),
-            sessionTimeRemaining: sessionTimeRem,
-            weather: (weather.rain_intensity ?? 0) > 0.1 ? "RAIN" : ((weather.cloudiness ?? 0) > 0.5 ? "CLOUDY" : "SUNNY"),
+            sessionType: scoring.time ? String(scoring.time?.session || "") : prev.sessionType,
+            sessionTimeRemaining: sessionTimeRem > 0 ? sessionTimeRem : prev.sessionTimeRemaining,
+            weather: weather.rain_intensity ? ((weather.rain_intensity ?? 0) > 0.1 ? "RAIN" : ((weather.cloudiness ?? 0) > 0.5 ? "CLOUDY" : "SUNNY")) : prev.weather,
             airTemp: (weather.ambient_temp ?? prev.airTemp),
-            trackWetness: (scoring.weather?.wetness_path?.[1] ?? 0) * 100 || 0,
-            rainIntensity: (weather.rain_intensity ?? 0) || 0,
+            trackWetness: scoring.weather ? ((scoring.weather?.wetness_path?.[1] ?? 0) * 100) : prev.trackWetness,
+            rainIntensity: (weather.rain_intensity ?? prev.rainIntensity),
+
             telemetry: newTelemetry,
             drivers: docData.drivers || prev.drivers
         };
     }, []);
 
-    // --- SAUVEGARDE HISTORIQUE ---
+    // --- CONNEXION SOCKET.IO (REMPLACE SUPABASE) ---
+    useEffect(() => {
+        console.log("🔌 Initialisation Socket.IO vers VPS:", VPS_URL);
+        const socket = io(VPS_URL, {
+            transports: ['websocket'],
+            reconnectionAttempts: 10
+        });
+        socketRef.current = socket;
+
+        socket.on('connect', () => {
+            console.log("✅ CONNECTÉ AU VPS !");
+            setStatus("LIVE (VPS)");
+            // On demande à rejoindre la session pour recevoir l'état actuel (BDD)
+            socket.emit('join_session', SESSION_ID);
+        });
+
+        socket.on('disconnect', () => {
+            console.log("⚠️ DÉCONNECTÉ DU VPS");
+            setStatus("RECONNECTING...");
+        });
+
+        // 1. Réception Télémétrie Rapide (Broadcast du Python)
+        socket.on('race_update', (data) => {
+            setGameState(prev => processGameUpdate(prev, data));
+        });
+
+        // 2. Réception Mise à jour Stratégie (Venant de la BDD ou d'un autre ingé)
+        socket.on('strategy_update', (changes) => {
+            console.log("Mise à jour stratégie reçue:", changes);
+            // On fusionne simplement car processGameUpdate est surtout pour la télémétrie complexe
+            // Mais on peut utiliser processGameUpdate si les données sont structurées pareil
+            setGameState(prev => processGameUpdate(prev, changes));
+        });
+
+        return () => {
+            socket.disconnect();
+        };
+    }, [SESSION_ID, processGameUpdate]);
+
+    // --- HISTORIQUE DES TOURS ---
     useEffect(() => {
         const currentLap = gameState.telemetry.laps;
         if (lastProcessedLapRef.current === -1 && currentLap > 0) {
@@ -217,18 +290,11 @@ export const useRaceData = (teamId: string) => {
         if (currentLap > 0) lastProcessedLapRef.current = currentLap;
     }, [gameState.telemetry.laps]);
 
-    // --- AUTO-LOGGING (NOUVEAU) ---
+    // --- AUTO-LOGGING INCIDENTS ---
     useEffect(() => {
         if (!gameState.isRaceRunning) return;
-
-        const current = {
-            inPit: gameState.telemetry.inPitLane,
-            sc: gameState.scActive,
-            yellow: gameState.yellowFlag,
-            rain: gameState.isRain
-        };
+        const current = { inPit: gameState.telemetry.inPitLane, sc: gameState.scActive, yellow: gameState.yellowFlag, rain: gameState.isRain };
         const prev = prevStatusRef.current;
-
         const newIncidents: import('../types').Incident[] = [];
         const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
         const lap = `L${gameState.telemetry.laps}`;
@@ -243,44 +309,10 @@ export const useRaceData = (teamId: string) => {
             const updatedIncidents = [...newIncidents, ...gameState.incidents].slice(0, 50);
             syncUpdate({ incidents: updatedIncidents });
         }
-
         prevStatusRef.current = current;
     }, [gameState.telemetry.inPitLane, gameState.scActive, gameState.yellowFlag, gameState.isRain, gameState.isRaceRunning]);
 
-    // --- SUPABASE CONNECT ---
-    useEffect(() => {
-        if (!teamId) return;
-        let channel: ReturnType<typeof supabase['channel']> | null = null;
-        (async () => {
-            try {
-                const { data } = await supabase.from('strategies').select('*').eq('id', SESSION_ID).maybeSingle();
-                if (data) {
-                    const docData = data as Partial<GameState> & Record<string, unknown>;
-                    setGameState(prev => processGameUpdate(prev, docData));
-                    const scoring = (docData.scoring || {}) as import('../types').RawScoring;
-                    let sessionTimeRem = Number((scoring.time?.end ?? 0) - (scoring.time?.current ?? 0));
-                    if (sessionTimeRem > 0) setLocalRaceTime(sessionTimeRem);
-                    setStatus("LIVE DATA");
-                } else {
-                    await supabase.from('strategies').upsert({ id: SESSION_ID, createdAt: new Date().toISOString(), trackName: 'WAITING BRIDGE...' });
-                    setStatus('WAITING BRIDGE');
-                }
-            } catch (err) { console.error(err); setStatus('ERROR'); }
-        })();
-        try {
-            channel = supabase.channel(`public:strategies:${SESSION_ID}`)
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'strategies', filter: `id=eq.${SESSION_ID}` }, (payload) => {
-                    const docData = payload.new as Partial<GameState> & Record<string, unknown>;
-                    if (!docData) return;
-                    setGameState(prev => processGameUpdate(prev, docData));
-                    setStatus('LIVE DATA');
-                })
-                .subscribe();
-        } catch (e) { console.error(e); }
-        return () => { try { if (channel) void channel.unsubscribe(); } catch { } };
-    }, [teamId, SESSION_ID, processGameUpdate]);
-
-    // --- TIMER LOCAL & PILOTES ---
+    // --- TIMER LOCAL ---
     useEffect(() => {
         let interval: number | undefined;
         if (localRaceTime > 0) {
@@ -301,24 +333,20 @@ export const useRaceData = (teamId: string) => {
         return () => clearInterval(interval);
     }, [localRaceTime]);
 
-    // Sauvegarde drivers
+    // --- SAUVEGARDE DRIVERS PÉRIODIQUE ---
     useEffect(() => {
         const saveInterval = setInterval(() => {
             if (gameState.isRaceRunning) syncUpdate({ drivers: gameState.drivers });
         }, 30000);
         return () => clearInterval(saveInterval);
     }, [gameState.drivers, gameState.isRaceRunning]);
-    // --- SAUVEGARDE TRACÉ DE LA CARTE ---
+
+    // --- SAUVEGARDE CARTE ---
     const saveTrackMap = useCallback((points: MapPoint[]) => {
-        // On ne sauvegarde que si on a un tracé significatif (> 50 points)
-        // et pour éviter de spammer, on pourrait vérifier si c'est déjà fait,
-        // mais Supabase gère bien les updates ponctuels.
-        if (points.length > 50) {
-            syncUpdate({ trackMap: points });
-            console.log("🗺️ Track Map Saved to DB (" + points.length + " points)");
-        }
+        if (points.length > 50) { syncUpdate({ trackMap: points }); }
     }, [SESSION_ID]);
-    // --- CALCULATEUR STRATÉGIQUE ---
+
+    // --- CALCULATEUR STRATÉGIQUE (VOTRE LOGIQUE INTACTE) ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
         let totalLapsTarget = 300;
@@ -401,6 +429,7 @@ export const useRaceData = (teamId: string) => {
         return { stints, totalLaps: totalLapsTarget, lapsPerTank, activeFuelCons, activeVECons, activeLapTime: myAvg, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex), targetFuelCons, targetVECons, pitPrediction };
     }, [gameState, localRaceTime, isHypercar, isLMGT3, manualFuelTarget, manualVETarget]);
 
+    // --- HELPER FUNCTIONS ---
     const confirmPitStop = () => {
         const nextStint = (gameState.currentStint || 0) + 1;
         let nextDriverId = gameState.stintAssignments[nextStint];
