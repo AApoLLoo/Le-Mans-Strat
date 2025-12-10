@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { GameState, StrategyData, Stint, TelemetryData, LapData } from '../types';
+import type {
+    GameState, StrategyData, TelemetryData, LapData, MapPoint,
+    RawTelemetry, RawScoring, RawPit, RawWeather, RawRules, RawExtended
+} from '../types';
 import { getSafeDriver } from '../utils/helpers';
 
 // Adresse de votre VPS OVH
@@ -13,7 +16,7 @@ export const useRaceData = (teamId: string) => {
     const [manualFuelTarget, setManualFuelTarget] = useState<number | null>(null);
     const [manualVETarget, setManualVETarget] = useState<number | null>(null);
 
-    // --- ÉTAT INITIAL (VOTRE ANCIEN CODE) ---
+    // --- ÉTAT INITIAL ---
     const [gameState, setGameState] = useState<GameState>({
         currentStint: 0,
         raceTime: 24 * 3600,
@@ -24,7 +27,7 @@ export const useRaceData = (teamId: string) => {
         sessionType: "-",
         weather: "SUNNY",
         trackMap: [],
-        // NOUVEAUX ETATS FLAGS
+
         scActive: false,
         yellowFlag: false,
         isRain: false,
@@ -34,12 +37,22 @@ export const useRaceData = (teamId: string) => {
         lapHistory: [],
         stintConfig: {},
 
-        airTemp: 25, trackTemp: 25, trackWetness: 0, rainIntensity: 0,
-        fuelCons: 3.65, veCons: 2.5, tankCapacity: 105,
-        raceDurationHours: 24, avgLapTimeSeconds: 210,
+        airTemp: 25,
+        trackTemp: 25,
+        trackWetness: 0,
+        rainIntensity: 0,
+        fuelCons: 3.65,
+        veCons: 2.5,
+        tankCapacity: 105,
+        raceDurationHours: 24,
+        avgLapTimeSeconds: 210,
         drivers: [{id: 1, name: "Driver 1", color: '#3b82f6'}],
         activeDriverId: 1,
-        incidents: [], chatMessages: [], stintNotes: {}, stintAssignments: {}, position: 0,
+        incidents: [],
+        chatMessages: [],
+        stintNotes: {},
+        stintAssignments: {},
+        position: 0,
         telemetry: {
             laps: 0, curLap: 0, lastLap: 0, bestLap: 0, position: 0, speed: 0, rpm: 0, maxRpm: 8000, gear: 0,
             carCategory: "Unknown",
@@ -75,7 +88,7 @@ export const useRaceData = (teamId: string) => {
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms');
 
-    // --- NOUVELLE FONCTION DE SYNCHRONISATION (VERS LE VPS) ---
+    // --- FONCTION DE SYNCHRONISATION (VERS LE VPS) ---
     const syncUpdate = useCallback((changes: Partial<GameState>) => {
         // 1. Mise à jour locale immédiate (Optimistic UI)
         setGameState(prev => ({ ...prev, ...changes }));
@@ -89,17 +102,22 @@ export const useRaceData = (teamId: string) => {
         }
     }, [SESSION_ID]);
 
-    // --- LOGIQUE DE TRAITEMENT DES DONNÉES (VOTRE ANCIEN CODE ADAPTÉ) ---
+    // --- LOGIQUE DE TRAITEMENT DES DONNÉES ---
     const processGameUpdate = useCallback((prev: GameState, docData: Partial<GameState> & Record<string, unknown>): GameState => {
-        const tele = (docData.telemetry || {}) as any;
-        const scoring = (docData.scoring || {}) as any;
-        const pit = (docData.pit || {}) as any;
-        const weather = (docData.weather_det || {}) as any;
-        const rules = (docData.rules || {}) as any;
-        const extended = (docData.extended || {}) as any;
+        const tele = (docData.telemetry || {}) as RawTelemetry;
+        const scoring = (docData.scoring || {}) as RawScoring;
+        const pit = (docData.pit || {}) as RawPit;
+        const weather = (docData.weather_det || {}) as RawWeather;
+        const rules = (docData.rules || {}) as RawRules;
+        const extended = (docData.extended || {}) as RawExtended;
 
-        let sessionTimeRem = Number((scoring.time?.end ?? 0) - (scoring.time?.current ?? 0));
-        if (isNaN(sessionTimeRem) || sessionTimeRem < 0) sessionTimeRem = Number(docData.sessionTimeRemainingSeconds || 0);
+        // --- CORRECTION 1 : TEMPS RESTANT ---
+        let sessionTimeRem = Number(docData.sessionTimeRemainingSeconds);
+        // Fallback si la donnée n'est pas présente (ex: pas encore envoyée par le Python)
+        if ((sessionTimeRem === undefined || isNaN(sessionTimeRem)) && scoring.time) {
+            sessionTimeRem = Number((scoring.time.end ?? 0) - (scoring.time.current ?? 0));
+        }
+        if (sessionTimeRem < 0) sessionTimeRem = 0;
 
         const tireWear = tele.tires?.wear || [0,0,0,0];
         const tirePress = tele.tires?.press || [0,0,0,0];
@@ -109,7 +127,7 @@ export const useRaceData = (teamId: string) => {
         let lLaps = prev.telemetry.leaderLaps;
         let lAvg = prev.telemetry.leaderAvgLapTime;
         if (Array.isArray(scoring.vehicles)) {
-            const leader = (scoring.vehicles as any[]).find((v) => (v.position ?? 0) === 1);
+            const leader = scoring.vehicles.find((v) => (v.position ?? 0) === 1);
             if (leader) {
                 lLaps = leader.laps ?? lLaps;
                 if ((leader.best_lap ?? 0) > 0) lAvg = (leader.best_lap ?? 0) * 1.05;
@@ -121,12 +139,29 @@ export const useRaceData = (teamId: string) => {
         if (rawVE !== undefined && rawVE !== null) {
             currentVEValue = Number(rawVE);
         } else {
-            currentVEValue = Number(elec.charge || 0) * 100;
+            currentVEValue = Number(elec['charge'] || 0) * 100;
         }
 
         const scActive = Boolean(rules.sc?.active);
         const yellowFlag = Boolean(scoring.flags?.yellow_global);
-        const isRain = (weather.rain_intensity ?? 0) > 0.1;
+
+        // --- CORRECTION 2 : MÉTÉO ---
+        let isRain = prev.isRain;
+        let weatherStatus = prev.weather;
+
+        if (weather.rain_intensity !== undefined) {
+            const rainVal = Number(weather.rain_intensity);
+            isRain = rainVal > 0.05;
+
+            if (isRain) weatherStatus = "RAIN";
+            else if ((weather.cloudiness ?? 0) > 0.5) weatherStatus = "CLOUDY";
+            else weatherStatus = "SUNNY";
+        }
+
+        // --- CORRECTION 3 : POSITION ---
+        const vehicleData = scoring.vehicle_data || {};
+        // On utilise classPosition si dispo (envoyé par Python), sinon position générale
+        const myPosition = Number(vehicleData.classPosition || vehicleData.position || prev.telemetry.position);
 
         // Détection si c'est un packet de télémétrie ou juste une update de strat
         const hasNewTelemetry = tele.speed !== undefined || scoring.vehicle_data !== undefined;
@@ -137,7 +172,7 @@ export const useRaceData = (teamId: string) => {
             curLap: Number(tele.times?.current || prev.telemetry.curLap),
             lastLap: Number(scoring.vehicle_data?.last_lap || prev.telemetry.lastLap),
             bestLap: Number(scoring.vehicle_data?.best_lap || prev.telemetry.bestLap),
-            position: Number(scoring.vehicle_data?.position || prev.telemetry.position),
+            position: myPosition,
             speed: Number(tele.speed || prev.telemetry.speed),
             rpm: Number(tele.rpm || prev.telemetry.rpm),
             maxRpm: 8000,
@@ -160,14 +195,14 @@ export const useRaceData = (teamId: string) => {
                 VElastLapCons: Number(docData.lastLapVEConsumption || prev.telemetry.VE.VElastLapCons),
                 VEaverageCons: Number(docData.averageConsumptionVE || prev.veCons)
             },
-            batterySoc: Number(elec.charge || prev.telemetry.batterySoc/100) * 100,
+            batterySoc: Number(elec['charge'] || prev.telemetry.batterySoc/100) * 100,
             electric: {
-                charge: Number(elec.charge || prev.telemetry.electric.charge),
-                torque: Number(elec.torque || prev.telemetry.electric.torque),
-                rpm: Number(elec.rpm || prev.telemetry.electric.rpm),
-                motorTemp: Number(elec.temp_motor || prev.telemetry.electric.motorTemp),
-                waterTemp: Number(elec.temp_water || prev.telemetry.electric.waterTemp),
-                state: Number(elec.state || prev.telemetry.electric.state)
+                charge: Number(elec['charge'] || prev.telemetry.electric.charge),
+                torque: Number(elec['torque'] || prev.telemetry.electric.torque),
+                rpm: Number(elec['rpm'] || prev.telemetry.electric.rpm),
+                motorTemp: Number(elec['temp_motor'] || prev.telemetry.electric.motorTemp),
+                waterTemp: Number(elec['temp_water'] || prev.telemetry.electric.waterTemp),
+                state: Number(elec['state'] || prev.telemetry.electric.state)
             },
             tires: {
                 fl: (tireWear[0] !== undefined ? tireWear[0]*100 : prev.telemetry.tires.fl),
@@ -188,7 +223,9 @@ export const useRaceData = (teamId: string) => {
                 rlc: Number(tele.tires?.brake_temp?.[2]||prev.telemetry.brakeTemps.rlc),
                 rrc: Number(tele.tires?.brake_temp?.[3]||prev.telemetry.brakeTemps.rrc)
             },
-            tireCompounds: tele.tires?.compounds || prev.telemetry.tireCompounds,
+            // Gestion des composés pneus
+            tireCompounds: tele.tires?.compounds || prev.telemetry.tireCompounds || { fl: "---", fr: "---", rl: "---", rr: "---" },
+
             leaderLaps: lLaps, leaderAvgLapTime: lAvg,
             strategyEstPitTime: Number(pit.strategy?.time_min || prev.telemetry.strategyEstPitTime),
             strategyPitFuel: Number(pit.strategy?.fuel_to_add || prev.telemetry.strategyPitFuel),
@@ -200,7 +237,7 @@ export const useRaceData = (teamId: string) => {
 
         return {
             ...prev,
-            ...docData, // Écrase les champs de base (ex: drivers, incidents) s'ils sont présents dans le payload
+            ...docData,
 
             weatherForecast: (docData.weatherForecast as any[]) || prev.weatherForecast || [],
             allVehicles: (scoring.vehicles as import('../types').RawVehicle[]) || prev.allVehicles || [],
@@ -216,9 +253,10 @@ export const useRaceData = (teamId: string) => {
             isRaceRunning: scoring.time ? Boolean((scoring.time?.current ?? 0) > 0) : prev.isRaceRunning,
             trackName: scoring.track || prev.trackName,
             sessionType: scoring.time ? String(scoring.time?.session || "") : prev.sessionType,
-            sessionTimeRemaining: sessionTimeRem > 0 ? sessionTimeRem : prev.sessionTimeRemaining,
-            weather: weather.rain_intensity ? ((weather.rain_intensity ?? 0) > 0.1 ? "RAIN" : ((weather.cloudiness ?? 0) > 0.5 ? "CLOUDY" : "SUNNY")) : prev.weather,
+            sessionTimeRemaining: sessionTimeRem,
+            weather: weatherStatus,
             airTemp: (weather.ambient_temp ?? prev.airTemp),
+            trackTemp: (scoring.weather?.track_temp ?? prev.trackTemp), // <--- AJOUT TEMP PISTE
             trackWetness: scoring.weather ? ((scoring.weather?.wetness_path?.[1] ?? 0) * 100) : prev.trackWetness,
             rainIntensity: (weather.rain_intensity ?? prev.rainIntensity),
 
@@ -227,7 +265,7 @@ export const useRaceData = (teamId: string) => {
         };
     }, []);
 
-    // --- CONNEXION SOCKET.IO (REMPLACE SUPABASE) ---
+    // --- CONNEXION SOCKET.IO ---
     useEffect(() => {
         console.log("🔌 Initialisation Socket.IO vers VPS:", VPS_URL);
         const socket = io(VPS_URL, {
@@ -239,7 +277,6 @@ export const useRaceData = (teamId: string) => {
         socket.on('connect', () => {
             console.log("✅ CONNECTÉ AU VPS !");
             setStatus("LIVE (VPS)");
-            // On demande à rejoindre la session pour recevoir l'état actuel (BDD)
             socket.emit('join_session', SESSION_ID);
         });
 
@@ -248,16 +285,11 @@ export const useRaceData = (teamId: string) => {
             setStatus("RECONNECTING...");
         });
 
-        // 1. Réception Télémétrie Rapide (Broadcast du Python)
         socket.on('race_update', (data) => {
             setGameState(prev => processGameUpdate(prev, data));
         });
 
-        // 2. Réception Mise à jour Stratégie (Venant de la BDD ou d'un autre ingé)
         socket.on('strategy_update', (changes) => {
-            console.log("Mise à jour stratégie reçue:", changes);
-            // On fusionne simplement car processGameUpdate est surtout pour la télémétrie complexe
-            // Mais on peut utiliser processGameUpdate si les données sont structurées pareil
             setGameState(prev => processGameUpdate(prev, changes));
         });
 
@@ -285,7 +317,11 @@ export const useRaceData = (teamId: string) => {
                 compound: gameState.telemetry.tireCompounds.fl
             };
             const newHistory = [...gameState.lapHistory, lastLapData];
-            syncUpdate({ lapHistory: newHistory });
+
+            // CORRECTION ESLINT : On sort du cycle synchrone
+            setTimeout(() => {
+                syncUpdate({ lapHistory: newHistory });
+            }, 0);
         }
         if (currentLap > 0) lastProcessedLapRef.current = currentLap;
     }, [gameState.telemetry.laps]);
@@ -307,7 +343,11 @@ export const useRaceData = (teamId: string) => {
 
         if (newIncidents.length > 0) {
             const updatedIncidents = [...newIncidents, ...gameState.incidents].slice(0, 50);
-            syncUpdate({ incidents: updatedIncidents });
+
+            // CORRECTION ESLINT
+            setTimeout(() => {
+                syncUpdate({ incidents: updatedIncidents });
+            }, 0);
         }
         prevStatusRef.current = current;
     }, [gameState.telemetry.inPitLane, gameState.scActive, gameState.yellowFlag, gameState.isRain, gameState.isRaceRunning]);
@@ -346,7 +386,7 @@ export const useRaceData = (teamId: string) => {
         if (points.length > 50) { syncUpdate({ trackMap: points }); }
     }, [SESSION_ID]);
 
-    // --- CALCULATEUR STRATÉGIQUE (VOTRE LOGIQUE INTACTE) ---
+    // --- CALCULATEUR STRATÉGIQUE ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
         let totalLapsTarget = 300;
@@ -367,7 +407,7 @@ export const useRaceData = (teamId: string) => {
         const lapsPerVE = activeVECons > 0 ? Math.floor(100 / activeVECons) : 999;
         const lapsPerStint = Math.max(1, useVE ? Math.min(lapsPerVE, lapsPerTank) : lapsPerTank);
 
-        const stints: Stint[] = [];
+        const stints: import('../types').Stint[] = [];
         const currentLap = gameState.telemetry.laps;
         const currentStintIndex = gameState.currentStint;
         let targetFuelCons = activeFuelCons;
@@ -429,7 +469,6 @@ export const useRaceData = (teamId: string) => {
         return { stints, totalLaps: totalLapsTarget, lapsPerTank, activeFuelCons, activeVECons, activeLapTime: myAvg, pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex), targetFuelCons, targetVECons, pitPrediction };
     }, [gameState, localRaceTime, isHypercar, isLMGT3, manualFuelTarget, manualVETarget]);
 
-    // --- HELPER FUNCTIONS ---
     const confirmPitStop = () => {
         const nextStint = (gameState.currentStint || 0) + 1;
         let nextDriverId = gameState.stintAssignments[nextStint];

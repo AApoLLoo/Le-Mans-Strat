@@ -267,6 +267,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                                 avgLapTimeSeconds={gameState.avgLapTimeSeconds}
                                 weather={gameState.weather}
                                 airTemp={gameState.airTemp}
+                                trackTemp={gameState.trackTemp} // <--- AJOUTER CECI
                                 trackWetness={gameState.trackWetness}
                                 weatherForecast={gameState.weatherForecast}
                                 targetFuelCons={strategyData.targetFuelCons}

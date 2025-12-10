@@ -53,6 +53,7 @@ interface TelemetryViewProps {
     avgLapTimeSeconds: number;
     weather: string;
     airTemp: number;
+    trackTemp: number; // AJOUT DE LA TEMP PISTE
     trackWetness: number;
 
     // Cibles (Targets)
@@ -67,7 +68,7 @@ interface TelemetryViewProps {
 
 const TelemetryView: React.FC<TelemetryViewProps> = ({
                                                          telemetryData, isHypercar, isLMGT3, position,
-                                                         weather, airTemp, trackWetness,
+                                                         weather, airTemp, trackTemp, trackWetness,
                                                          targetFuelCons, targetVECons, onSetFuelTarget, onSetVETarget,
                                                          weatherForecast
                                                      }) => {
@@ -152,7 +153,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
     return (
         <div className="h-full w-full bg-[#050a10] p-4 flex flex-col gap-4 overflow-hidden font-display">
 
-            {/* HEADER */}
+            {/* HEADER CORRIGÉ */}
             <div className="bg-slate-900/60 border border-white/10 rounded-xl p-3 flex items-center justify-between shrink-0 shadow-lg">
                 <div className="flex items-center gap-6">
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5">
@@ -160,8 +161,16 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                         <span className="text-xs font-bold text-slate-200 tracking-wide">{weather}</span>
                     </div>
                     <div className="flex gap-4 text-xs">
-                        <div><span className="text-slate-500 font-bold">AIR</span> <span className="text-white">{Math.round(airTemp)}°C</span></div>
-                        <div><span className="text-slate-500 font-bold">TRACK</span> <span className="text-blue-300">{trackWetness}%</span></div>
+                        {/* TEMPERATURE AIR */}
+                        <div><span className="text-slate-500 font-bold">AIR</span> <span className="text-white font-mono ml-1">{Math.round(airTemp)}°C</span></div>
+
+                        {/* TEMPERATURE PISTE (AJOUTÉ) */}
+                        <div><span className="text-slate-500 font-bold">TRACK</span> <span className="text-amber-500 font-mono ml-1">{Math.round(trackTemp)}°C</span></div>
+
+                        {/* HUMIDITÉ PISTE (Seulement si > 0) */}
+                        {trackWetness > 0.5 && (
+                            <div><span className="text-blue-400 font-bold">WET</span> <span className="text-blue-200 font-mono ml-1">{Math.round(trackWetness)}%</span></div>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-6">
@@ -169,7 +178,8 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                         <div className="text-[9px] text-slate-500 font-bold uppercase">Moyenne LapTime</div>
                         <div className="font-mono text-xl font-bold text-white">{moyLap}</div>
                     </div>
-                    <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center text-2xl font-black text-white italic">{position}</div>
+                    {/* POSITION DE CLASSE */}
+                    <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center text-2xl font-black text-white italic">P{position}</div>
                 </div>
             </div>
 

@@ -60,6 +60,7 @@ export interface TelemetryData {
     tirePressures: { fl: number; fr: number; rl: number; rr: number };
     tireTemps: { fl: number[]; fr: number[]; rl: number[]; rr: number[] };
     brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
+    // CORRECTION TYPE: Ajout de compounds
     tireCompounds: { fl: string; fr: string; rl: string; rr: string };
     leaderLaps?: number;
     leaderAvgLapTime?: number;
@@ -73,7 +74,6 @@ export interface TelemetryData {
     isOverheating: boolean;
 }
 
-// Configuration manuelle d'un relais (Éditeur Stratégie)
 export interface StintConfig {
     driverId?: number | string;
     tyres?: string;
@@ -87,7 +87,7 @@ export interface Stint {
     startLap: number;
     endLap: number;
     fuel: string;
-    tyres?: string; // Ajout
+    tyres?: string;
     driver: Driver;
     driverId: number | string;
     isCurrent: boolean;
@@ -120,6 +120,8 @@ export interface StrategyData {
 export interface RawVehicle {
     id?: number;
     driver?: string;
+    // CORRECTION TYPE: Ajout de name
+    name?: string;
     vehicle?: string;
     class?: string;
     position?: number;
@@ -137,7 +139,8 @@ export interface RawVehicle {
     status?: number;
     x?: number;
     z?: number;
-    // Champs calculés
+    // CORRECTION TYPE: Ajout de classPosition
+    classPosition?: number;
     stint_laps?: number;
     last_pit_lap?: number;
     predicted_pit_lap?: number;
@@ -163,18 +166,14 @@ export interface GameState {
     trackName: string;
     sessionType: string;
     weather: string;
-    scActive: boolean;   // Safety Car
-    yellowFlag: boolean; // Drapeau Jaune
+    scActive: boolean;
+    yellowFlag: boolean;
     isRain: boolean;
     trackMap: MapPoint[];
-    // Données riches
     weatherForecast: WeatherNode[];
     allVehicles: RawVehicle[];
     lapHistory: LapData[];
-
-    // Configuration Stratégie
     stintConfig: Record<string, StintConfig>;
-
     airTemp: number;
     trackTemp: number;
     trackWetness: number;
@@ -189,13 +188,12 @@ export interface GameState {
     incidents: Incident[];
     chatMessages: ChatMessage[];
     stintNotes: Record<string, string | number>;
-    stintAssignments: Record<string, number | string>; // Legacy, gardé pour compatibilité
+    stintAssignments: Record<string, number | string>;
     position: number;
     telemetry: TelemetryData;
-
-    // Timers
     lastDriverSwapTime?: number;
 }
+
 export interface MapPoint {
     x: number;
     z: number;
@@ -230,21 +228,29 @@ export interface RawTelemetry {
     fuel?: number;
     fuelCapacity?: number;
     electric?: Record<string, number> | undefined;
-    tires?: { wear?: number[]; press?: number[]; temp?: Record<string, number[]>; brake_temp?: number[] };
+    tires?: {
+        wear?: number[];
+        press?: number[];
+        temp?: Record<string, number[]>;
+        brake_temp?: number[];
+        // CORRECTION TYPE
+        compounds?: { fl: string; fr: string; rl: string; rr: string };
+    };
     virtual_energy?: number;
 }
 
 export interface RawScoring {
     time?: { end?: number; current?: number; session?: string };
+    flags?: { yellow_global?: number };
     vehicles?: RawVehicle[];
-    vehicle_data?: { in_pits?: boolean; last_lap?: number; best_lap?: number; position?: number };
+    vehicle_data?: { in_pits?: boolean; last_lap?: number; best_lap?: number; position?: number; classPosition?: number };
     track?: string;
     weather?: { wetness_path?: number[] };
 }
 
 export interface RawPit { strategy?: { time_min?: number; fuel_to_add?: number; laps_to_add?: number } }
 export interface RawWeather { rain_intensity?: number; cloudiness?: number; ambient_temp?: number }
-export interface RawRules { my_status?: { pits_open?: boolean } }
+export interface RawRules { sc?: { active?: number }; my_status?: { pits_open?: boolean } }
 export interface RawExtended { pit_limit?: number }
 
 export interface RawDoc extends Partial<GameState> {
