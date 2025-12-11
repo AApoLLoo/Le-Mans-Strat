@@ -2,15 +2,16 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type {
     GameState, StrategyData, TelemetryData, LapData, MapPoint,
-    RawTelemetry, RawScoring, RawPit, RawWeather, RawRules, RawExtended
+    RawTelemetry, RawScoring, RawPit, RawWeather, RawRules, RawExtended, ChatMessage
 } from '../types';
 import { getSafeDriver } from '../utils/helpers';
 
-// Adresse de votre VPS OVH
+// Adresse de ton VPS OVH
 const VPS_URL = "http://51.178.87.25:5000";
 
 export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId;
+    // On garde un ID de chat, mais la logique passera par Socket.IO
     const CHAT_ID = "global-radio";
 
     const [manualFuelTarget, setManualFuelTarget] = useState<number | null>(null);
@@ -49,7 +50,7 @@ export const useRaceData = (teamId: string) => {
         drivers: [{id: 1, name: "Driver 1", color: '#3b82f6'}],
         activeDriverId: 1,
         incidents: [],
-        chatMessages: [],
+        chatMessages: [], // Le chat sera rempli via Socket
         stintNotes: {},
         stintAssignments: {},
         position: 0,
@@ -79,7 +80,6 @@ export const useRaceData = (teamId: string) => {
     const lastProcessedLapRef = useRef<number>(-1);
     const prevStatusRef = useRef({ inPit: false, sc: false, yellow: false, rain: false });
 
-    // Référence pour garder la socket active
     const socketRef = useRef<Socket | null>(null);
 
     const tId = teamId.toLowerCase();
@@ -88,12 +88,9 @@ export const useRaceData = (teamId: string) => {
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms');
 
-    // --- FONCTION DE SYNCHRONISATION (VERS LE VPS) ---
+    // --- ENVOI DE MISES À JOUR AU VPS ---
     const syncUpdate = useCallback((changes: Partial<GameState>) => {
-        // 1. Mise à jour locale immédiate (Optimistic UI)
         setGameState(prev => ({ ...prev, ...changes }));
-
-        // 2. Envoi au VPS pour sauvegarde DB et diffusion aux autres
         if (socketRef.current && socketRef.current.connected) {
             socketRef.current.emit('update_strategy', {
                 teamId: SESSION_ID,
@@ -102,7 +99,23 @@ export const useRaceData = (teamId: string) => {
         }
     }, [SESSION_ID]);
 
-    // --- LOGIQUE DE TRAITEMENT DES DONNÉES ---
+    // --- ENVOI DE MESSAGE CHAT (Nouveau) ---
+    const sendMessage = useCallback((message: ChatMessage) => {
+        // Optimistic UI update
+        setGameState(prev => ({
+            ...prev,
+            chatMessages: [...prev.chatMessages, message]
+        }));
+
+        if (socketRef.current && socketRef.current.connected) {
+            socketRef.current.emit('send_chat_message', {
+                teamId: SESSION_ID,
+                message: message
+            });
+        }
+    }, [SESSION_ID]);
+
+    // --- LOGIQUE DE TRAITEMENT DES DONNÉES (SÉCURISÉE) ---
     const processGameUpdate = useCallback((prev: GameState, docData: Partial<GameState> & Record<string, unknown>): GameState => {
         const tele = (docData.telemetry || {}) as RawTelemetry;
         const scoring = (docData.scoring || {}) as RawScoring;
@@ -111,19 +124,50 @@ export const useRaceData = (teamId: string) => {
         const rules = (docData.rules || {}) as RawRules;
         const extended = (docData.extended || {}) as RawExtended;
 
-        // --- CORRECTION 1 : TEMPS RESTANT ---
+        // Gestion du temps
         let sessionTimeRem = Number(docData.sessionTimeRemainingSeconds);
-        // Fallback si la donnée n'est pas présente (ex: pas encore envoyée par le Python)
         if ((sessionTimeRem === undefined || isNaN(sessionTimeRem)) && scoring.time) {
             sessionTimeRem = Number((scoring.time.end ?? 0) - (scoring.time.current ?? 0));
         }
-        if (sessionTimeRem < 0) sessionTimeRem = 0;
+        if (sessionTimeRem === undefined || isNaN(sessionTimeRem)) {
+            sessionTimeRem = prev.sessionTimeRemaining;
+        }
 
-        const tireWear = tele.tires?.wear || [0,0,0,0];
-        const tirePress = tele.tires?.press || [0,0,0,0];
-        const tTemps = tele.tires?.temp || {};
+        // --- PNEUS : Persistance ---
+        const rawWear = tele.tires?.wear;
+        const rawPress = tele.tires?.press;
+        const rawTemp = tele.tires?.temp;
+        const rawBrakeTemp = tele.tires?.brake_temp;
+        const rawCompounds = tele.tires?.compounds;
+
+        const newTires = {
+            fl: rawWear && rawWear[0] !== undefined ? rawWear[0] * 100 : prev.telemetry.tires.fl,
+            fr: rawWear && rawWear[1] !== undefined ? rawWear[1] * 100 : prev.telemetry.tires.fr,
+            rl: rawWear && rawWear[2] !== undefined ? rawWear[2] * 100 : prev.telemetry.tires.rl,
+            rr: rawWear && rawWear[3] !== undefined ? rawWear[3] * 100 : prev.telemetry.tires.rr
+        };
+
+        const newPressures = {
+            fl: rawPress && rawPress[0] !== undefined ? rawPress[0] : prev.telemetry.tirePressures.fl,
+            fr: rawPress && rawPress[1] !== undefined ? rawPress[1] : prev.telemetry.tirePressures.fr,
+            rl: rawPress && rawPress[2] !== undefined ? rawPress[2] : prev.telemetry.tirePressures.rl,
+            rr: rawPress && rawPress[3] !== undefined ? rawPress[3] : prev.telemetry.tirePressures.rr
+        };
+
         const elec = tele.electric || {};
 
+        // --- MÉTÉO ---
+        let isRain = prev.isRain;
+        let weatherStatus = prev.weather;
+        if (weather.rain_intensity !== undefined) {
+            const rainVal = Number(weather.rain_intensity);
+            isRain = rainVal > 0.05;
+            if (isRain) weatherStatus = "RAIN";
+            else if ((weather.cloudiness ?? 0) > 0.5) weatherStatus = "CLOUDY";
+            else weatherStatus = "SUNNY";
+        }
+
+        // --- DATA LEADER ---
         let lLaps = prev.telemetry.leaderLaps;
         let lAvg = prev.telemetry.leaderAvgLapTime;
         if (Array.isArray(scoring.vehicles)) {
@@ -134,6 +178,10 @@ export const useRaceData = (teamId: string) => {
             }
         }
 
+        const vehicleData = scoring.vehicle_data || {};
+        const myPosition = Number(vehicleData.classPosition || vehicleData.position || prev.telemetry.position);
+
+        // --- VIRTUAL ENERGY ---
         const rawVE = tele.virtual_energy;
         let currentVEValue = 0;
         if (rawVE !== undefined && rawVE !== null) {
@@ -142,51 +190,27 @@ export const useRaceData = (teamId: string) => {
             currentVEValue = Number(elec['charge'] || 0) * 100;
         }
 
-        const scActive = Boolean(rules.sc?.active);
-        const yellowFlag = Boolean(scoring.flags?.yellow_global);
-
-        // --- CORRECTION 2 : MÉTÉO ---
-        let isRain = prev.isRain;
-        let weatherStatus = prev.weather;
-
-        if (weather.rain_intensity !== undefined) {
-            const rainVal = Number(weather.rain_intensity);
-            isRain = rainVal > 0.05;
-
-            if (isRain) weatherStatus = "RAIN";
-            else if ((weather.cloudiness ?? 0) > 0.5) weatherStatus = "CLOUDY";
-            else weatherStatus = "SUNNY";
-        }
-
-        // --- CORRECTION 3 : POSITION ---
-        const vehicleData = scoring.vehicle_data || {};
-        // On utilise classPosition si dispo (envoyé par Python), sinon position générale
-        const myPosition = Number(vehicleData.classPosition || vehicleData.position || prev.telemetry.position);
-
-        // Détection si c'est un packet de télémétrie ou juste une update de strat
-        const hasNewTelemetry = tele.speed !== undefined || scoring.vehicle_data !== undefined;
-
-        const newTelemetry: TelemetryData = hasNewTelemetry ? {
+        const newTelemetry: TelemetryData = {
             ...prev.telemetry,
             laps: Number(tele.laps || scoring.vehicle_data?.laps || prev.telemetry.laps),
             curLap: Number(tele.times?.current || prev.telemetry.curLap),
             lastLap: Number(scoring.vehicle_data?.last_lap || prev.telemetry.lastLap),
             bestLap: Number(scoring.vehicle_data?.best_lap || prev.telemetry.bestLap),
             position: myPosition,
-            speed: Number(tele.speed || prev.telemetry.speed),
-            rpm: Number(tele.rpm || prev.telemetry.rpm),
+            speed: tele.speed !== undefined ? Number(tele.speed) : prev.telemetry.speed,
+            rpm: tele.rpm !== undefined ? Number(tele.rpm) : prev.telemetry.rpm,
             maxRpm: 8000,
-            gear: Number(tele.gear !== undefined ? tele.gear : prev.telemetry.gear),
+            gear: tele.gear !== undefined ? Number(tele.gear) : prev.telemetry.gear,
             carCategory: (Array.isArray(scoring.vehicles) ? scoring.vehicles[0]?.class : undefined) || prev.telemetry.carCategory,
-            throttle: Number(tele.inputs?.thr !== undefined ? tele.inputs.thr : prev.telemetry.throttle),
-            brake: Number(tele.inputs?.brk !== undefined ? tele.inputs.brk : prev.telemetry.brake),
-            clutch: Number(tele.inputs?.clt !== undefined ? tele.inputs.clt : prev.telemetry.clutch),
-            steering: Number(tele.inputs?.str !== undefined ? tele.inputs.str : prev.telemetry.steering),
-            waterTemp: Number(tele.temps?.water || prev.telemetry.waterTemp),
-            oilTemp: Number(tele.temps?.oil || prev.telemetry.oilTemp),
+            throttle: tele.inputs?.thr !== undefined ? Number(tele.inputs.thr) : prev.telemetry.throttle,
+            brake: tele.inputs?.brk !== undefined ? Number(tele.inputs.brk) : prev.telemetry.brake,
+            clutch: tele.inputs?.clt !== undefined ? Number(tele.inputs.clt) : prev.telemetry.clutch,
+            steering: tele.inputs?.str !== undefined ? Number(tele.inputs.str) : prev.telemetry.steering,
+            waterTemp: tele.temps?.water !== undefined ? Number(tele.temps.water) : prev.telemetry.waterTemp,
+            oilTemp: tele.temps?.oil !== undefined ? Number(tele.temps.oil) : prev.telemetry.oilTemp,
             fuel: {
-                current: Number(tele.fuel || prev.telemetry.fuel.current),
-                max: Number(tele.fuelCapacity || prev.telemetry.fuel.max),
+                current: tele.fuel !== undefined ? Number(tele.fuel) : prev.telemetry.fuel.current,
+                max: tele.fuelCapacity !== undefined ? Number(tele.fuelCapacity) : prev.telemetry.fuel.max,
                 lastLapCons: Number(docData.lastLapFuelConsumption || prev.telemetry.fuel.lastLapCons),
                 averageCons: Number(docData.averageConsumptionFuel || prev.fuelCons)
             },
@@ -204,28 +228,21 @@ export const useRaceData = (teamId: string) => {
                 waterTemp: Number(elec['temp_water'] || prev.telemetry.electric.waterTemp),
                 state: Number(elec['state'] || prev.telemetry.electric.state)
             },
-            tires: {
-                fl: (tireWear[0] !== undefined ? tireWear[0]*100 : prev.telemetry.tires.fl),
-                fr: (tireWear[1] !== undefined ? tireWear[1]*100 : prev.telemetry.tires.fr),
-                rl: (tireWear[2] !== undefined ? tireWear[2]*100 : prev.telemetry.tires.rl),
-                rr: (tireWear[3] !== undefined ? tireWear[3]*100 : prev.telemetry.tires.rr)
+            tires: newTires,
+            tirePressures: newPressures,
+            tireTemps: {
+                fl: rawTemp?.fl || prev.telemetry.tireTemps.fl,
+                fr: rawTemp?.fr || prev.telemetry.tireTemps.fr,
+                rl: rawTemp?.rl || prev.telemetry.tireTemps.rl,
+                rr: rawTemp?.rr || prev.telemetry.tireTemps.rr
             },
-            tirePressures: {
-                fl: Number(tirePress[0]||prev.telemetry.tirePressures.fl),
-                fr: Number(tirePress[1]||prev.telemetry.tirePressures.fr),
-                rl: Number(tirePress[2]||prev.telemetry.tirePressures.rl),
-                rr: Number(tirePress[3]||prev.telemetry.tirePressures.rr)
-            },
-            tireTemps: { fl: tTemps.fl || prev.telemetry.tireTemps.fl, fr: tTemps.fr || prev.telemetry.tireTemps.fr, rl: tTemps.rl || prev.telemetry.tireTemps.rl, rr: tTemps.rr || prev.telemetry.tireTemps.rr },
             brakeTemps: {
-                flc: Number(tele.tires?.brake_temp?.[0]||prev.telemetry.brakeTemps.flc),
-                frc: Number(tele.tires?.brake_temp?.[1]||prev.telemetry.brakeTemps.frc),
-                rlc: Number(tele.tires?.brake_temp?.[2]||prev.telemetry.brakeTemps.rlc),
-                rrc: Number(tele.tires?.brake_temp?.[3]||prev.telemetry.brakeTemps.rrc)
+                flc: rawBrakeTemp && rawBrakeTemp[0] !== undefined ? rawBrakeTemp[0] : prev.telemetry.brakeTemps.flc,
+                frc: rawBrakeTemp && rawBrakeTemp[1] !== undefined ? rawBrakeTemp[1] : prev.telemetry.brakeTemps.frc,
+                rlc: rawBrakeTemp && rawBrakeTemp[2] !== undefined ? rawBrakeTemp[2] : prev.telemetry.brakeTemps.rlc,
+                rrc: rawBrakeTemp && rawBrakeTemp[3] !== undefined ? rawBrakeTemp[3] : prev.telemetry.brakeTemps.rrc
             },
-            // Gestion des composés pneus
-            tireCompounds: tele.tires?.compounds || prev.telemetry.tireCompounds || { fl: "---", fr: "---", rl: "---", rr: "---" },
-
+            tireCompounds: rawCompounds || prev.telemetry.tireCompounds,
             leaderLaps: lLaps, leaderAvgLapTime: lAvg,
             strategyEstPitTime: Number(pit.strategy?.time_min || prev.telemetry.strategyEstPitTime),
             strategyPitFuel: Number(pit.strategy?.fuel_to_add || prev.telemetry.strategyPitFuel),
@@ -233,33 +250,36 @@ export const useRaceData = (teamId: string) => {
             inPitLane: Boolean(scoring.vehicle_data?.in_pits ?? prev.telemetry.inPitLane),
             inGarage: (rules.my_status?.pits_open === false),
             pitLimiter: (extended.pit_limit ?? 0) > 0,
-        } : prev.telemetry;
+        };
+
+        const scActive = Boolean(rules.sc?.active);
+        const yellowFlag = Boolean(scoring.flags?.yellow_global);
+        const newForecast = (docData.weatherForecast as any[]) || prev.weatherForecast || [];
 
         return {
             ...prev,
             ...docData,
-
-            weatherForecast: (docData.weatherForecast as any[]) || prev.weatherForecast || [],
+            weatherForecast: newForecast,
             allVehicles: (scoring.vehicles as import('../types').RawVehicle[]) || prev.allVehicles || [],
             lapHistory: (docData.lapHistory as LapData[]) || prev.lapHistory || [],
             stintConfig: (docData.stintConfig as Record<string, import('../types').StintConfig>) || prev.stintConfig || {},
             stintNotes: (docData.stintNotes as Record<string, string>) || prev.stintNotes || {},
             trackMap: (docData.trackMap as MapPoint[]) || prev.trackMap || [],
+            // On s'assure que les messages du chat arrivent aussi par ici s'ils sont dans le payload global
+            chatMessages: (docData.chatMessages as ChatMessage[]) || prev.chatMessages || [],
 
             scActive: rules.sc ? scActive : prev.scActive,
             yellowFlag: scoring.flags ? yellowFlag : prev.yellowFlag,
             isRain: weather.rain_intensity ? isRain : prev.isRain,
-
             isRaceRunning: scoring.time ? Boolean((scoring.time?.current ?? 0) > 0) : prev.isRaceRunning,
             trackName: scoring.track || prev.trackName,
             sessionType: scoring.time ? String(scoring.time?.session || "") : prev.sessionType,
             sessionTimeRemaining: sessionTimeRem,
             weather: weatherStatus,
             airTemp: (weather.ambient_temp ?? prev.airTemp),
-            trackTemp: (scoring.weather?.track_temp ?? prev.trackTemp), // <--- AJOUT TEMP PISTE
+            trackTemp: (scoring.weather?.track_temp ?? prev.trackTemp),
             trackWetness: scoring.weather ? ((scoring.weather?.wetness_path?.[1] ?? 0) * 100) : prev.trackWetness,
             rainIntensity: (weather.rain_intensity ?? prev.rainIntensity),
-
             telemetry: newTelemetry,
             drivers: docData.drivers || prev.drivers
         };
@@ -285,12 +305,22 @@ export const useRaceData = (teamId: string) => {
             setStatus("RECONNECTING...");
         });
 
+        // Réception des updates de course globales
         socket.on('race_update', (data) => {
             setGameState(prev => processGameUpdate(prev, data));
         });
 
+        // Réception des updates de stratégie
         socket.on('strategy_update', (changes) => {
             setGameState(prev => processGameUpdate(prev, changes));
+        });
+
+        // Réception spécifique du Chat (si le VPS envoie un event dédié)
+        socket.on('chat_message', (msg) => {
+            setGameState(prev => ({
+                ...prev,
+                chatMessages: [...prev.chatMessages, msg]
+            }));
         });
 
         return () => {
@@ -317,11 +347,7 @@ export const useRaceData = (teamId: string) => {
                 compound: gameState.telemetry.tireCompounds.fl
             };
             const newHistory = [...gameState.lapHistory, lastLapData];
-
-            // CORRECTION ESLINT : On sort du cycle synchrone
-            setTimeout(() => {
-                syncUpdate({ lapHistory: newHistory });
-            }, 0);
+            setTimeout(() => { syncUpdate({ lapHistory: newHistory }); }, 0);
         }
         if (currentLap > 0) lastProcessedLapRef.current = currentLap;
     }, [gameState.telemetry.laps]);
@@ -343,11 +369,7 @@ export const useRaceData = (teamId: string) => {
 
         if (newIncidents.length > 0) {
             const updatedIncidents = [...newIncidents, ...gameState.incidents].slice(0, 50);
-
-            // CORRECTION ESLINT
-            setTimeout(() => {
-                syncUpdate({ incidents: updatedIncidents });
-            }, 0);
+            setTimeout(() => { syncUpdate({ incidents: updatedIncidents }); }, 0);
         }
         prevStatusRef.current = current;
     }, [gameState.telemetry.inPitLane, gameState.scActive, gameState.yellowFlag, gameState.isRain, gameState.isRaceRunning]);
@@ -386,7 +408,7 @@ export const useRaceData = (teamId: string) => {
         if (points.length > 50) { syncUpdate({ trackMap: points }); }
     }, [SESSION_ID]);
 
-    // --- CALCULATEUR STRATÉGIQUE ---
+    // --- CALCULATEUR STRATÉGIQUE (Identique) ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
         let totalLapsTarget = 300;
@@ -511,6 +533,7 @@ export const useRaceData = (teamId: string) => {
     return {
         gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData,
         confirmPitStop, undoPitStop, resetRace, CHAT_ID, isHypercar, isLMGT3, isLMP3, isLMP2ELMS,
-        setManualFuelTarget, setManualVETarget, updateStintConfig, saveTrackMap
+        setManualFuelTarget, setManualVETarget, updateStintConfig, saveTrackMap,
+        sendMessage // Nouvelle fonction exposée
     };
 };

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { Settings, Home, Wifi, Flag, Clock, RotateCcw, ArrowRight, AlertTriangle, Plus} from 'lucide-react';
-import { supabase } from './lib/supabaseClient.ts';
+// Suppression de l'import Supabase
+// import { supabase } from './lib/supabaseClient.ts';
 
 import StrategyView from './components/views/StrategyView';
 import MapView from './components/views/MapView';
@@ -40,16 +41,16 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
     const {
         gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData,
         confirmPitStop, undoPitStop, resetRace,
-        CHAT_ID, isHypercar, isLMGT3,
+        isHypercar, isLMGT3,
         setManualFuelTarget, setManualVETarget,
-        updateStintConfig // Pour l'éditeur de stratégie
+        updateStintConfig,
+        sendMessage: sendToVPS // On récupère la fonction du hook
     } = useRaceData(teamId);
 
     const [viewMode, setViewMode] = useState("STRATEGY");
     const [showSettings, setShowSettings] = useState(false);
     const [chatInput, setChatInput] = useState("");
     const [username, setUsername] = useState("Engineer");
-    const [globalMessages] = useState<import('./types').ChatMessage[]>([]);
 
     const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
     const nextStint = strategyData?.stints?.find(s => s.isNext);
@@ -60,7 +61,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
         navigate('/');
     };
 
-    const sendMessage = () => {
+    const handleSendMessage = () => {
         if (!chatInput.trim()) return;
         const newMessage = {
             id: Date.now(),
@@ -72,17 +73,9 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
             time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
         };
 
-        (async () => {
-            try {
-                const { error } = await supabase.rpc('append_message', { p_id: CHAT_ID, p_msg: newMessage });
-                if (error) {
-                    const { data: row } = await supabase.from('strategies').select('messages').eq('id', CHAT_ID).maybeSingle();
-                    const msgs = (Array.isArray(row?.messages) ? row?.messages : []) as import('./types').ChatMessage[];
-                    await supabase.from('strategies').update({ messages: [...msgs, newMessage] }).eq('id', CHAT_ID);
-                }
-            } catch (e) { console.error(e); }
-            setChatInput("");
-        })();
+        // Envoi via le hook (Socket.IO)
+        sendToVPS(newMessage);
+        setChatInput("");
     };
 
     const addIncident = () => {
@@ -170,7 +163,6 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                                     {formatTime(localStintTime)}
                                 </div>
                             </div>
-                            {/* Affichage du temps total si disponible (supposons que vous l'ayez ajouté aux drivers) */}
                             <div className="bg-slate-800/50 border border-white/5 rounded p-2">
                                 <div className="text-[9px] text-slate-400 font-bold uppercase flex items-center gap-1">
                                     <Clock size={10}/> Total Drive
@@ -267,7 +259,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                                 avgLapTimeSeconds={gameState.avgLapTimeSeconds}
                                 weather={gameState.weather}
                                 airTemp={gameState.airTemp}
-                                trackTemp={gameState.trackTemp} // <--- AJOUTER CECI
+                                trackTemp={gameState.trackTemp}
                                 trackWetness={gameState.trackWetness}
                                 weatherForecast={gameState.weatherForecast}
                                 targetFuelCons={strategyData.targetFuelCons}
@@ -277,15 +269,15 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                             />
                         )}
                         {viewMode === "MAP" && <MapView vehicles={gameState.allVehicles} myCarId={gameState.telemetry.position} savedMap={gameState.trackMap} onSaveMap={useRaceData(teamId).saveTrackMap} />}
-                        {viewMode === "ANALYSIS" && <AnalysisView history={gameState.lapHistory} />}
+                        {viewMode === "ANALYSIS" && <AnalysisView />}
                         {viewMode === "CHAT" && (
                             <ChatView
-                                messages={globalMessages}
+                                messages={gameState.chatMessages} // Utilisation du state global
                                 username={username}
                                 setUsername={setUsername}
                                 chatInput={chatInput}
                                 setChatInput={setChatInput}
-                                onSendMessage={sendMessage}
+                                onSendMessage={handleSendMessage}
                             />
                         )}
                     </div>
