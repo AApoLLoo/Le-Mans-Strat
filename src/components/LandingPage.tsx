@@ -4,7 +4,7 @@ import { Clock, Plus, Users, X, Trash2, Car, User, RefreshCw } from 'lucide-reac
 import type { GameState, Driver } from '../types';
 
 // URL DE VOTRE VPS
-const VPS_API_URL = "http://51.178.87.25:5000";
+const VPS_API_URL = "https://enarthrodial-unpermanently-fausto.ngrok-free.dev";
 
 const CATEGORIES = ["Hypercar", "LMP2", "LMP2 (ELMS)", "LMP3", "GT3"];
 
@@ -84,15 +84,24 @@ const LandingPage = () => {
     const fetchSessions = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${VPS_API_URL}/api/sessions`); // Route supposée sur votre VPS
-            if(!res.ok) throw new Error("VPS unreachable");
+            const res = await fetch(`${VPS_API_URL}/api/sessions`, {
+                headers: {
+                    "ngrok-skip-browser-warning": "true"
+                }
+            });
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                const text = await res.text(); // Pour voir ce que c'est (probablement du HTML)
+                console.error("Réponse non-JSON reçue:", text.slice(0, 100));
+                throw new Error("Le serveur a renvoyé du HTML (Erreur Ngrok ?)");
+            }
+            if(!res.ok) throw new Error("Erreur VPS");
             const data = await res.json();
             setSessions(data);
             setError(null);
-        } catch (e) {
+        } catch (e: any) {
             console.error("Erreur chargement sessions:", e);
-            setError("Impossible de contacter le serveur.");
-            // Fallback vide si échec
+            setError(e.message);
             setSessions([]);
         } finally {
             setLoading(false);
@@ -114,11 +123,13 @@ const LandingPage = () => {
     const handleCreateSession = async (name: string, category: string, drivers: Driver[]) => {
         const teamId = name.replace(/\s+/g, '-').toLowerCase();
         const payload = { id: teamId, carCategory: category, drivers, activeDriverId: drivers[0]?.id };
-
         try {
             const res = await fetch(`${VPS_API_URL}/api/sessions`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    "ngrok-skip-browser-warning": "true" // <--- AJOUTER ICI AUSSI
+                },
                 body: JSON.stringify(payload)
             });
             if (res.ok) {
@@ -135,7 +146,10 @@ const LandingPage = () => {
         e.stopPropagation();
         if (window.confirm(`Delete Line Up "${teamId.toUpperCase()}"?`)) {
             try {
-                await fetch(`${VPS_API_URL}/api/sessions/${teamId}`, { method: 'DELETE' });
+                await fetch(`${VPS_API_URL}/api/sessions/${teamId}`, {
+                    method: 'DELETE',
+                    headers: { "ngrok-skip-browser-warning": "true" }
+                });
                 fetchSessions(); // Refresh liste
             } catch (err) {
                 alert("Erreur suppression: " + err);
