@@ -1,198 +1,242 @@
-import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, CartesianGrid } from 'recharts';
-import { Database } from 'lucide-react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import {
+    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    AreaChart, Area
+} from 'recharts';
+import { Clock, Fuel, Activity, ArrowLeft, Database, Search } from 'lucide-react';
 
-// --- CONFIGURATION API VPS ---
-// On utilise l'URL du VPS définie dans votre useRaceData
-const API_BASE_URL = "http://51.178.87.25:5000";
+const VPS_API_URL = "http://51.178.87.25:5000";
 
-// Types
-interface TelemetrySession {
-    id: string;
-    created_at: string;
-    track_name: string;
-    driver_name: string;
-    team_id: string;
-}
+const AnalysisView = () => {
+    // États pour la sélection
+    const [availableSessions, setAvailableSessions] = useState<any[]>([]);
+    const [selectedSessionId, setSelectedSessionId] = useState<string>("");
 
-interface TelemetryLap {
-    id: string;
-    lap_number: number;
-    lap_time: number;
-    samples: { d: number, s: number, t: number, b: number, r: number, g: number, w: number }[];
-}
-
-const DetailedAnalysis = () => {
-    const [sessions, setSessions] = useState<TelemetrySession[]>([]);
-    const [selectedSession, setSelectedSession] = useState<string | null>(null);
-    const [laps, setLaps] = useState<TelemetryLap[]>([]);
-    const [selectedLap, setSelectedLap] = useState<TelemetryLap | null>(null);
+    // États pour les données
+    const [lapsList, setLapsList] = useState<any[]>([]); // Liste des tours (sans télémétrie)
+    const [selectedLapNum, setSelectedLapNum] = useState<number | null>(null);
+    const [telemetryData, setTelemetryData] = useState<any[]>([]); // Données détaillées du tour choisi
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
-    // 1. Charger la liste des sessions depuis le VPS
+    // 1. AU CHARGEMENT : Récupérer la liste des sessions disponibles sur le VPS
     useEffect(() => {
         const fetchSessions = async () => {
             try {
-                // Adaptez cette route si votre backend utilise un chemin différent
-                const res = await fetch(`${API_BASE_URL}/api/history/sessions`);
-                if (!res.ok) throw new Error("Erreur chargement sessions");
-                const data = await res.json();
-                setSessions(data);
-            } catch (err) {
-                console.error("Erreur API:", err);
-                setError("Impossible de charger les sessions (VPS non joignable ?)");
+                const res = await fetch(`${VPS_API_URL}/api/analysis/sessions`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setAvailableSessions(data);
+
+                    // Si on a déjà un ID dans l'URL ou localStorage, on le pré-sélectionne
+                    const storedId = localStorage.getItem('teamId');
+                    if (storedId && data.some((s:any) => s.session_id === storedId)) {
+                        setSelectedSessionId(storedId);
+                    }
+                }
+            } catch (e) {
+                console.error("Erreur chargement liste sessions", e);
             }
         };
         fetchSessions();
     }, []);
 
-    // 2. Quand une session est choisie, charger les tours depuis le VPS
-    const handleSelectSession = async (sessionId: string) => {
-        setSelectedSession(sessionId);
+    // 2. QUAND ON CHANGE DE SESSION : Charger la liste des tours
+    useEffect(() => {
+        if (!selectedSessionId) return;
+
+        const fetchLaps = async () => {
+            setLoading(true);
+            setLapsList([]);
+            setTelemetryData([]);
+            setSelectedLapNum(null);
+
+            try {
+                const res = await fetch(`${VPS_API_URL}/api/analysis/sessions/${selectedSessionId}/laps`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setLapsList(data);
+                }
+            } catch (e) {
+                console.error("Erreur chargement tours", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchLaps();
+    }, [selectedSessionId]);
+
+    // 3. QUAND ON CLIQUE SUR UN TOUR : Charger la télémétrie détaillée
+    const loadLapTelemetry = async (lapNum: number) => {
+        if (selectedLapNum === lapNum) return;
+        setSelectedLapNum(lapNum);
         setLoading(true);
-        setSelectedLap(null);
+
         try {
-            const res = await fetch(`${API_BASE_URL}/api/history/sessions/${sessionId}/laps`);
-            if (!res.ok) throw new Error("Erreur chargement tours");
-            const data = await res.json();
-            // Tri par numéro de tour
-            setLaps(data.sort((a: any, b: any) => a.lap_number - b.lap_number));
-        } catch (err) {
-            console.error(err);
+            const res = await fetch(`${VPS_API_URL}/api/telemetry/${selectedSessionId}/${lapNum}`);
+            if (res.ok) {
+                const data = await res.json();
+                setTelemetryData(data);
+            } else {
+                setTelemetryData([]);
+            }
+        } catch (e) {
+            console.error(e);
         } finally {
             setLoading(false);
         }
     };
 
-    // Tooltip personnalisé pour afficher les valeurs précises
-    const CustomTooltip = ({ active, payload, label }: any) => {
-        if (active && payload && payload.length) {
-            return (
-                <div className="bg-slate-900 border border-slate-700 p-2 rounded shadow-xl text-xs">
-                    <p className="font-bold text-slate-300 mb-1">Dist: {label}m</p>
-                    {payload.map((p: any) => (
-                        <p key={p.name} style={{ color: p.color }}>
-                            {p.name}: {p.value}
-                        </p>
-                    ))}
-                </div>
-            );
-        }
-        return null;
+    const formatTime = (sec: number) => {
+        if (!sec) return "-";
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        const ms = Math.floor((sec - Math.floor(sec)) * 1000);
+        return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
     };
 
     return (
-        <div className="h-full flex flex-col bg-[#0b0f19] text-white overflow-hidden">
-            {/* --- HEADER SELECTEUR --- */}
-            <div className="h-16 border-b border-white/10 flex items-center px-4 gap-4 bg-slate-900">
-                <Database size={20} className="text-indigo-400" />
+        <div className="h-full flex flex-col bg-[#020408] text-white overflow-hidden">
 
-                {/* Selecteur Session */}
-                <select
-                    className="bg-slate-800 border border-slate-700 rounded p-2 text-xs w-64 text-white"
-                    onChange={(e) => handleSelectSession(e.target.value)}
-                >
-                    <option value="">-- Choisir une session --</option>
-                    {sessions.map(s => (
-                        <option key={s.id} value={s.id}>
-                            {new Date(s.created_at).toLocaleDateString()} - {s.track_name} ({s.driver_name})
-                        </option>
-                    ))}
-                </select>
+            {/* --- BARRE DU HAUT : SÉLECTEUR DE SESSION --- */}
+            <div className="h-16 bg-slate-900 border-b border-white/10 flex items-center px-6 gap-4 shrink-0">
+                <Link to="/" className="text-slate-400 hover:text-white"><ArrowLeft size={20}/></Link>
+                <div className="flex items-center gap-2 text-indigo-400 font-bold uppercase tracking-widest">
+                    <Database size={18}/> ANALYSIS CENTER
+                </div>
 
-                {/* Selecteur Tour */}
-                {selectedSession && (
+                <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
+
+                {/* Dropdown Session */}
+                <div className="relative group">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"/>
                     <select
-                        className="bg-slate-800 border border-slate-700 rounded p-2 text-xs w-32 text-white"
-                        onChange={(e) => {
-                            const lap = laps.find(l => l.id === e.target.value);
-                            setSelectedLap(lap || null);
-                        }}
-                        disabled={loading}
+                        className="bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:border-indigo-500 outline-none w-64 appearance-none cursor-pointer hover:bg-slate-700 transition-colors"
+                        value={selectedSessionId}
+                        onChange={(e) => setSelectedSessionId(e.target.value)}
                     >
-                        <option value="">-- Tour --</option>
-                        {laps.map(l => (
-                            <option key={l.id} value={l.id}>Tour {l.lap_number}</option>
+                        <option value="">-- SELECT SESSION --</option>
+                        {availableSessions.map((s: any) => (
+                            <option key={s.session_id} value={s.session_id}>
+                                {s.session_id.toUpperCase()} ({new Date(s.date).toLocaleDateString()})
+                            </option>
                         ))}
                     </select>
-                )}
+                </div>
 
-                {error && <span className="text-red-500 text-xs">{error}</span>}
-                {loading && <span className="text-yellow-500 text-xs animate-pulse">Chargement...</span>}
+                {selectedSessionId && (
+                    <div className="ml-auto text-xs font-mono text-slate-500">
+                        SESSION ID: <span className="text-white">{selectedSessionId}</span>
+                    </div>
+                )}
             </div>
 
-            {/* --- ZONE GRAPHIQUE --- */}
-            <div className="flex-1 p-4 overflow-y-auto">
-                {!selectedLap ? (
-                    <div className="h-full flex items-center justify-center text-slate-500 flex-col gap-2">
-                        <Database size={48} opacity={0.2} />
-                        <p>Sélectionnez une session et un tour pour afficher la télémétrie</p>
-                        <p className="text-xs text-slate-600">Source: VPS OVH ({API_BASE_URL})</p>
+            {/* --- CONTENU PRINCIPAL --- */}
+            <div className="flex-1 flex overflow-hidden">
+
+                {/* LISTE DES TOURS (Colonne Gauche) */}
+                <div className="w-64 bg-[#0f172a] border-r border-white/5 flex flex-col">
+                    <div className="p-4 border-b border-white/5">
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Laps ({lapsList.length})</h3>
                     </div>
-                ) : (
-                    <div className="flex flex-col gap-1 h-full">
-                        {/* GRAPHIQUE 1 : VITESSE & RPM & GEAR */}
-                        <div className="h-64 bg-slate-900/50 border border-white/5 rounded-lg p-2 flex flex-col relative group">
-                            <div className="absolute top-2 left-14 z-10 flex gap-4 text-[10px] font-bold bg-slate-900/80 p-1 rounded backdrop-blur-sm border border-white/10">
-                                <span className="text-blue-400">SPEED</span>
-                                <span className="text-yellow-500">RPM</span>
-                                <span className="text-purple-400">GEAR</span>
+                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                        {lapsList.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-slate-600 italic">Select a session to load laps</div>
+                        ) : (
+                            <div className="divide-y divide-slate-800">
+                                {lapsList.map((lap) => (
+                                    <button
+                                        key={lap.lap_number}
+                                        onClick={() => loadLapTelemetry(lap.lap_number)}
+                                        className={`w-full text-left p-3 hover:bg-white/5 transition-colors flex justify-between items-center group ${selectedLapNum === lap.lap_number ? 'bg-indigo-600/20 border-l-2 border-indigo-500' : 'border-l-2 border-transparent'}`}
+                                    >
+                                        <span className={`font-mono font-bold ${selectedLapNum === lap.lap_number ? 'text-white' : 'text-slate-400'}`}>
+                                            L{lap.lap_number}
+                                        </span>
+                                        <span className={`font-mono text-sm ${selectedLapNum === lap.lap_number ? 'text-indigo-300' : 'text-slate-500 group-hover:text-slate-300'}`}>
+                                            {formatTime(lap.lap_time)}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* VISUALISATION (Zone Centrale) */}
+                <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-[#020408]">
+                    {!selectedLapNum ? (
+                        <div className="h-full flex flex-col items-center justify-center text-slate-600">
+                            <Activity size={64} strokeWidth={1} className="mb-4 opacity-20"/>
+                            <p className="text-lg font-medium">No Lap Selected</p>
+                            <p className="text-sm">Select a lap from the list to view telemetry</p>
+                        </div>
+                    ) : loading ? (
+                        <div className="h-full flex items-center justify-center text-indigo-400 animate-pulse font-bold">
+                            LOADING DATA...
+                        </div>
+                    ) : telemetryData.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-red-400">
+                            No telemetry data points found for this lap.
+                        </div>
+                    ) : (
+                        <div className="space-y-6 max-w-5xl mx-auto">
+
+                            {/* GRAPHIQUE 1 : VITESSE & GEAR */}
+                            <div className="bg-[#1e293b] rounded-xl border border-slate-700 p-4 shadow-xl">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div> Speed & Gear
+                                    </h4>
+                                </div>
+                                <div className="h-[250px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={telemetryData}>
+                                            <defs>
+                                                <linearGradient id="colorSpeed" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} vertical={false}/>
+                                            <XAxis dataKey="d" type="number" unit="m" stroke="#64748b" tick={false} axisLine={false} />
+                                            <YAxis yAxisId="left" stroke="#3b82f6" domain={[0, 'auto']} width={40} tick={{fontSize: 10}} tickLine={false} axisLine={false}/>
+                                            <YAxis yAxisId="right" orientation="right" domain={[0, 8]} hide/>
+                                            <Tooltip contentStyle={{backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px'}} labelFormatter={(v)=>`${v.toFixed(0)}m`}/>
+                                            <Area yAxisId="left" type="monotone" dataKey="s" stroke="#3b82f6" fill="url(#colorSpeed)" strokeWidth={2} name="Speed" isAnimationActive={false}/>
+                                            <Line yAxisId="right" type="step" dataKey="g" stroke="#fbbf24" strokeWidth={2} dot={false} name="Gear" isAnimationActive={false}/>
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </div>
                             </div>
 
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={selectedLap.samples} syncId="motec" margin={{top: 20, right: 10, left: -20, bottom: 0}}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} vertical={false} />
-                                    <XAxis dataKey="d" type="number" hide />
+                            {/* GRAPHIQUE 2 : INPUTS */}
+                            <div className="bg-[#1e293b] rounded-xl border border-slate-700 p-4 shadow-xl">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                                        <div className="w-2 h-2 bg-green-500 rounded-full"></div> Throttle & Brake
+                                    </h4>
+                                </div>
+                                <div className="h-[200px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={telemetryData}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} vertical={false}/>
+                                            <XAxis dataKey="d" type="number" unit="m" stroke="#64748b" tick={{fontSize: 10}} tickLine={false} axisLine={false} />
+                                            <YAxis domain={[0, 100]} stroke="#94a3b8" width={40} tick={{fontSize: 10}} tickLine={false} axisLine={false}/>
+                                            <Tooltip contentStyle={{backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px'}} labelFormatter={(v)=>`${v.toFixed(0)}m`}/>
+                                            <Line type="monotone" dataKey="t" stroke="#22c55e" strokeWidth={2} dot={false} name="Throttle" isAnimationActive={false}/>
+                                            <Line type="monotone" dataKey="b" stroke="#ef4444" strokeWidth={2} dot={false} name="Brake" isAnimationActive={false}/>
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
 
-                                    {/* AXES Y SÉPARÉS */}
-                                    <YAxis yAxisId="left" domain={[0, 'auto']} hide />
-                                    <YAxis yAxisId="right" orientation="right" domain={[0, 'auto']} hide />
-                                    <YAxis yAxisId="gear" domain={[0, 8]} hide />
-
-                                    <Tooltip content={<CustomTooltip />} />
-
-                                    <Line yAxisId="left" type="monotone" dataKey="s" name="Speed" stroke="#3b82f6" dot={false} strokeWidth={2} isAnimationActive={false} />
-                                    <Line yAxisId="right" type="monotone" dataKey="r" name="RPM" stroke="#eab308" dot={false} strokeWidth={1} opacity={0.6} isAnimationActive={false} />
-                                    <Line yAxisId="gear" type="step" dataKey="g" name="Gear" stroke="#a855f7" dot={false} strokeWidth={2} opacity={0.8} isAnimationActive={false} />
-                                </LineChart>
-                            </ResponsiveContainer>
                         </div>
-
-                        {/* GRAPHIQUE 2 : PEDALES (Throttle/Brake) */}
-                        <div className="h-1/3 bg-slate-900/50 border border-white/5 rounded p-2 relative">
-                            <span className="absolute top-2 left-2 text-[10px] font-bold text-slate-400">INPUTS</span>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={selectedLap.samples} syncId="motec">
-                                    <Tooltip content={<CustomTooltip />} />
-                                    <XAxis dataKey="d" type="number" hide />
-                                    <YAxis domain={[0, 100]} hide />
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} vertical={false} />
-                                    <Line type="step" dataKey="t" name="Throttle" stroke="#10b981" dot={false} strokeWidth={2} isAnimationActive={false} />
-                                    <Line type="step" dataKey="b" name="Brake" stroke="#ef4444" dot={false} strokeWidth={2} isAnimationActive={false} />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </div>
-
-                        {/* GRAPHIQUE 3 : VOLANT */}
-                        <div className="h-1/3 bg-slate-900/50 border border-white/5 rounded p-2 relative">
-                            <span className="absolute top-2 left-2 text-[10px] font-bold text-slate-400">STEERING</span>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={selectedLap.samples} syncId="motec">
-                                    <Tooltip content={<CustomTooltip />} />
-                                    <XAxis dataKey="d" type="number" unit="m" stroke="#475569" />
-                                    <YAxis hide domain={['auto', 'auto']} />
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} vertical={false} />
-                                    <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
-                                    <Line type="monotone" dataKey="w" name="Steering" stroke="#f59e0b" dot={false} strokeWidth={2} isAnimationActive={false} />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </div>
     );
 };
 
-export default DetailedAnalysis;
+export default AnalysisView;
