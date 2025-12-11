@@ -4,7 +4,7 @@ import { Clock, Plus, Users, X, Trash2, Car, User, RefreshCw } from 'lucide-reac
 import type { GameState, Driver } from '../types';
 
 // URL DE VOTRE VPS
-const VPS_API_URL = "https://enarthrodial-unpermanently-fausto.ngrok-free.dev";
+const VPS_API_URL = "https://api.racetelemetrybyfbt.com";
 
 const CATEGORIES = ["Hypercar", "LMP2", "LMP2 (ELMS)", "LMP3", "GT3"];
 
@@ -86,7 +86,7 @@ const LandingPage = () => {
         try {
             const res = await fetch(`${VPS_API_URL}/api/sessions`, {
                 headers: {
-                    "ngrok-skip-browser-warning": "true"
+                    "Content-Type": "application/json"
                 }
             });
             const contentType = res.headers.get("content-type");

@@ -7,7 +7,7 @@ import type {
 import { getSafeDriver } from '../utils/helpers';
 
 // Adresse de ton VPS API OVH
-const VPS_URL = "https://enarthrodial-unpermanently-fausto.ngrok-free.dev";
+const VPS_URL = "https://api.racetelemetrybyfbt.com";
 
 export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId;
