@@ -83,8 +83,8 @@ export const useRaceData = (teamId: string) => {
     const socketRef = useRef<Socket | null>(null);
 
     const tId = teamId.toLowerCase();
-    const isHypercar = tId.includes('hyper') || tId.includes('red');
-    const isLMGT3 = tId.includes('gt3') || tId.includes('lmgt3');
+    const isHypercar = tId.includes('Hyper');
+    const isLMGT3 = tId.includes('gt3');
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms');
 

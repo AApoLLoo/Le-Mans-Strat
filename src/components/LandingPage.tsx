@@ -173,12 +173,37 @@ const LandingPage = () => {
             </div>
 
             <div className="relative z-10 max-w-7xl mx-auto px-6 py-12 flex flex-col items-center">
-                <div className="text-center mb-16 space-y-4">
-                    <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-500 drop-shadow-2xl">
-                        LE MANS <span className="text-indigo-500">24H</span>
-                    </h1>
-                    <p className="text-slate-400 text-lg uppercase tracking-[0.3em] font-bold">Strategic Command Center (VPS)</p>
+                {/* NOUVEAU BLOC TITRE ET LOGO */}
+                <div className="flex flex-col md:flex-row items-center justify-center mb-16 space-y-4 md:space-y-0 md:space-x-8">
+                    {/* Texte (Titre et Sous-titre) */}
+                    {/* Ajout de 'min-w-0' pour permettre le rétrécissement nécessaire */}
+                    <div className="text-center md:text-right min-w-0">
+                        <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter
+                        text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-500
+                        drop-shadow-2xl relative z-10
+                        transition-all duration-300 ease-in-out
+                        hover:drop-shadow-[0_0_80px_rgba(99,102,241,0.8)]"
+                        >
+                            French Baguette <span className="text-indigo-500"> TEAM</span>
+                        </h1>
+                        <p className="text-slate-400 text-lg uppercase tracking-[0.3em] font-bold">
+                            Race Telemetry USED ONLY FOR FBT
+                        </p>
+                    </div>
+                    {/* Logo à droite */}
+                    <img
+                        src="/Logo Team LMU.svg"
+                        alt="Team Logo"
+                        // CLASSE AJOUTÉE : 'hover:scale-105 hover:rotate-3'
+                        className="w-24 h-24 md:w-56 md:h-56 object-contain
+                   drop-shadow-[0_0_10px_rgba(99,102,241,0.5)]
+                   shrink-0
+                   transition-transform duration-300 ease-in-out
+                   hover:scale-105 hover:rotate-3
+                   animate-in fade-in zoom-in duration-700"
+                    />
                 </div>
+
 
                 <div className="w-full max-w-2xl flex gap-4 mb-16">
                     <button onClick={() => setShowCreateModal(true)} className="flex-1 group relative overflow-hidden bg-gradient-to-r from-indigo-600 to-blue-600 p-1 rounded-xl shadow-[0_0_40px_rgba(79,70,229,0.3)] hover:shadow-[0_0_60px_rgba(79,70,229,0.5)] transition-all duration-300 transform hover:-translate-y-1">
@@ -230,6 +255,13 @@ const LandingPage = () => {
                 </div>
             </div>
             {showCreateModal && <CreateTeamModal onClose={() => setShowCreateModal(false)} onCreate={handleCreateSession} />}
+            {/* AJOUT DE L'AUTEUR EN BAS À DROITE */}
+            <div className="absolute bottom-4 right-6 z-50 text-xs text-slate-500
+                            transition-all duration-300 ease-in-out
+                            hover:scale-[1.10] hover:text-white hover:drop-shadow-[0_0_10px_rgba(99,102,241,0.5)]
+                            cursor-pointer">
+                Développé par <span className="font-bold text-indigo-400">Antoine</span>
+            </div>
         </div>
     );
 };
