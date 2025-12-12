@@ -5,6 +5,15 @@ import WeatherWidget from './WeatherWidget';
 
 // --- FONCTIONS UTILITAIRES ---
 
+// Petit helper pour formater le temps (ex: 95.5s -> 1:35.5)
+const formatLapTime = (seconds: number) => {
+    if (!seconds || seconds <= 0) return "--:--.---";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds - Math.floor(seconds)) * 1000);
+    return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+};
+
 const getTireColorGradient = (wear: number) => {
     if (wear > 80) return 'bg-gradient-to-t from-emerald-600 to-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)]';
     if (wear > 50) return 'bg-gradient-to-t from-yellow-600 to-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]';
@@ -35,12 +44,11 @@ const getTempColor = (temp: number, type: 'brake' | 'tire') => {
 };
 
 const getWeatherIcon = (weather: string) => {
-    switch (weather) {
-        case 'SUNNY': return <Sun size={18} className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]"/>;
-        case 'CLOUDY': return <Cloud size={18} className="text-slate-400"/>;
-        case 'RAIN': case 'WET': return <CloudRain size={18} className="text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.8)]"/>;
-        default: return <Sun size={18} className="text-yellow-400"/>;
-    }
+    // Sécurisation de la string weather
+    const w = (weather || "SUNNY").toUpperCase();
+    if (w.includes('RAIN') || w.includes('WET')) return <CloudRain size={18} className="text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.8)]"/>;
+    if (w.includes('CLOUD') || w.includes('OVERCAST')) return <Cloud size={18} className="text-slate-400"/>;
+    return <Sun size={18} className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]"/>;
 };
 
 // --- COMPOSANT PRINCIPAL ---
@@ -53,16 +61,12 @@ interface TelemetryViewProps {
     avgLapTimeSeconds: number;
     weather: string;
     airTemp: number;
-    trackTemp: number; // AJOUT DE LA TEMP PISTE
+    trackTemp: number;
     trackWetness: number;
-
-    // Cibles (Targets)
     targetFuelCons?: number;
     targetVECons?: number;
     onSetFuelTarget?: (val: number | null) => void;
     onSetVETarget?: (val: number | null) => void;
-
-    // Météo
     weatherForecast?: WeatherNode[];
 }
 
@@ -70,6 +74,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                                                          telemetryData, isHypercar, isLMGT3, position,
                                                          weather, airTemp, trackTemp, trackWetness,
                                                          targetFuelCons, targetVECons, onSetFuelTarget, onSetVETarget,
+                                                         avgLapTimeSeconds, // On récupère bien la prop ici
                                                          weatherForecast
                                                      }) => {
     const {
@@ -79,7 +84,9 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
         speed, rpm, maxRpm, gear, waterTemp, oilTemp
     } = telemetryData;
 
-    const moyLap = Number(telemetryData.curLap) || 0;
+    // CORRECTION : On utilise la prop avgLapTimeSeconds au lieu de curLap
+    const displayAvgLap = formatLapTime(avgLapTimeSeconds);
+
     const compounds = tireCompounds || { fl: "---", fr: "---", rl: "---", rr: "---" };
 
     const isCategoryGT3 = isLMGT3 || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('gt3') || carCategory.toLowerCase().includes('lmgt3')));
@@ -88,7 +95,6 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
     const [showVirtualEnergy, setShowVirtualEnergy] = useState(true);
     const isVE = showVirtualEnergy && (isCategoryHypercar || isCategoryGT3);
 
-    // --- LOGIQUE RESSOURCES ---
     const currentResource = Number(isVE ? VE?.VEcurrent : fuel?.current) || 0;
     const maxResource = Number(isVE ? 100 : fuel?.max) || 100;
     const resourcePercentage = Math.min(100, Math.max(0, (currentResource / maxResource) * 100));
@@ -96,7 +102,6 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
     const lastLapCons = Number(isVE ? VE?.VElastLapCons : fuel?.lastLapCons) || 0;
     const avgCons = Number(isVE ? VE?.VEaverageCons : fuel?.averageCons) || 0;
 
-    // --- LOGIQUE CIBLES ---
     const currentTarget = isVE ? (targetVECons || avgCons) : (targetFuelCons || avgCons);
     const setTargetFunc = isVE ? onSetVETarget : onSetFuelTarget;
 
@@ -158,16 +163,11 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                 <div className="flex items-center gap-6">
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5">
                         {getWeatherIcon(weather)}
-                        <span className="text-xs font-bold text-slate-200 tracking-wide">{weather}</span>
+                        <span className="text-xs font-bold text-slate-200 tracking-wide">{weather || "SUNNY"}</span>
                     </div>
                     <div className="flex gap-4 text-xs">
-                        {/* TEMPERATURE AIR */}
                         <div><span className="text-slate-500 font-bold">AIR</span> <span className="text-white font-mono ml-1">{Math.round(airTemp)}°C</span></div>
-
-                        {/* TEMPERATURE PISTE (AJOUTÉ) */}
                         <div><span className="text-slate-500 font-bold">TRACK</span> <span className="text-amber-500 font-mono ml-1">{Math.round(trackTemp)}°C</span></div>
-
-                        {/* HUMIDITÉ PISTE (Seulement si > 0) */}
                         {trackWetness > 0.5 && (
                             <div><span className="text-blue-400 font-bold">WET</span> <span className="text-blue-200 font-mono ml-1">{Math.round(trackWetness)}%</span></div>
                         )}
@@ -175,11 +175,14 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                 </div>
                 <div className="flex items-center gap-6">
                     <div className="text-right">
-                        <div className="text-[9px] text-slate-500 font-bold uppercase">Moyenne LapTime</div>
-                        <div className="font-mono text-xl font-bold text-white">{moyLap}</div>
+                        <div className="text-[9px] text-slate-500 font-bold uppercase">Average Lap</div>
+                        {/* CORRECTION : Affichage du temps moyen formaté */}
+                        <div className="font-mono text-xl font-bold text-white">{displayAvgLap}</div>
                     </div>
-                    {/* POSITION DE CLASSE */}
-                    <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center text-2xl font-black text-white italic">P{position}</div>
+                    {/* CORRECTION : Affichage de la position sécurisé */}
+                    <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center text-2xl font-black text-white italic">
+                        {position > 0 ? `P${position}` : "-"}
+                    </div>
                 </div>
             </div>
 

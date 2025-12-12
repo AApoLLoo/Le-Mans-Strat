@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { Settings, Home, Wifi, Flag, Clock, RotateCcw, ArrowRight, AlertTriangle, Plus} from 'lucide-react';
 // Suppression de l'import Supabase
@@ -44,6 +44,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
         isHypercar, isLMGT3,
         setManualFuelTarget, setManualVETarget,
         updateStintConfig,
+        saveTrackMap,
         sendMessage: sendToVPS // On récupère la fonction du hook
     } = useRaceData(teamId);
 
@@ -268,7 +269,15 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                                 onSetVETarget={setManualVETarget}
                             />
                         )}
-                        {viewMode === "MAP" && <MapView vehicles={gameState.allVehicles} myCarId={gameState.telemetry.position} savedMap={gameState.trackMap} onSaveMap={useRaceData(teamId).saveTrackMap} />}
+                        {/* 2. CORRIGEZ L'APPEL ICI */}
+                        {viewMode === "MAP" && (
+                            <MapView
+                                vehicles={gameState.allVehicles}
+                                myCarId={gameState.telemetry.position}
+                                savedMap={gameState.trackMap}
+                                onSaveMap={saveTrackMap} // <--- UTILISEZ LA VARIABLE, NE RAPPELEZ PAS useRaceData()
+                            />
+                        )}
                         {viewMode === "ANALYSIS" && <AnalysisView />}
                         {viewMode === "CHAT" && (
                             <ChatView

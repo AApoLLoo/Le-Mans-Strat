@@ -11,7 +11,6 @@ const VPS_URL = "https://api.racetelemetrybyfbt.com";
 
 export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId;
-    // On garde un ID de chat, mais la logique passera par Socket.IO
     const CHAT_ID = "global-radio";
 
     const [manualFuelTarget, setManualFuelTarget] = useState<number | null>(null);
@@ -46,11 +45,11 @@ export const useRaceData = (teamId: string) => {
         veCons: 2.5,
         tankCapacity: 105,
         raceDurationHours: 24,
-        avgLapTimeSeconds: 210,
+        avgLapTimeSeconds: 0,
         drivers: [{id: 1, name: "Driver 1", color: '#3b82f6'}],
         activeDriverId: 1,
         incidents: [],
-        chatMessages: [], // Le chat sera rempli via Socket
+        chatMessages: [],
         stintNotes: {},
         stintAssignments: {},
         position: 0,
@@ -74,16 +73,14 @@ export const useRaceData = (teamId: string) => {
     });
 
     const [status, setStatus] = useState("CONNECTING...");
-    const [localRaceTime, setLocalRaceTime] = useState(24 * 3600);
+    const [localRaceTime, setLocalRaceTime] = useState(0);
     const [localStintTime, setLocalStintTime] = useState(0);
-
     const lastProcessedLapRef = useRef<number>(-1);
     const prevStatusRef = useRef({ inPit: false, sc: false, yellow: false, rain: false });
-
     const socketRef = useRef<Socket | null>(null);
-
+    const currentTrackLoadedRef = useRef<string>("");
     const tId = teamId.toLowerCase();
-    const isHypercar = tId.includes('Hyper');
+    const isHypercar = tId.includes('hyper');
     const isLMGT3 = tId.includes('gt3');
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms');
@@ -99,14 +96,12 @@ export const useRaceData = (teamId: string) => {
         }
     }, [SESSION_ID]);
 
-    // --- ENVOI DE MESSAGE CHAT (Nouveau) ---
+    // --- ENVOI CHAT ---
     const sendMessage = useCallback((message: ChatMessage) => {
-        // Optimistic UI update
         setGameState(prev => ({
             ...prev,
             chatMessages: [...prev.chatMessages, message]
         }));
-
         if (socketRef.current && socketRef.current.connected) {
             socketRef.current.emit('send_chat_message', {
                 teamId: SESSION_ID,
@@ -115,7 +110,7 @@ export const useRaceData = (teamId: string) => {
         }
     }, [SESSION_ID]);
 
-    // --- LOGIQUE DE TRAITEMENT DES DONNÉES (SÉCURISÉE) ---
+    // --- LOGIQUE DE TRAITEMENT DES DONNÉES (CORRIGÉE & ROBUSTE) ---
     const processGameUpdate = useCallback((prev: GameState, docData: Partial<GameState> & Record<string, unknown>): GameState => {
         const tele = (docData.telemetry || {}) as RawTelemetry;
         const scoring = (docData.scoring || {}) as RawScoring;
@@ -124,7 +119,7 @@ export const useRaceData = (teamId: string) => {
         const rules = (docData.rules || {}) as RawRules;
         const extended = (docData.extended || {}) as RawExtended;
 
-        // Gestion du temps
+        // 1. TEMPS DE SESSION (Sécurisé)
         let sessionTimeRem = Number(docData.sessionTimeRemainingSeconds);
         if ((sessionTimeRem === undefined || isNaN(sessionTimeRem)) && scoring.time) {
             sessionTimeRem = Number((scoring.time.end ?? 0) - (scoring.time.current ?? 0));
@@ -133,81 +128,88 @@ export const useRaceData = (teamId: string) => {
             sessionTimeRem = prev.sessionTimeRemaining;
         }
 
-        // --- PNEUS : Persistance ---
-        const rawWear = tele.tires?.wear;
-        const rawPress = tele.tires?.press;
-        const rawTemp = tele.tires?.temp;
-        const rawBrakeTemp = tele.tires?.brake_temp;
-        const rawCompounds = tele.tires?.compounds;
+        // 2. MÉTÉO (Correction bug LMU -273°C)
+        let safeAirTemp = weather.ambient_temp;
+        if (safeAirTemp === undefined || safeAirTemp < -100) {
+            safeAirTemp = prev.airTemp; // Garde la valeur précédente si bug
+            if (safeAirTemp < -100) safeAirTemp = 25; // Défaut si rien du tout
+        }
 
-        const newTires = {
-            fl: rawWear && rawWear[0] !== undefined ? rawWear[0] * 100 : prev.telemetry.tires.fl,
-            fr: rawWear && rawWear[1] !== undefined ? rawWear[1] * 100 : prev.telemetry.tires.fr,
-            rl: rawWear && rawWear[2] !== undefined ? rawWear[2] * 100 : prev.telemetry.tires.rl,
-            rr: rawWear && rawWear[3] !== undefined ? rawWear[3] * 100 : prev.telemetry.tires.rr
-        };
-
-        const newPressures = {
-            fl: rawPress && rawPress[0] !== undefined ? rawPress[0] : prev.telemetry.tirePressures.fl,
-            fr: rawPress && rawPress[1] !== undefined ? rawPress[1] : prev.telemetry.tirePressures.fr,
-            rl: rawPress && rawPress[2] !== undefined ? rawPress[2] : prev.telemetry.tirePressures.rl,
-            rr: rawPress && rawPress[3] !== undefined ? rawPress[3] : prev.telemetry.tirePressures.rr
-        };
-
-        const elec = tele.electric || {};
-
-        // --- MÉTÉO ---
         let isRain = prev.isRain;
         let weatherStatus = prev.weather;
-        if (weather.rain_intensity !== undefined) {
-            const rainVal = Number(weather.rain_intensity);
-            isRain = rainVal > 0.05;
-            if (isRain) weatherStatus = "RAIN";
-            else if ((weather.cloudiness ?? 0) > 0.5) weatherStatus = "CLOUDY";
-            else weatherStatus = "SUNNY";
+        // Détection pluie via humidité piste si capteur pluie HS
+        const trackWetnessVal = scoring.weather?.wetness_path?.[1] ?? 0;
+
+        if (weather.rain_intensity !== undefined && weather.rain_intensity > 0) {
+            isRain = weather.rain_intensity > 0.05;
+        } else if (trackWetnessVal > 0.05) {
+            isRain = true; // Si la piste est mouillée, c'est qu'il pleut
         }
 
-        // --- DATA LEADER ---
-        let lLaps = prev.telemetry.leaderLaps;
-        let lAvg = prev.telemetry.leaderAvgLapTime;
-        if (Array.isArray(scoring.vehicles)) {
-            const leader = scoring.vehicles.find((v) => (v.position ?? 0) === 1);
-            if (leader) {
-                lLaps = leader.laps ?? lLaps;
-                if ((leader.best_lap ?? 0) > 0) lAvg = (leader.best_lap ?? 0) * 1.05;
+        if (isRain || trackWetnessVal > 0.1) weatherStatus = "RAIN";
+        else if ((weather.cloudiness ?? 0) > 0.5) weatherStatus = "CLOUDY";
+        else weatherStatus = "SUNNY";
+
+        // 3. POSITION (CALCUL FORCE BRUTE)
+        // On ne fait pas confiance aveuglément à telemetry.position qui vaut souvent 0 ou 1
+        let myPosition = Number(prev.telemetry.position);
+
+        // A. Essai via les données directes
+        const vData = scoring.vehicle_data || {};
+        if (vData.classPosition && vData.classPosition > 0) myPosition = vData.classPosition;
+        else if (vData.position && vData.position > 0) myPosition = vData.position;
+
+        // B. Essai par recalcul manuel (scan de tous les véhicules)
+        // C'est souvent nécessaire avec le bridge .exe actuel
+        if (scoring.vehicles && scoring.vehicles.length > 0) {
+            const myCar = scoring.vehicles.find(v => Number(v.is_player) === 1);
+            if (myCar) {
+                const myClass = myCar.class;
+                // On filtre les voitures de notre classe
+                const classVehicles = scoring.vehicles.filter(v => v.class === myClass);
+                // On les trie par position absolue
+                classVehicles.sort((a, b) => (a.position || 999) - (b.position || 999));
+                // On trouve notre rang
+                const realClassPos = classVehicles.findIndex(v => v.id === myCar.id) + 1;
+                if (realClassPos > 0) {
+                    myPosition = realClassPos;
+                }
             }
         }
+        // Fallback ultime : si toujours 0, on garde l'ancienne valeur ou 0
+        if (myPosition === 0 && prev.telemetry.position > 0) myPosition = prev.telemetry.position;
 
-        const vehicleData = scoring.vehicle_data || {};
-        const myPosition = Number(vehicleData.classPosition || vehicleData.position || prev.telemetry.position);
 
-        // --- VIRTUAL ENERGY ---
-        const rawVE = tele.virtual_energy;
-        let currentVEValue = 0;
-        if (rawVE !== undefined && rawVE !== null) {
-            currentVEValue = Number(rawVE);
-        } else {
-            currentVEValue = Number(elec['charge'] || 0) * 100;
+        // 4. MOYENNE AU TOUR (FALLBACK)
+        // Si l'historique est vide, on utilise le meilleur tour comme moyenne provisoire
+        let calculatedAvg = prev.avgLapTimeSeconds;
+        if (calculatedAvg === 0 || isNaN(calculatedAvg)) {
+            const bestLap = Number(scoring.vehicle_data?.best_lap || prev.telemetry.bestLap || 0);
+            if (bestLap > 0) calculatedAvg = bestLap;
         }
 
+        // 5. TÉLÉMÉTRIE
         const newTelemetry: TelemetryData = {
             ...prev.telemetry,
             laps: Number(tele.laps || scoring.vehicle_data?.laps || prev.telemetry.laps),
             curLap: Number(tele.times?.current || prev.telemetry.curLap),
             lastLap: Number(scoring.vehicle_data?.last_lap || prev.telemetry.lastLap),
             bestLap: Number(scoring.vehicle_data?.best_lap || prev.telemetry.bestLap),
-            position: myPosition,
+            position: myPosition, // Utilisation de la position calculée
+
             speed: tele.speed !== undefined ? Number(tele.speed) : prev.telemetry.speed,
             rpm: tele.rpm !== undefined ? Number(tele.rpm) : prev.telemetry.rpm,
             maxRpm: 8000,
             gear: tele.gear !== undefined ? Number(tele.gear) : prev.telemetry.gear,
             carCategory: (Array.isArray(scoring.vehicles) ? scoring.vehicles[0]?.class : undefined) || prev.telemetry.carCategory,
+
             throttle: tele.inputs?.thr !== undefined ? Number(tele.inputs.thr) : prev.telemetry.throttle,
             brake: tele.inputs?.brk !== undefined ? Number(tele.inputs.brk) : prev.telemetry.brake,
             clutch: tele.inputs?.clt !== undefined ? Number(tele.inputs.clt) : prev.telemetry.clutch,
             steering: tele.inputs?.str !== undefined ? Number(tele.inputs.str) : prev.telemetry.steering,
             waterTemp: tele.temps?.water !== undefined ? Number(tele.temps.water) : prev.telemetry.waterTemp,
             oilTemp: tele.temps?.oil !== undefined ? Number(tele.temps.oil) : prev.telemetry.oilTemp,
+
             fuel: {
                 current: tele.fuel !== undefined ? Number(tele.fuel) : prev.telemetry.fuel.current,
                 max: tele.fuelCapacity !== undefined ? Number(tele.fuelCapacity) : prev.telemetry.fuel.max,
@@ -215,35 +217,48 @@ export const useRaceData = (teamId: string) => {
                 averageCons: Number(docData.averageConsumptionFuel || prev.fuelCons)
             },
             VE: {
-                VEcurrent: currentVEValue,
+                VEcurrent: Number(tele.virtual_energy || (Number(tele.electric?.charge || 0) * 100)),
                 VElastLapCons: Number(docData.lastLapVEConsumption || prev.telemetry.VE.VElastLapCons),
                 VEaverageCons: Number(docData.averageConsumptionVE || prev.veCons)
             },
-            batterySoc: Number(elec['charge'] || prev.telemetry.batterySoc/100) * 100,
+            batterySoc: Number(tele.electric?.charge || prev.telemetry.batterySoc/100) * 100,
             electric: {
-                charge: Number(elec['charge'] || prev.telemetry.electric.charge),
-                torque: Number(elec['torque'] || prev.telemetry.electric.torque),
-                rpm: Number(elec['rpm'] || prev.telemetry.electric.rpm),
-                motorTemp: Number(elec['temp_motor'] || prev.telemetry.electric.motorTemp),
-                waterTemp: Number(elec['temp_water'] || prev.telemetry.electric.waterTemp),
-                state: Number(elec['state'] || prev.telemetry.electric.state)
+                charge: Number(tele.electric?.charge || prev.telemetry.electric.charge),
+                torque: Number(tele.electric?.torque || prev.telemetry.electric.torque),
+                rpm: Number(tele.electric?.rpm || prev.telemetry.electric.rpm),
+                motorTemp: Number(tele.electric?.temp_motor || prev.telemetry.electric.motorTemp),
+                waterTemp: Number(tele.electric?.temp_water || prev.telemetry.electric.waterTemp),
+                state: Number(tele.electric?.state || prev.telemetry.electric.state)
             },
-            tires: newTires,
-            tirePressures: newPressures,
+
+            tires: {
+                fl: tele.tires?.wear?.[0] !== undefined ? tele.tires.wear[0] * 100 : prev.telemetry.tires.fl,
+                fr: tele.tires?.wear?.[1] !== undefined ? tele.tires.wear[1] * 100 : prev.telemetry.tires.fr,
+                rl: tele.tires?.wear?.[2] !== undefined ? tele.tires.wear[2] * 100 : prev.telemetry.tires.rl,
+                rr: tele.tires?.wear?.[3] !== undefined ? tele.tires.wear[3] * 100 : prev.telemetry.tires.rr
+            },
+            tirePressures: {
+                fl: tele.tires?.press?.[0] ?? prev.telemetry.tirePressures.fl,
+                fr: tele.tires?.press?.[1] ?? prev.telemetry.tirePressures.fr,
+                rl: tele.tires?.press?.[2] ?? prev.telemetry.tirePressures.rl,
+                rr: tele.tires?.press?.[3] ?? prev.telemetry.tirePressures.rr
+            },
             tireTemps: {
-                fl: rawTemp?.fl || prev.telemetry.tireTemps.fl,
-                fr: rawTemp?.fr || prev.telemetry.tireTemps.fr,
-                rl: rawTemp?.rl || prev.telemetry.tireTemps.rl,
-                rr: rawTemp?.rr || prev.telemetry.tireTemps.rr
+                fl: tele.tires?.temp?.fl || prev.telemetry.tireTemps.fl,
+                fr: tele.tires?.temp?.fr || prev.telemetry.tireTemps.fr,
+                rl: tele.tires?.temp?.rl || prev.telemetry.tireTemps.rl,
+                rr: tele.tires?.temp?.rr || prev.telemetry.tireTemps.rr
             },
             brakeTemps: {
-                flc: rawBrakeTemp && rawBrakeTemp[0] !== undefined ? rawBrakeTemp[0] : prev.telemetry.brakeTemps.flc,
-                frc: rawBrakeTemp && rawBrakeTemp[1] !== undefined ? rawBrakeTemp[1] : prev.telemetry.brakeTemps.frc,
-                rlc: rawBrakeTemp && rawBrakeTemp[2] !== undefined ? rawBrakeTemp[2] : prev.telemetry.brakeTemps.rlc,
-                rrc: rawBrakeTemp && rawBrakeTemp[3] !== undefined ? rawBrakeTemp[3] : prev.telemetry.brakeTemps.rrc
+                flc: tele.tires?.brake_temp?.[0] ?? prev.telemetry.brakeTemps.flc,
+                frc: tele.tires?.brake_temp?.[1] ?? prev.telemetry.brakeTemps.frc,
+                rlc: tele.tires?.brake_temp?.[2] ?? prev.telemetry.brakeTemps.rlc,
+                rrc: tele.tires?.brake_temp?.[3] ?? prev.telemetry.brakeTemps.rrc
             },
-            tireCompounds: rawCompounds || prev.telemetry.tireCompounds,
-            leaderLaps: lLaps, leaderAvgLapTime: lAvg,
+            tireCompounds: tele.tires?.compounds || prev.telemetry.tireCompounds,
+
+            leaderLaps: prev.telemetry.leaderLaps,
+            leaderAvgLapTime: prev.telemetry.leaderAvgLapTime,
             strategyEstPitTime: Number(pit.strategy?.time_min || prev.telemetry.strategyEstPitTime),
             strategyPitFuel: Number(pit.strategy?.fuel_to_add || prev.telemetry.strategyPitFuel),
             strategyPitLaps: Number(pit.strategy?.laps_to_add || prev.telemetry.strategyPitLaps),
@@ -254,87 +269,93 @@ export const useRaceData = (teamId: string) => {
 
         const scActive = Boolean(rules.sc?.active);
         const yellowFlag = Boolean(scoring.flags?.yellow_global);
-        const newForecast = (docData.weatherForecast as any[]) || prev.weatherForecast || [];
 
         return {
             ...prev,
             ...docData,
-            weatherForecast: newForecast,
+            weatherForecast: (docData.weatherForecast as any[]) || prev.weatherForecast || [],
             allVehicles: (scoring.vehicles as import('../types').RawVehicle[]) || prev.allVehicles || [],
             lapHistory: (docData.lapHistory as LapData[]) || prev.lapHistory || [],
             stintConfig: (docData.stintConfig as Record<string, import('../types').StintConfig>) || prev.stintConfig || {},
             stintNotes: (docData.stintNotes as Record<string, string>) || prev.stintNotes || {},
             trackMap: (docData.trackMap as MapPoint[]) || prev.trackMap || [],
-            // On s'assure que les messages du chat arrivent aussi par ici s'ils sont dans le payload global
             chatMessages: (docData.chatMessages as ChatMessage[]) || prev.chatMessages || [],
 
             scActive: rules.sc ? scActive : prev.scActive,
             yellowFlag: scoring.flags ? yellowFlag : prev.yellowFlag,
-            isRain: weather.rain_intensity ? isRain : prev.isRain,
+            isRain: weatherStatus === "RAIN",
             isRaceRunning: scoring.time ? Boolean((scoring.time?.current ?? 0) > 0) : prev.isRaceRunning,
             trackName: scoring.track || prev.trackName,
             sessionType: scoring.time ? String(scoring.time?.session || "") : prev.sessionType,
             sessionTimeRemaining: sessionTimeRem,
             weather: weatherStatus,
-            airTemp: (weather.ambient_temp ?? prev.airTemp),
+            airTemp: safeAirTemp,
             trackTemp: (scoring.weather?.track_temp ?? prev.trackTemp),
-            trackWetness: scoring.weather ? ((scoring.weather?.wetness_path?.[1] ?? 0) * 100) : prev.trackWetness,
+            trackWetness: trackWetnessVal * 100,
             rainIntensity: (weather.rain_intensity ?? prev.rainIntensity),
             telemetry: newTelemetry,
-            drivers: docData.drivers || prev.drivers
+            drivers: docData.drivers || prev.drivers,
+            avgLapTimeSeconds: calculatedAvg // Mise à jour de la moyenne
         };
     }, []);
 
     // --- CONNEXION SOCKET.IO ---
     useEffect(() => {
-        console.log("🔌 Initialisation Socket.IO vers VPS:", VPS_URL);
-        const socket = io(VPS_URL, {
-            transports: ['websocket'],
-            reconnectionAttempts: 10
-        });
+        const socket = io(VPS_URL, { transports: ['websocket'], reconnectionAttempts: 10 });
         socketRef.current = socket;
 
         socket.on('connect', () => {
-            console.log("✅ CONNECTÉ AU VPS !");
             setStatus("LIVE (VPS)");
             socket.emit('join_session', SESSION_ID);
         });
+        socket.on('disconnect', () => setStatus("RECONNECTING..."));
 
-        socket.on('disconnect', () => {
-            console.log("⚠️ DÉCONNECTÉ DU VPS");
-            setStatus("RECONNECTING...");
-        });
-
-        // Réception des updates de course globales
         socket.on('race_update', (data) => {
-            setGameState(prev => processGameUpdate(prev, data));
+            setGameState(prev => {
+                const newState = processGameUpdate(prev, data);
+                if (newState.sessionTimeRemaining !== undefined) setLocalRaceTime(newState.sessionTimeRemaining);
+                if (!newState.isRaceRunning) setLocalStintTime(0);
+                return newState;
+            });
         });
 
-        // Réception des updates de stratégie
-        socket.on('strategy_update', (changes) => {
-            setGameState(prev => processGameUpdate(prev, changes));
-        });
+        socket.on('strategy_update', (changes) => setGameState(prev => processGameUpdate(prev, changes)));
+        socket.on('chat_message', (msg) => setGameState(prev => ({ ...prev, chatMessages: [...prev.chatMessages, msg] })));
 
-        // Réception spécifique du Chat (si le VPS envoie un event dédié)
-        socket.on('chat_message', (msg) => {
-            setGameState(prev => ({
-                ...prev,
-                chatMessages: [...prev.chatMessages, msg]
-            }));
-        });
-
-        return () => {
-            socket.disconnect();
-        };
+        return () => { socket.disconnect(); };
     }, [SESSION_ID, processGameUpdate]);
+    // --- AUTO-LOAD TRACK MAP ---
+    useEffect(() => {
+        const trackName = gameState.trackName;
 
-    // --- HISTORIQUE DES TOURS ---
+        // Conditions : Nom valide, différent de "WAITING...", et pas déjà chargé
+        if (trackName && trackName !== "WAITING..." && trackName !== "Unknown" && currentTrackLoadedRef.current !== trackName) {
+
+            console.log(`🌍 Recherche de la carte pour : ${trackName}...`);
+
+            fetch(`${VPS_URL}/api/tracks/${encodeURIComponent(trackName)}`)
+                .then(res => {
+                    if (res.ok) return res.json();
+                    throw new Error("Pas de map");
+                })
+                .then(points => {
+                    console.log(`✅ Carte trouvée pour ${trackName} (${points.length} points)`);
+                    // Mise à jour locale + synchronisation avec les autres membres de l'équipe
+                    syncUpdate({ trackMap: points });
+                    currentTrackLoadedRef.current = trackName;
+                })
+                .catch(() => {
+                    console.log(`❌ Aucune carte connue pour ${trackName}. Enregistrement nécessaire.`);
+                    currentTrackLoadedRef.current = trackName; // On marque comme "vérifié" pour ne pas spammer l'API
+                });
+        }
+    }, [gameState.trackName]);
+
+    // --- HISTORIQUE DES TOURS & RECALCUL MOYENNE ---
     useEffect(() => {
         const currentLap = gameState.telemetry.laps;
-        if (lastProcessedLapRef.current === -1 && currentLap > 0) {
-            lastProcessedLapRef.current = currentLap;
-            return;
-        }
+
+        // 1. Sauvegarde tour
         if (currentLap > lastProcessedLapRef.current && lastProcessedLapRef.current > 0) {
             const lastLapData: LapData = {
                 lapNumber: lastProcessedLapRef.current,
@@ -350,9 +371,23 @@ export const useRaceData = (teamId: string) => {
             setTimeout(() => { syncUpdate({ lapHistory: newHistory }); }, 0);
         }
         if (currentLap > 0) lastProcessedLapRef.current = currentLap;
-    }, [gameState.telemetry.laps]);
 
-    // --- AUTO-LOGGING INCIDENTS ---
+        // 2. RECALCUL MOYENNE FIABLE
+        if (gameState.lapHistory.length > 0) {
+            const validLaps = gameState.lapHistory.filter(l => l.lapTime > 0 && l.lapTime < 600); // Filtre tours aberrants
+            if (validLaps.length > 0) {
+                const total = validLaps.reduce((acc, l) => acc + l.lapTime, 0);
+                const avg = total / validLaps.length;
+                // Update local si différence significative
+                if (Math.abs(avg - gameState.avgLapTimeSeconds) > 0.1) {
+                    setGameState(prev => ({ ...prev, avgLapTimeSeconds: avg }));
+                }
+            }
+        }
+
+    }, [gameState.telemetry.laps, gameState.lapHistory.length]);
+
+    // --- LOGGING INCIDENTS ---
     useEffect(() => {
         if (!gameState.isRaceRunning) return;
         const current = { inPit: gameState.telemetry.inPitLane, sc: gameState.scActive, yellow: gameState.yellowFlag, rain: gameState.isRain };
@@ -377,7 +412,7 @@ export const useRaceData = (teamId: string) => {
     // --- TIMER LOCAL ---
     useEffect(() => {
         let interval: number | undefined;
-        if (localRaceTime > 0) {
+        if (gameState.isRaceRunning && localRaceTime > 0) {
             interval = setInterval(() => {
                 setLocalRaceTime(p => Math.max(0, p - 1));
                 setLocalStintTime(p => p + 1);
@@ -393,9 +428,9 @@ export const useRaceData = (teamId: string) => {
             }, 1000);
         }
         return () => clearInterval(interval);
-    }, [localRaceTime]);
+    }, [gameState.isRaceRunning, localRaceTime]);
 
-    // --- SAUVEGARDE DRIVERS PÉRIODIQUE ---
+    // --- SAUVEGARDE PÉRIODIQUE ---
     useEffect(() => {
         const saveInterval = setInterval(() => {
             if (gameState.isRaceRunning) syncUpdate({ drivers: gameState.drivers });
@@ -403,19 +438,39 @@ export const useRaceData = (teamId: string) => {
         return () => clearInterval(saveInterval);
     }, [gameState.drivers, gameState.isRaceRunning]);
 
-    // --- SAUVEGARDE CARTE ---
+// --- SAUVEGARDE CARTE (Global & Session) ---
     const saveTrackMap = useCallback((points: MapPoint[]) => {
-        if (points.length > 50) { syncUpdate({ trackMap: points }); }
-    }, [SESSION_ID]);
+        // 1. Mise à jour de la session courante (pour l'affichage immédiat)
+        if (points.length > 50 || points.length === 0) {
+            syncUpdate({ trackMap: points });
+        }
 
-    // --- CALCULATEUR STRATÉGIQUE (Identique) ---
+        // 2. Sauvegarde persistante dans la bibliothèque de circuits
+        // On ne sauvegarde que si c'est une carte valide (> 50 pts) et qu'on a un nom de circuit
+        if (points.length > 50 && gameState.trackName && gameState.trackName !== "WAITING...") {
+            fetch(`${VPS_URL}/api/tracks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    trackName: gameState.trackName,
+                    points: points
+                })
+            })
+                .then(res => res.json())
+                .then(() => console.log("💾 Carte sauvegardée dans la bibliothèque globale !"))
+                .catch(err => console.error("Erreur save map:", err));
+        }
+    }, [SESSION_ID, gameState.trackName]);
+    // --- CALCULATEUR STRATÉGIQUE ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
         let totalLapsTarget = 300;
         const leaderLaps = gameState.telemetry.leaderLaps || 0;
         const leaderAvg = gameState.telemetry.leaderAvgLapTime || 210;
         const myLaps = gameState.telemetry.laps || 0;
-        const myAvg = gameState.avgLapTimeSeconds || 210;
+        // Utilisation de la moyenne calculée fiable
+        const myAvg = gameState.avgLapTimeSeconds > 0 ? gameState.avgLapTimeSeconds : 210;
+
         if (leaderLaps > 0 && leaderAvg > 0) { totalLapsTarget = Math.floor(leaderLaps + (localRaceTime / leaderAvg)); }
         else if (myLaps > 0) { totalLapsTarget = Math.floor(myLaps + (localRaceTime / myAvg)); }
 
@@ -435,23 +490,30 @@ export const useRaceData = (teamId: string) => {
         let targetFuelCons = activeFuelCons;
         let targetVECons = activeVECons;
 
+        // 1. Relais passés
         for (let i = 0; i < currentStintIndex; i++) {
-            const driverId = gameState.stintAssignments[i] || gameState.drivers[i % gameState.drivers.length]?.id;
+            const config = gameState.stintConfig[i] || {};
+            const driverId = config.driverId || gameState.stintAssignments[i] || gameState.drivers[i % gameState.drivers.length]?.id;
             const d = getSafeDriver(gameState.drivers.find(drv => drv.id === driverId));
-            stints.push({ id: i, stopNum: i + 1, startLap: i * lapsPerStint, endLap: (i + 1) * lapsPerStint, lapsCount: lapsPerStint, fuel: "DONE", driver: d, driverId: d.id, isCurrent: false, isNext: false, isDone: true, note: String(gameState.stintNotes[i+1] || "") });
+            stints.push({ id: i, stopNum: i + 1, startLap: i * lapsPerStint, endLap: (i + 1) * lapsPerStint, lapsCount: lapsPerStint, fuel: "DONE", driver: d, driverId: d.id, tyres: config.tyres, isCurrent: false, isNext: false, isDone: true, note: String(gameState.stintNotes[i+1] || "") });
         }
+
+        // 2. Relais actuel
+        const currentConfig = gameState.stintConfig[currentStintIndex] || {};
         const currentStintEndLap = Math.min(totalLapsTarget, (currentStintIndex + 1) * lapsPerStint);
-        stints.push({ id: currentStintIndex, stopNum: currentStintIndex + 1, startLap: currentLap, endLap: currentStintEndLap, lapsCount: lapsPerStint, fuel: "CURRENT", driver: activeDriver, driverId: activeDriver.id, isCurrent: true, isNext: false, isDone: false, note: String(gameState.stintNotes[currentStintIndex+1] || "") });
+        stints.push({ id: currentStintIndex, stopNum: currentStintIndex + 1, startLap: currentLap, endLap: currentStintEndLap, lapsCount: lapsPerStint, fuel: "CURRENT", driver: activeDriver, driverId: activeDriver.id, tyres: currentConfig.tyres, isCurrent: true, isNext: false, isDone: false, note: String(gameState.stintNotes[currentStintIndex+1] || "") });
 
         const fuelRemaining = gameState.telemetry.fuel.current;
         const lapsRemainingInStint = Math.max(1, currentStintEndLap - currentLap);
         if (manualFuelTarget !== null) { targetFuelCons = manualFuelTarget; } else if (fuelRemaining > 0) { targetFuelCons = (fuelRemaining - 0.5) / lapsRemainingInStint; }
         if (manualVETarget !== null) { targetVECons = manualVETarget; } else if (currentVE > 0 && useVE) { targetVECons = (currentVE - 2.0) / lapsRemainingInStint; }
 
+        // 3. Relais futurs
         let nextStartLap = (currentStintIndex + 1) * lapsPerStint;
         let nextIdx = currentStintIndex + 1;
         while (nextStartLap < totalLapsTarget) {
-            let driverId = gameState.stintAssignments[nextIdx];
+            const config = gameState.stintConfig[nextIdx] || {};
+            let driverId = config.driverId || gameState.stintAssignments[nextIdx];
             if (!driverId && gameState.drivers.length > 0) {
                 const prevDriverId = stints[stints.length - 1].driverId;
                 const prevIdx = gameState.drivers.findIndex(d => d.id === prevDriverId);
@@ -460,10 +522,17 @@ export const useRaceData = (teamId: string) => {
             const d = getSafeDriver(gameState.drivers.find(drv => drv.id === driverId));
             const isLast = (nextStartLap + lapsPerStint) >= totalLapsTarget;
             const lapsThisStint = isLast ? (totalLapsTarget - nextStartLap) : lapsPerStint;
+
             let fuelInfo = "FULL";
-            if (useVE) fuelInfo = "NRG RESET";
             if (isLast) fuelInfo = (lapsThisStint * activeFuelCons).toFixed(1) + "L";
-            stints.push({ id: nextIdx, stopNum: nextIdx + 1, startLap: Math.floor(nextStartLap), endLap: Math.floor(nextStartLap + lapsThisStint), lapsCount: Math.floor(lapsThisStint), fuel: fuelInfo, driver: d, driverId: d.id, isCurrent: false, isNext: nextIdx === currentStintIndex + 1, isDone: false, note: String(gameState.stintNotes[nextIdx+1] || "") });
+
+            let veInfo = "-";
+            if (useVE) {
+                if (isLast) veInfo = (lapsThisStint * activeVECons).toFixed(0) + "%";
+                else veInfo = "100%";
+            }
+
+            stints.push({ id: nextIdx, stopNum: nextIdx + 1, startLap: Math.floor(nextStartLap), endLap: Math.floor(nextStartLap + lapsThisStint), lapsCount: Math.floor(lapsThisStint), fuel: fuelInfo, virtualEnergy: veInfo, driver: d, driverId: d.id, tyres: config.tyres, isCurrent: false, isNext: nextIdx === currentStintIndex + 1, isDone: false, note: String(gameState.stintNotes[nextIdx+1] || "") });
             nextStartLap += lapsPerStint; nextIdx++; if (nextIdx > 100) break;
         }
 
@@ -534,6 +603,6 @@ export const useRaceData = (teamId: string) => {
         gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData,
         confirmPitStop, undoPitStop, resetRace, CHAT_ID, isHypercar, isLMGT3, isLMP3, isLMP2ELMS,
         setManualFuelTarget, setManualVETarget, updateStintConfig, saveTrackMap,
-        sendMessage // Nouvelle fonction exposée
+        sendMessage
     };
 };

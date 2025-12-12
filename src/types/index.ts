@@ -87,6 +87,7 @@ export interface Stint {
     startLap: number;
     endLap: number;
     fuel: string;
+    virtualEnergy?: string;
     tyres?: string;
     driver: Driver;
     driverId: number | string;
@@ -139,6 +140,7 @@ export interface RawVehicle {
     status?: number;
     x?: number;
     z?: number;
+    sector?: number;
     // CORRECTION TYPE: Ajout de classPosition
     classPosition?: number;
     stint_laps?: number;
@@ -197,6 +199,7 @@ export interface GameState {
 export interface MapPoint {
     x: number;
     z: number;
+    sector?: number;
 }
 
 export interface Incident {

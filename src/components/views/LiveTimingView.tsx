@@ -22,11 +22,20 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
     // Tri par position
     const sortedVehicles = [...vehicles].sort((a, b) => (a.position || 999) - (b.position || 999));
 
-    // Filtrage
+    // Filtrage CORRIGÉ
     const filteredVehicles = sortedVehicles.filter(v => {
         if (filterClass === 'ALL') return true;
+
         const c = (v.class || "").toLowerCase();
-        return c.includes(filterClass.toLowerCase());
+        const f = filterClass.toLowerCase();
+
+        if (f === 'hypercar') {
+            return c.includes('hyper') || c.includes('lmh') || c.includes('lmdh') || c.includes('gtop');
+        }
+        if (f === 'gt3') {
+            return c.includes('gt3') || c.includes('lmgt3') || c.includes('gte');
+        }
+        return c.includes(f);
     });
 
     // Helpers de formatage
@@ -70,8 +79,9 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         <th className="p-2 w-20 text-right">Int.</th>
                         <th className="p-2 w-24 text-right">Last Lap</th>
                         <th className="p-2 w-24 text-right">Best Lap</th>
-                        <th className="p-2 w-16 text-center">S1</th>
-                        <th className="p-2 w-16 text-center">S2</th>
+                        <th className="p-2 w-14 text-center">S1</th>
+                        <th className="p-2 w-14 text-center">S2</th>
+                        <th className="p-2 w-14 text-center">S3</th>
                         <th className="p-2 w-16 text-center">Stint</th>
                         <th className="p-2 w-16 text-center">Fuel</th>
                         <th className="p-2 w-10 text-center">Pit</th>
@@ -90,14 +100,16 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         // Style catégorie
                         let catKey = 'default';
                         const cStr = (v.class || "").toLowerCase();
-                        if (cStr.includes('hyper')) catKey = 'hypercar';
+                        if (cStr.includes('hyper') || cStr.includes('lmh') || cStr.includes('lmdh')) catKey = 'hypercar';
                         else if (cStr.includes('lmp2')) catKey = 'lmp2';
                         else if (cStr.includes('gt3')) catKey = 'gt3';
 
-                        // Calcul Secteurs (Simplifié)
+                        // Calcul Secteurs Courants
                         const s1 = v.sectors_cur?.[0] || 0;
                         const s2_cumul = v.sectors_cur?.[1] || 0;
                         const s2 = (s2_cumul > s1) ? s2_cumul - s1 : 0;
+                        const s2_best_cumul = v.sectors_best?.[1] || 0;
+                        const s3_best = (v.best_lap && s2_best_cumul) ? v.best_lap - s2_best_cumul : 0;
 
                         // Barre de fuel estimée
                         const maxLaps = v.class?.includes('Hyper') ? 13 : 12;
@@ -105,6 +117,9 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         let fuelColor = 'bg-emerald-500';
                         if (fuelPct < 30) fuelColor = 'bg-yellow-500';
                         if (fuelPct < 10) fuelColor = 'bg-red-500 animate-pulse';
+
+                        // Détection Secteur Actif (v.sector : 1, 2 ou 3)
+                        const activeSectorBg = "bg-yellow-500/20 text-yellow-200 font-bold";
 
                         return (
                             <tr key={v.id || Math.random()} className={`${rowClass} ${CLASS_COLORS[catKey]}`}>
@@ -117,20 +132,27 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                                 <td className="p-2 text-right text-slate-400">{formatGap(v.gap_next)}</td>
                                 <td className="p-2 text-right font-bold">{formatLap(v.last_lap)}</td>
                                 <td className="p-2 text-right text-purple-400">{formatLap(v.best_lap)}</td>
-                                <td className="p-2 text-center text-[10px] text-slate-500">{s1 > 0 ? s1.toFixed(1) : '-'}</td>
-                                <td className="p-2 text-center text-[10px] text-slate-500">{s2 > 0 ? s2.toFixed(1) : '-'}</td>
 
-                                {/* Stint Laps */}
+                                <td className={`p-2 text-center text-[10px] ${v.sector === 1 ? activeSectorBg : 'text-slate-500'}`}>
+                                    {s1 > 0 ? s1.toFixed(1) : '-'}
+                                </td>
+
+                                <td className={`p-2 text-center text-[10px] ${v.sector === 2 ? activeSectorBg : 'text-slate-500'}`}>
+                                    {s2 > 0 ? s2.toFixed(1) : '-'}
+                                </td>
+
+                                <td className={`p-2 text-center text-[10px] ${v.sector === 3 ? activeSectorBg : 'text-purple-400/70'}`}>
+                                    {s3_best > 0 ? s3_best.toFixed(1) : '-'}
+                                </td>
+
                                 <td className="p-2 text-center text-slate-300">{v.stint_laps || 0}L</td>
 
-                                {/* Fuel Estimation */}
                                 <td className="p-2 align-middle">
                                     <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                         <div className={`h-full ${fuelColor}`} style={{ width: `${fuelPct}%` }}></div>
                                     </div>
                                 </td>
 
-                                {/* Pit Status */}
                                 <td className="p-2 text-center">
                                     {v.in_pits ? (
                                         <span className="bg-purple-600 text-white px-1 rounded text-[9px] font-bold animate-pulse">IN</span>

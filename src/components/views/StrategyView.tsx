@@ -1,5 +1,6 @@
 import React from 'react';
-import { Timer, Activity, User, Disc, Fuel, ArrowUp, ArrowDown } from 'lucide-react';
+/* AJOUT DE 'Zap' DANS LES IMPORTS */
+import { Timer, Activity, User, Disc, Fuel, ArrowUp, ArrowDown, Zap } from 'lucide-react';
 import type { StrategyData, TelemetryData, Driver } from '../../types';
 
 interface StrategyViewProps {
@@ -12,7 +13,7 @@ interface StrategyViewProps {
 }
 
 const StrategyView: React.FC<StrategyViewProps> = ({
-                                                       strategyData, currentLap, telemetry, drivers, onUpdateStint, onUpdateNote
+                                                       strategyData, telemetry, drivers, onUpdateStint, onUpdateNote
                                                    }) => {
     const { pitPrediction, stints } = strategyData;
 
@@ -27,6 +28,14 @@ const StrategyView: React.FC<StrategyViewProps> = ({
     const pitLaneLoss = 28; // Est. Loss LMU
     const estStop = telemetry.strategyEstPitTime || 35;
     const totalLoss = pitLaneLoss + estStop;
+
+    // --- LOGIQUE ÉNERGIE ---
+    // On cherche le prochain relais (celui qui n'est pas "done" et pas "current", ou marqué "isNext")
+    // Ou simplement le relais suivant l'actuel.
+    const nextStint = stints.find(s => s.isNext) || stints.find(s => !s.isDone && !s.isCurrent);
+    // On regarde si on a une info d'énergie pertinente (différente de "-" ou vide.)
+    const showEnergy = nextStint?.virtualEnergy && nextStint.virtualEnergy !== "-" && nextStint.virtualEnergy !== undefined;
+    const energyTarget = nextStint?.virtualEnergy || "100%";
 
     return (
         <div className="h-full bg-[#050a10] p-4 flex flex-col gap-4 font-display text-white overflow-y-auto">
@@ -71,7 +80,10 @@ const StrategyView: React.FC<StrategyViewProps> = ({
             )}
 
             {/* --- BLOC 2 : DÉTAILS DU PROCHAIN ARRÊT (INFO JEU) --- */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Modification de la grille : 3 colonnes si Énergie présente, sinon 2 */}
+            <div className={`grid gap-4 ${showEnergy ? 'grid-cols-3' : 'grid-cols-2'}`}>
+
+                {/* 1. CARBURANT */}
                 <div className="bg-slate-900/50 rounded-xl border border-white/5 p-3">
                     <div className="text-[10px] uppercase font-bold text-slate-500 mb-1 flex items-center gap-1">
                         <Fuel size={10}/> Refuel
@@ -82,6 +94,24 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                     <div className="text-xs text-slate-400">+{telemetry.strategyPitLaps?.toFixed(1) || "0"} Laps</div>
                 </div>
 
+                {/* 2. ÉNERGIE VIRTUELLE (NOUVEAU) */}
+                {showEnergy && (
+                    <div className="bg-slate-900/50 rounded-xl border border-white/5 p-3 relative overflow-hidden">
+                        {/* Petit effet de fond pour distinguer l'électrique */}
+                        <div className="absolute -right-2 -top-2 text-cyan-500/10 rotate-12">
+                            <Zap size={48} />
+                        </div>
+                        <div className="text-[10px] uppercase font-bold text-slate-500 mb-1 flex items-center gap-1">
+                            <Zap size={10} className="text-cyan-400"/> Recharge
+                        </div>
+                        <div className="text-2xl font-black text-cyan-400">
+                            {energyTarget}
+                        </div>
+                        <div className="text-xs text-slate-400">Target Level</div>
+                    </div>
+                )}
+
+                {/* 3. TEMPS D'ARRÊT */}
                 <div className="bg-slate-900/50 rounded-xl border border-white/5 p-3">
                     <div className="text-[10px] uppercase font-bold text-slate-500 mb-1 flex items-center gap-1">
                         <Timer size={10}/> Est. Time
@@ -95,6 +125,7 @@ const StrategyView: React.FC<StrategyViewProps> = ({
 
             {/* --- BLOC 3 : TABLEAU ÉDITEUR DE STRATÉGIE --- */}
             <div className="flex-1 bg-slate-900/30 rounded-xl border border-white/5 p-4 overflow-hidden flex flex-col">
+                {/* ... (Reste du code inchangé pour le tableau) ... */}
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2 shrink-0">
                     <Activity size={14}/> Race Strategy
                 </h3>
@@ -108,12 +139,13 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                                 <th className="p-3 w-28">Window</th>
                                 <th className="p-3">Driver</th>
                                 <th className="p-3 w-24">Tyres</th>
-                                <th className="p-3 w-24">Fuel</th>
+                                <th className="p-3 w-20 text-center">Fuel</th>
+                                <th className="p-3 w-20 text-center">NRG</th>
                                 <th className="p-3">Notes</th>
                             </tr>
                             </thead>
                             <tbody className="text-sm">
-                            {stints.map((stint) => {
+                            {stints.map((stint, index) => {
                                 const isDone = stint.isDone;
                                 let rowClass = "border-b border-white/5 transition-colors";
                                 if (stint.isCurrent) rowClass += " bg-indigo-900/20 border-l-4 border-l-indigo-500";
@@ -134,7 +166,7 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                                                 <User size={12} className="absolute left-2 text-slate-500"/>
                                                 <select
                                                     value={stint.driverId}
-                                                    onChange={(e) => onUpdateStint(stint.id, 'driverId', e.target.value)}
+                                                    onChange={(e) => onUpdateStint(index, 'driverId', Number(e.target.value))}
                                                     disabled={isDone}
                                                     className="bg-slate-800/50 border border-white/10 rounded py-1 pl-7 pr-2 text-xs font-bold text-white outline-none focus:border-indigo-500 w-full appearance-none cursor-pointer hover:bg-slate-800 transition-colors"
                                                 >
@@ -145,13 +177,13 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                                             </div>
                                         </td>
 
-                                        {/* Tyres Select */}
+                                        {/* Tires Select */}
                                         <td className="p-3">
                                             <div className="relative flex items-center">
                                                 <Disc size={12} className="absolute left-2 text-slate-500"/>
                                                 <select
                                                     value={stint.tyres || 'AUTO'}
-                                                    onChange={(e) => onUpdateStint(stint.id, 'tyres', e.target.value)}
+                                                    onChange={(e) => onUpdateStint(index, 'tyres', e.target.value)}
                                                     disabled={isDone}
                                                     className={`bg-slate-800/50 border border-white/10 rounded py-1 pl-7 pr-2 text-xs font-bold outline-none focus:border-indigo-500 w-full appearance-none cursor-pointer transition-colors
                                                             ${stint.tyres === 'SOFT' ? 'text-red-400' :
@@ -176,12 +208,21 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                                                 </span>
                                         </td>
 
+                                        {/* NOUVELLE COLONNE : Virtual Energy Display */}
+                                        <td className="p-3 text-center">
+                                            {stint.virtualEnergy && stint.virtualEnergy !== "-" && (
+                                                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-cyan-900/50 text-cyan-300 border border-cyan-500/30">
+                                                    {stint.virtualEnergy}
+                                                </span>
+                                            )}
+                                        </td>
+
                                         {/* Notes Input */}
                                         <td className="p-3">
                                             <input
                                                 type="text"
                                                 value={stint.note}
-                                                onChange={(e) => onUpdateNote(stint.stopNum, e.target.value)}
+                                                onChange={(e) => onUpdateNote(index + 1, e.target.value)}
                                                 placeholder="..."
                                                 disabled={isDone}
                                                 className="bg-transparent border-b border-transparent focus:border-indigo-500 w-full text-xs text-slate-300 placeholder-slate-700 outline-none transition-colors focus:bg-slate-900/50 px-1"

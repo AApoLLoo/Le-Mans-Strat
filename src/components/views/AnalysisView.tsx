@@ -69,17 +69,37 @@ const DetailedAnalysis = () => {
     };
 
     // 3. Charger détail tour
+// 3. Charger le détail (samples) d'un tour
     const handleSelectLap = async (lapNumber: number) => {
         if (!selectedSession) return;
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/telemetry/${selectedSession}/${lapNumber}`, {
+            const encodedId = encodeURIComponent(selectedSession);
+            const res = await fetch(`${API_BASE_URL}/api/telemetry/${encodedId}/${lapNumber}`);
+            if (!res.ok) throw new Error("Pas de données de télémétrie");
+
+            const rawSamples = await res.json();
+            // --- CORRECTION DU TRAIT EN TRAVERS ---
+            // 1. On trie par distance (d) pour éviter que la ligne ne reparte en arrière
+            // 2. On filtre les points aberrants (distance négative ou nulle si ce n'est pas le début)
+            const cleanSamples = Array.isArray(rawSamples)
+                ? rawSamples
+                    .sort((a: any, b: any) => a.d - b.d)
+                    .filter((s, i) => i === 0 || s.d >= 0)
+                : [];
+            // -------------------------------------
+            // On récupère les infos du tour (temps, pilote) depuis la liste locale
+            const lapInfo = laps.find(l => l.lap_number === lapNumber);
+
+            setSelectedLap({
+                lap_number: lapNumber,
+                lap_time: lapInfo?.lap_time || 0,
+                driver_name: lapInfo?.driver_name,
+                samples: cleanSamples // On utilise les données nettoyées
             });
-            if (!res.ok) throw new Error("Pas de données");
-            const samples = await res.json();
-            setSelectedLap({ lap_number: lapNumber, lap_time: 0, samples });
         } catch (err) {
-            alert("Erreur chargement tour");
+            console.error(err);
+            alert("Erreur chargement des données du tour. Il est peut-être vide.");
         } finally {
             setLoading(false);
         }
