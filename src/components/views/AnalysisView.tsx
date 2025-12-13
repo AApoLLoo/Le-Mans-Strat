@@ -112,11 +112,31 @@ const DetailedAnalysis = () => {
 
     const handleSelectSession = async (sessionId: string) => {
         if (!sessionId) { setSelectedSession(null); setLaps([]); return; }
-        setSelectedSession(sessionId); setLoading(true); setSelectedLap(null); setLaps([]);
+        setSelectedSession(sessionId);
+        setLoading(true);
+        setSelectedLap(null);
+        setLaps([]);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/analysis/sessions/${sessionId}/laps`);
-            if (res.ok) setLaps((await res.json()).sort((a: any, b: any) => a.lap_number - b.lap_number));
-        } finally { setLoading(false); }
+            const encodedId = encodeURIComponent(sessionId);
+            console.log(`Fetching laps for: ${sessionId} (URL encoded: ${encodedId})`);
+            const res = await fetch(`${API_BASE_URL}/api/analysis/sessions/${encodedId}/laps`);
+            if (res.ok) {
+                const data = await res.json();
+                console.log(`Laps received:`, data.length); // Vérifie si on reçoit des données
+
+                // Tri des tours
+                setLaps(data.sort((a: any, b: any) => a.lap_number - b.lap_number));
+            } else {
+                // Affiche l'erreur si le serveur répond 404, 500, etc.
+                console.error("Erreur serveur:", res.status, res.statusText);
+                alert(`Erreur chargement tours: ${res.status} ${res.statusText}`);
+            }
+        } catch (error) {
+            console.error("Erreur réseau:", error);
+            alert("Erreur de connexion au serveur.");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleSelectLap = async (lapNumber: number) => {
