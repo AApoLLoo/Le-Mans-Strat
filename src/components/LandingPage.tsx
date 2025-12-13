@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, X, Trash2, Car, RefreshCw, Palette, Save, LogOut, User as UserIcon } from 'lucide-react';
+import { Plus, Users, X, Trash2, Car, RefreshCw, Palette, Save, LogOut, User as UserIcon, Lock } from 'lucide-react';
 import type { Driver } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { AuthModal } from './AuthModal';
@@ -35,13 +35,41 @@ type Session = {
     driverName?: string;
 };
 
+// --- MODAL JOIN WITH PASSWORD ---
+const JoinPasswordModal = ({ onClose, onConfirm }: { onClose: () => void, onConfirm: (pwd: string) => void }) => {
+    const [pwd, setPwd] = useState("");
+    return (
+        <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-[#0f172a] p-6 rounded-xl border border-indigo-500/50 w-full max-w-sm shadow-2xl">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <Lock size={18} className="text-indigo-400"/> Private Lineup
+                </h3>
+                <p className="text-slate-400 text-xs mb-4">Please enter the lineup password to join.</p>
+                <input
+                    type="password"
+                    autoFocus
+                    value={pwd}
+                    onChange={(e) => setPwd(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:border-indigo-500 outline-none mb-4"
+                    placeholder="Lineup Password"
+                />
+                <div className="flex gap-3">
+                    <button onClick={onClose} className="flex-1 py-2 text-slate-400 hover:text-white text-sm font-bold">Cancel</button>
+                    <button onClick={() => onConfirm(pwd)} className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold">JOIN</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- MODAL DE CRÉATION ---
-const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate: (name: string, category: string, drivers: Driver[]) => void }) => {
+const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate: (name: string, category: string, drivers: Driver[], pwd: string) => void }) => {
     const [teamName, setTeamName] = useState("");
     const [category, setCategory] = useState("Hypercar");
     const [drivers, setDrivers] = useState<Driver[]>(() => [
         { id: Date.now(), name: "", color: "#3b82f6" }
     ]);
+    const [lineupPassword, setLineupPassword] = useState("");
 
     const handleAddDriver = () => setDrivers([...drivers, { id: Date.now(), name: "", color: "#ec4899" }]);
     const handleRemoveDriver = (id: number | string) => { if (drivers.length > 1) setDrivers(drivers.filter(d => d.id !== id)); };
@@ -51,7 +79,7 @@ const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate:
         if (!teamName.trim()) return alert("Please enter a Line Up Name");
         const validDrivers = drivers.filter(d => d.name.trim() !== "");
         if (validDrivers.length === 0) return alert("Please add at least one driver");
-        onCreate(teamName, category, validDrivers);
+        onCreate(teamName, category, validDrivers, lineupPassword);
     };
 
     return (
@@ -88,6 +116,19 @@ const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate:
                                 </div>
                             ))}
                         </div>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-white/5">
+                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                            <Lock size={12}/> Lineup Password (Optional)
+                        </label>
+                        <input
+                            type="password"
+                            value={lineupPassword}
+                            onChange={(e) => setLineupPassword(e.target.value)}
+                            placeholder="Leave empty for public access"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:border-indigo-500 outline-none text-sm placeholder-slate-600"
+                        />
                     </div>
                 </div>
                 <div className="p-4 bg-slate-900/50 border-t border-white/5 flex gap-3">
@@ -134,6 +175,7 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
     return (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-[#0f172a] w-full max-w-md rounded-xl border border-white/10 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                {/* ... (Contenu Edit identique) ... */}
                 <div className="bg-slate-800/50 p-4 border-b border-white/5 flex justify-between items-center">
                     <div>
                         <h2 className="text-lg font-black italic text-white tracking-wider">EDIT LINE UP</h2>
@@ -219,23 +261,33 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
 // --- LANDING PAGE ---
 const LandingPage = () => {
     const navigate = useNavigate();
-    const { user, isAuthenticated, logout, token } = useAuth(); // Utilisation de AuthContext
+    const { user, isAuthenticated, logout, token } = useAuth();
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showAuthModal, setShowAuthModal] = useState(false);
     const [editingTeam, setEditingTeam] = useState<Session | null>(null);
     const [linesups, setlinesups] = useState<Session[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string|null>(null);
+    const [joinPasswordTarget, setJoinPasswordTarget] = useState<string | null>(null);
 
-    // Charger les sessions depuis l'API VPS
+    // --- CORRECTION DU CRASH ---
     const fetchSessions = async () => {
         setLoading(true);
         try {
-            // Si connecté, on pourrait charger /api/my-lineups
             const res = await fetch(`${VPS_API_URL}/api/lineups`, {
                 headers: { "Content-Type": "application/json" }
             });
-            if(!res.ok) throw new Error("Erreur VPS");
+
+            const contentType = res.headers.get("content-type");
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(`Erreur VPS (${res.status}): ${text.substring(0, 100)}...`);
+            }
+            if (contentType && contentType.indexOf("application/json") === -1) {
+                const text = await res.text();
+                throw new Error(`Réponse non-JSON reçue: ${text.substring(0, 100)}...`);
+            }
+
             const data = await res.json();
             setlinesups(data as Session[]);
             setError(null);
@@ -254,37 +306,47 @@ const LandingPage = () => {
         return () => clearInterval(interval);
     }, []);
 
-    const handleJoinTeam = async (teamId: string) => {
-        // Si pas connecté, on ouvre la modale de connexion
-        if (!isAuthenticated) {
-            setShowAuthModal(true);
-            return;
-        }
+    const handleJoinTeam = async (teamId: string, password: string = "") => {
+        if (!isAuthenticated) return setShowAuthModal(true);
+
         try {
-            // 1. On appelle l'API pour s'ajouter comme membre (DRIVER)
             const res = await fetch(`${VPS_API_URL}/api/lineups/${teamId}/join`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${token}` // On prouve qui on est
-                }
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ password })
             });
-            if (res.ok) {
-                // 2. Si succès, on navigue vers la stratégie
+
+            // Safety check for JSON response
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") === -1) {
+                const text = await res.text();
+                return alert("Erreur Serveur (HTML): " + text.substring(0, 100));
+            }
+
+            const data = await res.json();
+
+            if (res.status === 401 && data.requirePassword) {
+                setJoinPasswordTarget(teamId);
+                return;
+            }
+
+            if (res.ok || data.success) {
+                setJoinPasswordTarget(null);
                 localStorage.setItem('teamId', teamId);
                 navigate('/strategy');
             } else {
-                const err = await res.json();
-                alert("Impossible de rejoindre : " + err.error);
+                alert("Erreur : " + (data.error || "Inconnue"));
             }
-        } catch (e) {
-            console.error(e);
-            alert("Erreur réseau lors de la jonction.");
-        }
+        } catch (e: any) { alert("Erreur réseau: " + e.message); }
     };
 
-    const handleCreateSession = async (name: string, category: string, drivers: Driver[]) => {
+    const handleCreateSession = async (name: string, category: string, drivers: Driver[], lineupPassword: string) => {
         const teamId = name.replace(/\s+/g, '-').toLowerCase();
-        const payload = { id: teamId, carCategory: category, drivers, activeDriverId: drivers[0]?.id };
+        const payload = { id: teamId, carCategory: category, drivers, activeDriverId: drivers[0]?.id, lineupPassword };
+
         try {
             const res = await fetch(`${VPS_API_URL}/api/lineups`, {
                 method: 'POST',
@@ -294,51 +356,36 @@ const LandingPage = () => {
                 },
                 body: JSON.stringify(payload)
             });
-            // --- MODIFICATION ICI : Lecture sécurisée ---
+
             const contentType = res.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") !== -1) {
                 const data = await res.json();
                 if (res.ok) {
-                    handleJoinTeam(teamId);
+                    handleJoinTeam(teamId, lineupPassword);
                 } else {
                     alert("Erreur création : " + (data.error || "Erreur inconnue"));
                 }
             } else {
-                // Si ce n'est pas du JSON (ex: erreur HTML 404/500)
                 const text = await res.text();
                 console.error("Réponse serveur invalide (Non-JSON):", text);
                 alert(`Erreur Serveur (${res.status}): Vérifiez que le serveur est bien démarré.`);
             }
-            // --------------------------------------------
         } catch (e) {
-            console.error(e);
-            alert("Erreur réseau ou code : " + e);
+            alert("Erreur réseau: " + e);
         }
     };
 
+    // ... (handleSaveSessionData et handleDeleteTeam inchangés, assurez-vous juste qu'ils sont là) ...
     const handleSaveSessionData = async (teamId: string, updatedDrivers: Driver[], updatedCategory: string) => {
         try {
             const res = await fetch(`${VPS_API_URL}/api/lineups/${teamId}/drivers`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    drivers: updatedDrivers,
-                    carCategory: updatedCategory
-                })
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ drivers: updatedDrivers, carCategory: updatedCategory })
             });
-
-            if (res.ok) {
-                setEditingTeam(null);
-                fetchSessions();
-            } else {
-                alert("Erreur lors de la mise à jour (Permissions ?).");
-            }
-        } catch (e) {
-            alert("Erreur réseau: " + e);
-        }
+            if (res.ok) { setEditingTeam(null); fetchSessions(); }
+            else { alert("Erreur update (Droits insuffisants ?)"); }
+        } catch (e) { alert("Erreur réseau"); }
     };
 
     const handleDeleteTeam = async (e: React.MouseEvent, teamId: string) => {
@@ -350,9 +397,7 @@ const LandingPage = () => {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 fetchSessions();
-            } catch (err) {
-                alert("Erreur suppression (Permissions ?): " + err);
-            }
+            } catch (err) { alert("Erreur suppression: " + err); }
         }
     };
 
@@ -552,6 +597,12 @@ const LandingPage = () => {
             {showCreateModal && <CreateTeamModal onClose={() => setShowCreateModal(false)} onCreate={handleCreateSession} />}
             {editingTeam && <EditTeamModal team={editingTeam} onClose={() => setEditingTeam(null)} onSave={handleSaveSessionData} />}
             {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+            {joinPasswordTarget && (
+                <JoinPasswordModal
+                    onClose={() => setJoinPasswordTarget(null)}
+                    onConfirm={(pwd) => handleJoinTeam(joinPasswordTarget, pwd)}
+                />
+            )}
 
             <div className="absolute bottom-4 right-6 z-50 text-xs text-slate-500
                             transition-all duration-300 ease-in-out
