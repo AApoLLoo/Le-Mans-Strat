@@ -60,7 +60,6 @@ export interface TelemetryData {
     tirePressures: { fl: number; fr: number; rl: number; rr: number };
     tireTemps: { fl: number[]; fr: number[]; rl: number[]; rr: number[] };
     brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
-    // CORRECTION TYPE: Ajout de compounds
     tireCompounds: { fl: string; fr: string; rl: string; rr: string };
     leaderLaps?: number;
     leaderAvgLapTime?: number;
@@ -121,7 +120,6 @@ export interface StrategyData {
 export interface RawVehicle {
     id?: number;
     driver?: string;
-    // CORRECTION TYPE: Ajout de name
     name?: string;
     vehicle?: string;
     class?: string;
@@ -141,7 +139,6 @@ export interface RawVehicle {
     x?: number;
     z?: number;
     sector?: number;
-    // CORRECTION TYPE: Ajout de classPosition
     classPosition?: number;
     stint_laps?: number;
     last_pit_lap?: number;
@@ -166,6 +163,7 @@ export interface GameState {
     stintDuration: number;
     isRaceRunning: boolean;
     trackName: string;
+    trackLength?: number; // <--- AJOUT POUR FIX TS2339
     sessionType: string;
     weather: string;
     scActive: boolean;
@@ -236,7 +234,6 @@ export interface RawTelemetry {
         press?: number[];
         temp?: Record<string, number[]>;
         brake_temp?: number[];
-        // CORRECTION TYPE
         compounds?: { fl: string; fr: string; rl: string; rr: string };
     };
     virtual_energy?: number;
@@ -248,7 +245,11 @@ export interface RawScoring {
     vehicles?: RawVehicle[];
     vehicle_data?: { in_pits?: boolean; last_lap?: number; best_lap?: number; position?: number; classPosition?: number };
     track?: string;
-    weather?: { wetness_path?: number[] };
+    length?: number; // <--- AJOUT POUR FIX TS2339 (Propriété reçue du Bridge)
+    weather?: {
+        wetness_path?: number[];
+        track_temp?: number; // <--- AJOUT POUR FIX TS2339
+    };
 }
 
 export interface RawPit { strategy?: { time_min?: number; fuel_to_add?: number; laps_to_add?: number } }

@@ -24,6 +24,7 @@ export const useRaceData = (teamId: string) => {
         stintDuration: 0,
         isRaceRunning: false,
         trackName: "WAITING...",
+        trackLength: 0,
         sessionType: "-",
         weather: "SUNNY",
         trackMap: [],
@@ -286,6 +287,7 @@ export const useRaceData = (teamId: string) => {
             isRain: weatherStatus === "RAIN",
             isRaceRunning: scoring.time ? Boolean((scoring.time?.current ?? 0) > 0) : prev.isRaceRunning,
             trackName: scoring.track || prev.trackName,
+            trackLength: scoring.length !== undefined ? Number(scoring.length) : prev.trackLength,
             sessionType: scoring.time ? String(scoring.time?.session || "") : prev.sessionType,
             sessionTimeRemaining: sessionTimeRem,
             weather: weatherStatus,
@@ -327,29 +329,30 @@ export const useRaceData = (teamId: string) => {
     // --- AUTO-LOAD TRACK MAP ---
     useEffect(() => {
         const trackName = gameState.trackName;
+        const trackLen = Math.round(gameState.trackLength || 0);
+        const uniqueMapId = (trackName && trackLen > 0)
+            ? `${trackName}_${trackLen}`
+            : trackName;
+        if (uniqueMapId && uniqueMapId !== "WAITING..." && uniqueMapId !== "Unknown" && currentTrackLoadedRef.current !== uniqueMapId) {
+            console.log(`🌍 Recherche de la carte pour : ${uniqueMapId}...`);
 
-        // Conditions : Nom valide, différent de "WAITING...", et pas déjà chargé
-        if (trackName && trackName !== "WAITING..." && trackName !== "Unknown" && currentTrackLoadedRef.current !== trackName) {
-
-            console.log(`🌍 Recherche de la carte pour : ${trackName}...`);
-
-            fetch(`${VPS_URL}/api/tracks/${encodeURIComponent(trackName)}`)
+            // On utilise uniqueMapId au lieu de trackName dans l'URL
+            fetch(`${VPS_URL}/api/tracks/${encodeURIComponent(uniqueMapId)}`)
                 .then(res => {
                     if (res.ok) return res.json();
                     throw new Error("Pas de map");
                 })
                 .then(points => {
-                    console.log(`✅ Carte trouvée pour ${trackName} (${points.length} points)`);
-                    // Mise à jour locale + synchronisation avec les autres membres de l'équipe
+                    console.log(`✅ Carte trouvée !`);
                     syncUpdate({ trackMap: points });
-                    currentTrackLoadedRef.current = trackName;
+                    currentTrackLoadedRef.current = uniqueMapId;
                 })
                 .catch(() => {
-                    console.log(`❌ Aucune carte connue pour ${trackName}. Enregistrement nécessaire.`);
-                    currentTrackLoadedRef.current = trackName; // On marque comme "vérifié" pour ne pas spammer l'API
+                    console.log(`❌ Aucune carte pour ${uniqueMapId}.`);
+                    currentTrackLoadedRef.current = uniqueMapId;
                 });
         }
-    }, [gameState.trackName]);
+    }, [gameState.trackName, gameState.trackLength]);
 
     // --- HISTORIQUE DES TOURS & RECALCUL MOYENNE ---
     useEffect(() => {
@@ -440,19 +443,20 @@ export const useRaceData = (teamId: string) => {
 
 // --- SAUVEGARDE CARTE (Global & Session) ---
     const saveTrackMap = useCallback((points: MapPoint[]) => {
-        // 1. Mise à jour de la session courante (pour l'affichage immédiat)
         if (points.length > 50 || points.length === 0) {
             syncUpdate({ trackMap: points });
         }
 
-        // 2. Sauvegarde persistante dans la bibliothèque de circuits
-        // On ne sauvegarde que si c'est une carte valide (> 50 pts) et qu'on a un nom de circuit
-        if (points.length > 50 && gameState.trackName && gameState.trackName !== "WAITING...") {
+        const trackName = gameState.trackName;
+        const trackLen = Math.round(gameState.trackLength || 0);
+        const uniqueMapId = (trackName && trackLen > 0) ? `${trackName}_${trackLen}` : trackName;
+
+        if (points.length > 50 && uniqueMapId && uniqueMapId !== "WAITING...") {
             fetch(`${VPS_URL}/api/tracks`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    trackName: gameState.trackName,
+                    trackName: uniqueMapId, // On sauvegarde sous l'ID unique
                     points: points
                 })
             })
@@ -460,7 +464,7 @@ export const useRaceData = (teamId: string) => {
                 .then(() => console.log("💾 Carte sauvegardée dans la bibliothèque globale !"))
                 .catch(err => console.error("Erreur save map:", err));
         }
-    }, [SESSION_ID, gameState.trackName]);
+    }, [SESSION_ID, gameState.trackName, gameState.trackLength]);
     // --- CALCULATEUR STRATÉGIQUE ---
     const strategyData: StrategyData = useMemo(() => {
         const activeDriver = getSafeDriver(gameState.drivers.find(d => d.id === gameState.activeDriverId));
