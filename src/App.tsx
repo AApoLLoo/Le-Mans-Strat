@@ -1,9 +1,6 @@
 import { useState } from 'react';
 import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { Settings, Home, Wifi, Flag, Clock, RotateCcw, ArrowRight, AlertTriangle, Plus} from 'lucide-react';
-// Suppression de l'import Supabase
-// import { supabase } from './lib/supabaseClient.ts';
-
 import StrategyView from './components/views/StrategyView';
 import MapView from './components/views/MapView';
 import ChatView from './components/views/ChatView';
@@ -12,7 +9,6 @@ import LiveTimingView from './components/views/LiveTimingView';
 import AnalysisView from './components/views/AnalysisView';
 import LandingPage from './components/LandingPage';
 import SettingsModal from './components/SettingsModal';
-
 import { useRaceData } from './hooks/useRaceData';
 import { getSafeDriver, formatTime } from './utils/helpers';
 

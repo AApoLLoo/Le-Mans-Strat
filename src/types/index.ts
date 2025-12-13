@@ -160,6 +160,7 @@ export interface LapData {
 }
 
 export interface GameState {
+    userRole?: 'ADMIN' | 'DRIVER' | 'VIEWER';
     currentStint: number;
     raceTime: number;
     sessionTimeRemaining: number;

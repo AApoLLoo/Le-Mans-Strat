@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, X, Trash2, Car, RefreshCw, Palette, Save } from 'lucide-react';
+import { Plus, Users, X, Trash2, Car, RefreshCw, Palette, Save, LogOut, User as UserIcon } from 'lucide-react';
 import type { Driver } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { AuthModal } from './AuthModal';
 
 // --- IMPORTS IMAGES ---
 import imgHypercar from '../assets/Hypercar.jpg';
@@ -99,14 +101,12 @@ const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate:
 
 // --- MODAL D'ÉDITION ---
 const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () => void, onSave: (teamId: string, drivers: Driver[], category: string) => void }) => {
-    // 1. État Pilotes
     const [drivers, setDrivers] = useState<Driver[]>(() => {
         if (Array.isArray(team.drivers)) return [...team.drivers];
         if (team.drivers && typeof team.drivers === 'object') return Object.values(team.drivers);
         return [{ id: Date.now(), name: "Driver 1", color: "#3b82f6" }];
     });
 
-    // 2. État Catégorie (Nouveau)
     const [category, setCategory] = useState(team.carCategory || "Hypercar");
 
     const handleAddDriver = () => {
@@ -128,7 +128,7 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
     const handleSave = () => {
         const validDrivers = drivers.filter(d => d.name.trim() !== "");
         if (validDrivers.length === 0) return alert("Please ensure drivers have names.");
-        onSave(team.id, validDrivers, category); // On passe aussi la catégorie
+        onSave(team.id, validDrivers, category);
     };
 
     return (
@@ -143,8 +143,6 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
                 </div>
 
                 <div className="p-6 space-y-4">
-
-                    {/* AJOUT : SÉLECTEUR DE CATÉGORIE DANS L'ÉDITION */}
                     <div className="space-y-2">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                             <Car size={12}/> Car Category
@@ -179,8 +177,6 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
                         {drivers.map((driver, idx) => (
                             <div key={driver.id} className="flex gap-2 items-center bg-slate-900/50 p-2 rounded border border-white/5">
                                 <div className="w-6 text-center text-xs font-mono text-slate-500 font-bold">{idx + 1}</div>
-
-                                {/* Name Input */}
                                 <input
                                     type="text"
                                     value={driver.name}
@@ -188,8 +184,6 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
                                     className="flex-1 bg-transparent border-b border-transparent focus:border-indigo-500 text-sm text-white outline-none px-1"
                                     placeholder="Driver Name"
                                 />
-
-                                {/* Color Picker */}
                                 <div className="relative group cursor-pointer">
                                     <div className="w-6 h-6 rounded border border-white/20 overflow-hidden" style={{backgroundColor: driver.color}}></div>
                                     <input
@@ -199,8 +193,6 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
                                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                                     />
                                 </div>
-
-                                {/* Delete Button */}
                                 <button
                                     onClick={() => handleRemoveDriver(driver.id)}
                                     className="p-1.5 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
@@ -227,7 +219,9 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
 // --- LANDING PAGE ---
 const LandingPage = () => {
     const navigate = useNavigate();
+    const { user, isAuthenticated, logout, token } = useAuth(); // Utilisation de AuthContext
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showAuthModal, setShowAuthModal] = useState(false);
     const [editingTeam, setEditingTeam] = useState<Session | null>(null);
     const [linesups, setlinesups] = useState<Session[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
@@ -237,16 +231,10 @@ const LandingPage = () => {
     const fetchSessions = async () => {
         setLoading(true);
         try {
+            // Si connecté, on pourrait charger /api/my-lineups
             const res = await fetch(`${VPS_API_URL}/api/lineups`, {
-                headers: {
-                    "Content-Type": "application/json"
-                }
+                headers: { "Content-Type": "application/json" }
             });
-            const contentType = res.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                const text = await res.text();
-                console.error("Réponse non-JSON reçue:", text.slice(0, 100));
-            }
             if(!res.ok) throw new Error("Erreur VPS");
             const data = await res.json();
             setlinesups(data as Session[]);
@@ -266,9 +254,32 @@ const LandingPage = () => {
         return () => clearInterval(interval);
     }, []);
 
-    const handleJoinTeam = (teamId: string) => {
-        localStorage.setItem('teamId', teamId);
-        navigate('/strategy');
+    const handleJoinTeam = async (teamId: string) => {
+        // Si pas connecté, on ouvre la modale de connexion
+        if (!isAuthenticated) {
+            setShowAuthModal(true);
+            return;
+        }
+        try {
+            // 1. On appelle l'API pour s'ajouter comme membre (DRIVER)
+            const res = await fetch(`${VPS_API_URL}/api/lineups/${teamId}/join`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}` // On prouve qui on est
+                }
+            });
+            if (res.ok) {
+                // 2. Si succès, on navigue vers la stratégie
+                localStorage.setItem('teamId', teamId);
+                navigate('/strategy');
+            } else {
+                const err = await res.json();
+                alert("Impossible de rejoindre : " + err.error);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Erreur réseau lors de la jonction.");
+        }
     };
 
     const handleCreateSession = async (name: string, category: string, drivers: Driver[]) => {
@@ -277,25 +288,42 @@ const LandingPage = () => {
         try {
             const res = await fetch(`${VPS_API_URL}/api/lineups`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify(payload)
             });
-            if (res.ok) {
-                handleJoinTeam(teamId);
+            // --- MODIFICATION ICI : Lecture sécurisée ---
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                const data = await res.json();
+                if (res.ok) {
+                    handleJoinTeam(teamId);
+                } else {
+                    alert("Erreur création : " + (data.error || "Erreur inconnue"));
+                }
             } else {
-                alert("Erreur création session VPS");
+                // Si ce n'est pas du JSON (ex: erreur HTML 404/500)
+                const text = await res.text();
+                console.error("Réponse serveur invalide (Non-JSON):", text);
+                alert(`Erreur Serveur (${res.status}): Vérifiez que le serveur est bien démarré.`);
             }
+            // --------------------------------------------
         } catch (e) {
-            alert("Erreur réseau: " + e);
+            console.error(e);
+            alert("Erreur réseau ou code : " + e);
         }
     };
 
-    // MISE À JOUR (Pilotes + Catégorie)
     const handleSaveSessionData = async (teamId: string, updatedDrivers: Driver[], updatedCategory: string) => {
         try {
             const res = await fetch(`${VPS_API_URL}/api/lineups/${teamId}/drivers`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     drivers: updatedDrivers,
                     carCategory: updatedCategory
@@ -306,7 +334,7 @@ const LandingPage = () => {
                 setEditingTeam(null);
                 fetchSessions();
             } else {
-                alert("Erreur lors de la mise à jour.");
+                alert("Erreur lors de la mise à jour (Permissions ?).");
             }
         } catch (e) {
             alert("Erreur réseau: " + e);
@@ -319,10 +347,11 @@ const LandingPage = () => {
             try {
                 await fetch(`${VPS_API_URL}/api/lineups/${teamId}`, {
                     method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
                 fetchSessions();
             } catch (err) {
-                alert("Erreur suppression: " + err);
+                alert("Erreur suppression (Permissions ?): " + err);
             }
         }
     };
@@ -337,6 +366,31 @@ const LandingPage = () => {
 
     return (
         <div className="min-h-screen bg-[#020408] text-white font-display overflow-x-hidden relative">
+
+            {/* --- HEADER UTILISATEUR --- */}
+            <div className="absolute top-6 right-6 z-50 flex items-center gap-4">
+                {isAuthenticated ? (
+                    <div className="flex items-center gap-3 bg-slate-900/80 p-1.5 pr-4 rounded-full border border-white/10 backdrop-blur shadow-2xl animate-in fade-in slide-in-from-top-2">
+                        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-white shadow-inner">
+                            {user?.username.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-xs font-bold text-white leading-tight">{user?.username}</span>
+                            <button onClick={logout} className="text-[9px] text-slate-400 hover:text-red-400 uppercase font-bold text-left flex items-center gap-1 transition-colors">
+                                <LogOut size={8}/> Logout
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setShowAuthModal(true)}
+                        className="bg-white/5 hover:bg-white/10 text-white border border-white/10 px-5 py-2 rounded-full text-xs font-bold transition-all backdrop-blur flex items-center gap-2 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                    >
+                        <UserIcon size={14}/> LOGIN / REGISTER
+                    </button>
+                )}
+            </div>
+
             <div className="fixed inset-0 pointer-events-none">
                 <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-900/20 blur-[120px] rounded-full animate-pulse"></div>
                 <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-900/20 blur-[120px] rounded-full animate-pulse delay-1000"></div>
@@ -370,13 +424,21 @@ const LandingPage = () => {
                 </div>
 
                 <div className="w-full max-w-2xl flex gap-4 mb-16">
-                    <button onClick={() => setShowCreateModal(true)} className="flex-1 group relative overflow-hidden bg-gradient-to-r from-indigo-600 to-blue-600 p-1 rounded-xl shadow-[0_0_40px_rgba(79,70,229,0.3)] hover:shadow-[0_0_60px_rgba(79,70,229,0.5)] transition-all duration-300 transform hover:-translate-y-1">
+                    <button
+                        onClick={() => {
+                            if (isAuthenticated) setShowCreateModal(true);
+                            else setShowAuthModal(true);
+                        }}
+                        className="flex-1 group relative overflow-hidden bg-gradient-to-r from-indigo-600 to-blue-600 p-1 rounded-xl shadow-[0_0_40px_rgba(79,70,229,0.3)] hover:shadow-[0_0_60px_rgba(79,70,229,0.5)] transition-all duration-300 transform hover:-translate-y-1"
+                    >
                         <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
                         <div className="bg-[#050a10] rounded-lg h-full px-8 py-6 flex items-center justify-center gap-4 relative z-10">
                             <Plus className="w-8 h-8 text-indigo-400 group-hover:rotate-90 transition-transform duration-300"/>
                             <div className="text-left">
                                 <div className="text-xl font-bold text-white italic">CREATE NEW STRATEGY</div>
-                                <div className="text-xs text-indigo-400 font-bold tracking-wider">START A NEW SESSION</div>
+                                <div className="text-xs text-indigo-400 font-bold tracking-wider">
+                                    {isAuthenticated ? "START A NEW SESSION" : "LOGIN REQUIRED"}
+                                </div>
                             </div>
                         </div>
                     </button>
@@ -416,29 +478,29 @@ const LandingPage = () => {
                                             </>
                                         )}
 
-                                        {/* --- ACTIONS GROUPÉES EN HAUT À DROITE --- */}
-                                        <div className="absolute top-3 right-3 z-30 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
-                                            {/* Bouton EDIT */}
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setEditingTeam(team);
-                                                }}
-                                                className="p-2 rounded-lg bg-slate-900/90 text-indigo-400 hover:bg-indigo-600 hover:text-white border border-white/20 transition-colors shadow-lg backdrop-blur-sm"
-                                                title="Edit Drivers"
-                                            >
-                                                <Palette size={16} />
-                                            </button>
+                                        {/* --- ACTIONS (SI CONNECTÉ) --- */}
+                                        {isAuthenticated && (
+                                            <div className="absolute top-3 right-3 z-30 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingTeam(team);
+                                                    }}
+                                                    className="p-2 rounded-lg bg-slate-900/90 text-indigo-400 hover:bg-indigo-600 hover:text-white border border-white/20 transition-colors shadow-lg backdrop-blur-sm"
+                                                    title="Edit Drivers"
+                                                >
+                                                    <Palette size={16} />
+                                                </button>
 
-                                            {/* Bouton DELETE */}
-                                            <button
-                                                onClick={(e) => handleDeleteTeam(e, team.id)}
-                                                className="p-2 rounded-lg bg-slate-900/90 text-slate-500 hover:bg-red-500/20 hover:text-red-500 border border-white/20 transition-colors shadow-lg backdrop-blur-sm"
-                                                title="Delete Line Up"
-                                            >
-                                                <Trash2 size={16}/>
-                                            </button>
-                                        </div>
+                                                <button
+                                                    onClick={(e) => handleDeleteTeam(e, team.id)}
+                                                    className="p-2 rounded-lg bg-slate-900/90 text-slate-500 hover:bg-red-500/20 hover:text-red-500 border border-white/20 transition-colors shadow-lg backdrop-blur-sm"
+                                                    title="Delete Line Up"
+                                                >
+                                                    <Trash2 size={16}/>
+                                                </button>
+                                            </div>
+                                        )}
 
                                         <div className="relative z-10 space-y-4">
                                             <div>
@@ -486,8 +548,10 @@ const LandingPage = () => {
                     )}
                 </div>
             </div>
+
             {showCreateModal && <CreateTeamModal onClose={() => setShowCreateModal(false)} onCreate={handleCreateSession} />}
             {editingTeam && <EditTeamModal team={editingTeam} onClose={() => setEditingTeam(null)} onSave={handleSaveSessionData} />}
+            {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
 
             <div className="absolute bottom-4 right-6 z-50 text-xs text-slate-500
                             transition-all duration-300 ease-in-out
