@@ -77,6 +77,8 @@ export interface StintConfig {
     driverId?: number | string;
     tyres?: string;
     fuel?: number | 'FULL';
+    fuelEnergyRatio?: number;
+    laps?: number;
     repaired?: boolean;
 }
 
@@ -87,6 +89,7 @@ export interface Stint {
     endLap: number;
     fuel: string;
     virtualEnergy?: string;
+    fuelEnergyRatio?: number;
     tyres?: string;
     driver: Driver;
     driverId: number | string;
