@@ -6,6 +6,7 @@ interface MapViewProps {
     vehicles?: RawVehicle[];
     myCarId?: number | string;
     savedMap?: MapPoint[];
+    trackName?: string; // <--- 1. AJOUT ICI
     onSaveMap?: (points: MapPoint[]) => void;
 }
 
@@ -16,13 +17,26 @@ const CLASS_COLORS: Record<string, string> = {
     'default': '#cccccc'
 };
 
-const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveMap }) => {
+// 2. AJOUT DE trackName DANS LA DÉSTRUCTURATION DES PROPS
+const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveMap, trackName }) => {
     const [localTrack, setLocalTrack] = useState<MapPoint[]>([]);
     const [isRecording, setIsRecording] = useState(true);
     const [hasCrossedStart, setHasCrossedStart] = useState(false);
 
     const lastPosRef = useRef<{x: number, z: number} | null>(null);
     const lastLapsCountRef = useRef<number>(-1);
+
+    // --- 3. NOUVEAU : RESET AUTOMATIQUE AU CHANGEMENT DE CIRCUIT ---
+    useEffect(() => {
+        // Si le nom du circuit change, on vide tout
+        setLocalTrack([]);
+        setHasCrossedStart(false);
+        setIsRecording(true);
+        lastLapsCountRef.current = -1;
+        lastPosRef.current = null;
+        console.log(`🗺️ Nouveau circuit détecté : ${trackName} -> Reset Map`);
+    }, [trackName]); // Se déclenche uniquement quand trackName change
+    // -------------------------------------------------------------
 
     const activeTrack = savedMap.length > 50 ? savedMap : localTrack;
     const isMapLoaded = savedMap.length > 50;
