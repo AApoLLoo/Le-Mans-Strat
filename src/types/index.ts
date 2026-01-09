@@ -21,11 +21,11 @@ export interface VirtualEnergyData {
 }
 
 export interface ElectricData {
-    charge: number;
-    torque: number;
-    rpm: number;
-    motorTemp: number;
-    waterTemp: number;
+    charge: number;      // 0.0 à 1.0 (Pourcent batterie)
+    torque: number;      // Couple moteur électrique
+    rpm: number;         // Régime moteur électrique
+    motorTemp: number;   // <--- CORRIGÉ (était temp_motor)
+    waterTemp: number;   // <--- CORRIGÉ (était temp_water)
     state: number;
 }
 
@@ -71,6 +71,12 @@ export interface TelemetryData {
     pitLimiter: boolean;
     damageIndex: number;
     isOverheating: boolean;
+}
+
+export interface TireTempDetails {
+    surface: number[];   // [G, M, D]
+    inner: number[];     // [G, M, D]
+    carcass: number;     // Température carcasse
 }
 
 export interface StintConfig {
@@ -160,7 +166,7 @@ export interface LapData {
 }
 
 export interface GameState {
-    userGlobalRole?: 'ADMIN' | 'DRIVER'; // Rôle du compte
+    userGlobalRole?: 'ADMIN' | 'DRIVER';
     userTeamRole?: 'LEADER' | 'MEMBER';
     currentStint: number;
     raceTime: number;
@@ -168,7 +174,7 @@ export interface GameState {
     stintDuration: number;
     isRaceRunning: boolean;
     trackName: string;
-    trackLength?: number; // <--- AJOUT POUR FIX TS2339
+    trackLength?: number;
     sessionType: string;
     weather: string;
     scActive: boolean;
@@ -241,6 +247,12 @@ export interface RawTelemetry {
         brake_temp?: number[];
         compounds?: { fl: string; fr: string; rl: string; rr: string };
     };
+    tire_temps_detailed?: {
+        fl: TireTempDetails;
+        fr: TireTempDetails;
+        rl: TireTempDetails;
+        rr: TireTempDetails;
+    };
     virtual_energy?: number;
 }
 
@@ -250,10 +262,10 @@ export interface RawScoring {
     vehicles?: RawVehicle[];
     vehicle_data?: { in_pits?: boolean; last_lap?: number; best_lap?: number; position?: number; classPosition?: number };
     track?: string;
-    length?: number; // <--- AJOUT POUR FIX TS2339 (Propriété reçue du Bridge)
+    length?: number;
     weather?: {
         wetness_path?: number[];
-        track_temp?: number; // <--- AJOUT POUR FIX TS2339
+        track_temp?: number;
     };
 }
 
@@ -262,7 +274,7 @@ export interface RawWeather { rain_intensity?: number; cloudiness?: number; ambi
 export interface RawRules { sc?: { active?: number }; my_status?: { pits_open?: boolean } }
 export interface RawExtended { pit_limit?: number }
 
-export interface RawDoc extends Partial<GameState> {
+export interface RawDoc extends Partial<Omit<GameState, 'telemetry'>> {
     scoring?: RawScoring;
     telemetry?: RawTelemetry;
     pit?: RawPit;

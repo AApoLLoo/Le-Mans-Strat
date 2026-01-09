@@ -43,3 +43,51 @@ export const getLapTimeDelta = (estimatedTime: number, realTimeAvg: number) => {
     const displayDelta = delta !== 0 ? `${deltaSign}${Math.abs(delta).toFixed(2)}s` : '±0.0s';
     return { colorClass, displayDelta, realTimeAvg };
 };
+export const calculateRefillStrategy = (
+    currentFuel: number,
+    avgConsumption: number,
+    lapsCompleted: number,
+    totalLaps: number, // Si course aux tours
+    timeLeft: number,  // Si course au temps (en secondes)
+    avgLapTime: number // Temps au tour moyen (en secondes)
+) => {
+    // 1. Estimer le nombre de tours restants
+    let lapsRemaining = 0;
+
+    if (totalLaps > 0) {
+        // Course au nombre de tours
+        lapsRemaining = totalLaps - lapsCompleted;
+    } else if (timeLeft > 0 && avgLapTime > 0) {
+        // Course au temps : (Temps restant / Temps au tour) + 1 tour de sécurité (souvent la règle)
+        lapsRemaining = Math.ceil(timeLeft / avgLapTime);
+    }
+
+    // 2. Calcul du carburant nécessaire pour finir
+    const fuelNeededToEnd = lapsRemaining * avgConsumption;
+
+    // 3. Calcul du "Refill" (ce qu'il faut ajouter)
+    // Si on a 20L et qu'il en faut 50L, Refill = 30L. Si on a 60L, Refill = 0.
+    const refillNeeded = Math.max(0, fuelNeededToEnd - currentFuel);
+
+    // 4. Status (Logique Vroom : Vert = OK, Orange = Juste, Rouge = Manque)
+    // On considère "Safe" si on a 1 tour de marge en plus dans le réservoir actuel
+    const fuelDelta = currentFuel - fuelNeededToEnd;
+    let status = 'CRITICAL'; // Manque beaucoup
+    let statusColor = 'text-red-500';
+
+    if (fuelDelta >= avgConsumption) {
+        status = 'OK'; // On a plus d'un tour de marge
+        statusColor = 'text-emerald-500'; // Vert (Vroom style)
+    } else if (fuelDelta >= 0) {
+        status = 'TIGHT'; // On finit mais c'est juste (< 1 tour marge)
+        statusColor = 'text-amber-500'; // Orange (Vroom style)
+    }
+
+    return {
+        lapsRemaining,
+        fuelNeededToEnd,
+        refillNeeded,
+        status,
+        statusColor
+    };
+};

@@ -417,8 +417,7 @@ export const useRaceData = (teamId: string) => {
             if (useVE) {
                 veNeeded = lapsDuration * activeVECons;
                 veDisplay = `${veNeeded.toFixed(0)}%`;
-                const tankRatio = tankCapacity / 100;
-                fuelNeeded = veNeeded * ratio * tankRatio;
+                fuelNeeded = veNeeded * ratio;
             } else {
                 fuelNeeded = lapsDuration * activeFuelCons;
             }

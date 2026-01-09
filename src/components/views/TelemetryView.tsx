@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { Fuel, Zap, CloudRain, Sun, Cloud, Thermometer, RefreshCw, Plus, Minus, XCircle } from 'lucide-react';
 import type { TelemetryData, WeatherNode } from '../../types';
 import WeatherWidget from './WeatherWidget';
+import HybridWidget from './HybridWidget';
 
 // --- FONCTIONS UTILITAIRES ---
-
-// Petit helper pour formater le temps (ex: 95.5s -> 1:35.5)
 const formatLapTime = (seconds: number) => {
     if (!seconds || seconds <= 0) return "--:--.---";
     const m = Math.floor(seconds / 60);
@@ -44,7 +43,6 @@ const getTempColor = (temp: number, type: 'brake' | 'tire') => {
 };
 
 const getWeatherIcon = (weather: string) => {
-    // Sécurisation de la string weather
     const w = (weather || "SUNNY").toUpperCase();
     if (w.includes('RAIN') || w.includes('WET')) return <CloudRain size={18} className="text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.8)]"/>;
     if (w.includes('CLOUD') || w.includes('OVERCAST')) return <Cloud size={18} className="text-slate-400"/>;
@@ -74,7 +72,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                                                          telemetryData, isHypercar, isLMGT3, position,
                                                          weather, airTemp, trackTemp, trackWetness,
                                                          targetFuelCons, targetVECons, onSetFuelTarget, onSetVETarget,
-                                                         avgLapTimeSeconds, // On récupère bien la prop ici
+                                                         avgLapTimeSeconds,
                                                          weatherForecast
                                                      }) => {
     const {
@@ -84,11 +82,8 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
         speed, rpm, maxRpm, gear, waterTemp, oilTemp
     } = telemetryData;
 
-    // CORRECTION : On utilise la prop avgLapTimeSeconds au lieu de curLap
     const displayAvgLap = formatLapTime(avgLapTimeSeconds);
-
     const compounds = tireCompounds || { fl: "---", fr: "---", rl: "---", rr: "---" };
-
     const isCategoryGT3 = isLMGT3 || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('gt3') || carCategory.toLowerCase().includes('lmgt3')));
     const isCategoryHypercar = isHypercar || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('hyper') || carCategory.toLowerCase().includes('lmh') || carCategory.toLowerCase().includes('lmdh') || carCategory.toLowerCase().includes('gtop')));
 
@@ -128,6 +123,12 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
     const label = isVE ? 'VIRTUAL ENERGY' : 'FUEL LEVEL';
     const icon = isVE ? <Zap size={14} className="text-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
 
+    // --- LOGIQUE RPM AMÉLIORÉE ---
+    const currentRpm = Math.round(Number(rpm) || 0);
+    const limitRpm = Math.round(Number(maxRpm)) || 8000;
+    const rpmPct = Math.min(100, Math.max(0, (currentRpm / limitRpm) * 100));
+    const isShiftNow = rpmPct > 96;
+
     const renderTire = (name: string, wear: number, pressure: number, brakeT: number, tireT: number[], compound: string) => {
         const displayWear = Number(wear) || 0;
         const displayBrakeT = Number(brakeT) || 0;
@@ -157,8 +158,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
 
     return (
         <div className="h-full w-full bg-[#050a10] p-4 flex flex-col gap-4 overflow-hidden font-display">
-
-            {/* HEADER CORRIGÉ */}
+            {/* HEADER */}
             <div className="bg-slate-900/60 border border-white/10 rounded-xl p-3 flex items-center justify-between shrink-0 shadow-lg">
                 <div className="flex items-center gap-6">
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5">
@@ -176,10 +176,8 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                 <div className="flex items-center gap-6">
                     <div className="text-right">
                         <div className="text-[9px] text-slate-500 font-bold uppercase">Average Lap</div>
-                        {/* CORRECTION : Affichage du temps moyen formaté */}
                         <div className="font-mono text-xl font-bold text-white">{displayAvgLap}</div>
                     </div>
-                    {/* CORRECTION : Affichage de la position sécurisé */}
                     <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center text-2xl font-black text-white italic">
                         {position > 0 ? `P${position}` : "-"}
                     </div>
@@ -187,7 +185,6 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
             </div>
 
             <div className="flex-1 grid grid-cols-12 gap-4 min-h-0">
-
                 {/* PNEUS (Gauche) */}
                 <div className="col-span-3 flex flex-col gap-2">
                     <div className="flex gap-2 flex-1">
@@ -202,35 +199,60 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
 
                 {/* DASHBOARD (Centre) */}
                 <div className="col-span-6 bg-slate-900/30 border border-white/5 rounded-xl p-6 flex flex-col justify-between relative">
-                    <div className="w-full h-6 bg-slate-950 rounded overflow-hidden relative mb-4 border border-slate-700">
-                        <div className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 transition-all duration-75" style={{width: `${(Number(rpm)/Number(maxRpm))*100}%`}}></div>
+                    {/* --- NOUVEAU DESIGN RPM --- */}
+                    <div className="mb-6 relative group">
+                        <div className={`absolute -inset-1 rounded-lg blur opacity-30 transition-opacity duration-75 ${isShiftNow ? 'bg-cyan-400 opacity-100 animate-pulse' : 'bg-transparent'}`}></div>
+                        <div className="h-12 bg-slate-950 rounded-lg border border-slate-700 relative overflow-hidden flex items-center shadow-inner">
+                            <div className="absolute inset-0 flex justify-between px-2 items-end pb-1 opacity-30 z-10 pointer-events-none">
+                                {[...Array(11)].map((_, i) => (
+                                    <div key={i} className={`w-px bg-slate-500 ${i % 5 === 0 ? 'h-5' : 'h-2'}`}></div>
+                                ))}
+                            </div>
+                            <div className={`h-full transition-all duration-75 ease-linear relative z-0 flex items-center justify-end pr-2 overflow-hidden ${isShiftNow ? 'bg-cyan-400 animate-pulse shadow-[0_0_30px_rgba(34,211,238,0.8)_inset]' : 'bg-gradient-to-r from-emerald-600 via-yellow-500 to-red-600'}`} style={{width: `${rpmPct}%`}}>
+                                <div className="absolute top-0 left-0 w-full h-[50%] bg-gradient-to-b from-white/20 to-transparent"></div>
+                                <div className="absolute bottom-0 left-0 w-full h-[20%] bg-gradient-to-t from-black/20 to-transparent"></div>
+                            </div>
+                            <div className="absolute right-4 z-20 flex flex-col items-end leading-none drop-shadow-md">
+                                <div className={`text-2xl font-black italic font-mono ${isShiftNow ? 'text-black' : 'text-white'}`}>{currentRpm}</div>
+                                <div className={`text-[9px] font-bold ${isShiftNow ? 'text-black/70' : 'text-slate-500'}`}>RPM</div>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="flex-1 flex items-center justify-center gap-8">
                         <div className="text-center">
-                            <div className="text-6xl font-black italic text-white tracking-tighter">{Math.round(Number(speed))}</div>
+                            <div className="text-6xl font-black italic text-white tracking-tighter drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]">{Math.round(Number(speed))}</div>
                             <div className="text-xs text-slate-500 font-bold uppercase">KM/H</div>
                         </div>
-                        <div className="w-32 h-32 bg-black rounded-xl border-4 border-slate-800 flex items-center justify-center text-8xl font-black text-white shadow-inner">
+                        <div className={`w-32 h-32 rounded-xl border-4 flex items-center justify-center text-8xl font-black shadow-inner transition-colors duration-100 ${isShiftNow ? 'bg-cyan-500 border-cyan-300 text-black animate-pulse' : 'bg-black border-slate-800 text-white'}`}>
                             {gear === -1 ? 'R' : (gear === 0 ? 'N' : gear)}
                         </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mt-4">
                         <div className="space-y-2">
-                            <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{width: `${Number(throttle)*100}%`}}></div></div>
-                            <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-red-500" style={{width: `${Number(brake)*100}%`}}></div></div>
-                            <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width: `${Number(clutch)*100}%`}}></div></div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-bold text-slate-500 w-6">THR</span>
+                                <div className="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{width: `${Number(throttle)*100}%`}}></div></div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-bold text-slate-500 w-6">BRK</span>
+                                <div className="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-red-500" style={{width: `${Number(brake)*100}%`}}></div></div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-bold text-slate-500 w-6">CLT</span>
+                                <div className="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width: `${Number(clutch)*100}%`}}></div></div>
+                            </div>
                         </div>
-                        <div className="flex justify-center items-center">
-                            <div className="text-xs text-slate-500 font-bold uppercase">Steering: {Math.round(Number(steering)*100)}%</div>
+                        <div className="flex flex-col justify-center items-center gap-1">
+                            <div className="text-xs text-slate-500 font-bold uppercase">Steering Angle</div>
+                            <div className="text-xl font-black text-white">{Math.round(Number(steering)*100)}<span className="text-sm text-slate-500 ml-1">%</span></div>
                         </div>
                     </div>
                 </div>
 
                 {/* DATA (Droite) */}
                 <div className="col-span-3 flex flex-col gap-3">
-
                     {/* WIDGET CONSO INTELLIGENT */}
                     <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1 relative overflow-hidden group">
                         <div className="flex justify-between items-center mb-2">
@@ -251,7 +273,6 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                                 </div>
                                 <div className="text-[10px] text-slate-400 mt-1">Last: {lastLapCons.toFixed(2)}</div>
                             </div>
-
                             <div className="text-right flex flex-col items-end">
                                 <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-2">
                                     Target
@@ -270,24 +291,9 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                         </div>
                     </div>
 
-                    {/* HYBRIDE */}
+                    {/* WIDGET HYBRIDE (Nouveau) - Uniquement si Hypercar */}
                     {isCategoryHypercar && (
-                        <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
-                            <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Zap size={12}/> Hybrid System</span>
-                            <div className="mb-3">
-                                <div className="flex justify-between items-center text-sm mb-1">
-                                    <span className="text-slate-300">SoC</span>
-                                    <span className="font-bold text-emerald-400">{Math.round(Number(batterySoc))}%</span>
-                                </div>
-                                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-emerald-400" style={{width: `${Math.min(100, Math.max(0, Number(batterySoc)))}%`}}></div>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-sm mt-1">
-                                <div><span className="text-slate-500 text-[10px] block">TEMP MOTEUR</span><span className={`font-bold ${Number(electric?.motorTemp) > 100 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{Math.round(Number(electric?.motorTemp || 0))}°C</span></div>
-                                <div className="text-right"><span className="text-slate-500 text-[10px] block">COUPLE</span><span className="font-bold text-cyan-300">{Math.round(Number(electric?.torque || 0))} Nm</span></div>
-                            </div>
-                        </div>
+                        <HybridWidget data={electric} soc={Number(batterySoc)} />
                     )}
 
                     {/* TEMPÉRATURES */}
@@ -301,9 +307,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
 
                     {/* WIDGET MÉTÉO */}
                     <WeatherWidget forecast={weatherForecast || []} />
-
                 </div>
-
             </div>
         </div>
     );
