@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Fuel, Zap, CloudRain, Sun, Cloud, Thermometer, RefreshCw, Plus, Minus, XCircle } from 'lucide-react';
 import type { TelemetryData, WeatherNode } from '../../types';
 import WeatherWidget from './WeatherWidget';
-import HybridWidget from './HybridWidget';
+
 
 // --- FONCTIONS UTILITAIRES ---
 const formatLapTime = (seconds: number) => {
@@ -292,8 +292,23 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                     </div>
 
                     {/* WIDGET HYBRIDE (Nouveau) - Uniquement si Hypercar */}
-                    {(isCategoryHypercar || isCategoryGT3) && (
-                        <HybridWidget data={electric} soc={Number(batterySoc)} />
+                    {isCategoryHypercar && (
+                        <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
+                            <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Zap size={12}/> Hybrid System</span>
+                            <div className="mb-3">
+                                <div className="flex justify-between items-center text-sm mb-1">
+                                    <span className="text-slate-300">SoC</span>
+                                    <span className="font-bold text-emerald-400">{Math.round(Number(batterySoc))}%</span>
+                                </div>
+                                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                                    <div className="h-full bg-emerald-400" style={{width: `${Math.min(100, Math.max(0, Number(batterySoc)))}%`}}></div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-sm mt-1">
+                                <div><span className="text-slate-500 text-[10px] block">TEMP MOTEUR</span><span className={`font-bold ${Number(electric?.motorTemp) > 100 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{Math.round(Number(electric?.motorTemp || 0))}°C</span></div>
+                                <div className="text-right"><span className="text-slate-500 text-[10px] block">COUPLE</span><span className="font-bold text-cyan-300">{Math.round(Number(electric?.torque || 0))} Nm</span></div>
+                            </div>
+                        </div>
                     )}
 
                     {/* TEMPÉRATURES */}
