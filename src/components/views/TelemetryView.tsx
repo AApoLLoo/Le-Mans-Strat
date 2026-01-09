@@ -292,7 +292,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                     </div>
 
                     {/* WIDGET HYBRIDE (Nouveau) - Uniquement si Hypercar */}
-                    {isCategoryHypercar && (
+                    {(isCategoryHypercar || isCategoryGT3) && (
                         <HybridWidget data={electric} soc={Number(batterySoc)} />
                     )}
 
