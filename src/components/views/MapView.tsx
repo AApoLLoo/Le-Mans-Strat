@@ -1,21 +1,16 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Map as MapIcon, Trash2, Save, Flag } from 'lucide-react';
 import type { RawVehicle, MapPoint } from '../../types';
+import { getClassHexColor } from '../../utils/carClasses';
+import { MAP_PADDING, MAP_MIN_POINTS_LOADED, MAP_MIN_DISTANCE_BETWEEN_POINTS, MAP_AUTO_CLOSE_THRESHOLD, MAP_MIN_POINTS_FOR_LOOP } from '../../constants';
 
 interface MapViewProps {
     vehicles?: RawVehicle[];
     myCarId?: number | string;
     savedMap?: MapPoint[];
-    trackName?: string; // <--- 1. AJOUT ICI
+    trackName?: string;
     onSaveMap?: (points: MapPoint[]) => void;
 }
-
-const CLASS_COLORS: Record<string, string> = {
-    'hypercar': '#ff3333',
-    'lmp2': '#3399ff',
-    'gt3': '#ff9933',
-    'default': '#cccccc'
-};
 
 // 2. AJOUT DE trackName DANS LA DÉSTRUCTURATION DES PROPS
 const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveMap, trackName }) => {
@@ -25,21 +20,26 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
 
     const lastPosRef = useRef<{x: number, z: number} | null>(null);
     const lastLapsCountRef = useRef<number>(-1);
+    const lastTrackNameRef = useRef<string | undefined>(trackName);
+    const localTrackRef = useRef<MapPoint[]>(localTrack);
+    localTrackRef.current = localTrack;
 
-    // --- 3. NOUVEAU : RESET AUTOMATIQUE AU CHANGEMENT DE CIRCUIT ---
+    // --- RESET AUTOMATIQUE AU CHANGEMENT DE CIRCUIT ---
     useEffect(() => {
-        // Si le nom du circuit change, on vide tout
+        // Ignorer les valeurs transitoires vides et le premier rendu
+        if (!trackName || trackName === lastTrackNameRef.current) return;
+        lastTrackNameRef.current = trackName;
+
         setLocalTrack([]);
         setHasCrossedStart(false);
         setIsRecording(true);
         lastLapsCountRef.current = -1;
         lastPosRef.current = null;
-        console.log(`🗺️ Nouveau circuit détecté : ${trackName} -> Reset Map`);
-    }, [trackName]); // Se déclenche uniquement quand trackName change
-    // -------------------------------------------------------------
+        console.log(`Map: new track detected: ${trackName} -> Reset`);
+    }, [trackName]);
 
-    const activeTrack = savedMap.length > 50 ? savedMap : localTrack;
-    const isMapLoaded = savedMap.length > 50;
+    const activeTrack = savedMap.length > MAP_MIN_POINTS_LOADED ? savedMap : localTrack;
+    const isMapLoaded = savedMap.length > MAP_MIN_POINTS_LOADED;
 
     // --- ENREGISTREMENT AVEC SECTEURS ---
     useEffect(() => {
@@ -55,9 +55,8 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
         // DÉTECTION LIGNE DE DÉPART
         if (lastLapsCountRef.current > -1 && currentLaps > lastLapsCountRef.current) {
             if (!hasCrossedStart) {
-                console.log("🏁 START LINE DETECTED");
+                console.log("START LINE DETECTED");
                 setHasCrossedStart(true);
-                // On enregistre le premier point avec son secteur
                 setLocalTrack([{ x: tracer.x, z: tracer.z, sector: currentSector }]);
                 lastPosRef.current = { x: tracer.x, z: tracer.z };
             }
@@ -65,24 +64,24 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
         lastLapsCountRef.current = currentLaps;
 
         // ENREGISTREMENT DES POINTS
-        if (hasCrossedStart && lastPosRef.current) {
-            const { x, z } = tracer;
-            if (Math.hypot(lastPosRef.current.x - x, lastPosRef.current.z - z) > 5) {
+        if (!hasCrossedStart || !lastPosRef.current) return;
 
-                // Si on boucle (Auto-Save)
-                if (localTrack.length > 200 && Math.hypot(localTrack[0].x - x, localTrack[0].z - z) < 40) {
-                    const finalTrack = [...localTrack, { x, z, sector: currentSector }];
-                    setLocalTrack(finalTrack);
-                    setIsRecording(false);
-                    if (onSaveMap) onSaveMap(finalTrack);
-                } else {
-                    // Ajout du point avec son secteur
-                    setLocalTrack(prev => [...prev, { x, z, sector: currentSector }]);
-                }
-                lastPosRef.current = { x, z };
-            }
+        const { x, z } = tracer;
+        const dist = Math.hypot(lastPosRef.current.x - x, lastPosRef.current.z - z);
+        if (dist <= MAP_MIN_DISTANCE_BETWEEN_POINTS) return;
+
+        const track = localTrackRef.current;
+        // Si on boucle (Auto-Save)
+        if (track.length > MAP_MIN_POINTS_FOR_LOOP && Math.hypot(track[0].x - x, track[0].z - z) < MAP_AUTO_CLOSE_THRESHOLD) {
+            const finalTrack = [...track, { x, z, sector: currentSector }];
+            setLocalTrack(finalTrack);
+            setIsRecording(false);
+            if (onSaveMap) onSaveMap(finalTrack);
+        } else {
+            setLocalTrack(prev => [...prev, { x, z, sector: currentSector }]);
         }
-    }, [vehicles, isMapLoaded, isRecording, localTrack, onSaveMap, hasCrossedStart]);
+        lastPosRef.current = { x, z };
+    }, [vehicles, isMapLoaded, isRecording, onSaveMap, hasCrossedStart]);
 
     const handleReset = () => {
         if (confirm("🗑️ Voulez-vous vraiment SUPPRIMER la carte ?")) {
@@ -107,7 +106,7 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
             }
         });
         const width = maxX - minX; const height = maxZ - minZ;
-        const padding = Math.max(width, height) * 0.15;
+        const padding = Math.max(width, height) * MAP_PADDING;
         return { minX: minX - padding, width: width + padding * 2, minZ: minZ - padding, height: height + padding * 2 };
     }, [activeTrack, vehicles.length === 0]);
 
@@ -236,11 +235,7 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
                 const coords = project(v.x, v.z);
                 const isMe = v.is_player === 1;
 
-                let clsColor = CLASS_COLORS['default'];
-                const cStr = (v.class || "").toLowerCase();
-                if (cStr.includes('hyper') || cStr.includes('lmh') || cStr.includes('lmdh')) clsColor = CLASS_COLORS['hypercar'];
-                else if (cStr.includes('lmp2')) clsColor = CLASS_COLORS['lmp2'];
-                else if (cStr.includes('gt3')) clsColor = CLASS_COLORS['gt3'];
+                const clsColor = getClassHexColor(v.class || "");
 
                 const zIndex = isMe ? 60 : (v.position && v.position <= 10 ? 50 : 10);
                 const showLabel = isMe || (v.position && v.position <= 10);

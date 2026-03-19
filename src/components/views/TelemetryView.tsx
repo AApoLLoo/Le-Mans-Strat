@@ -2,16 +2,7 @@ import React, { useState } from 'react';
 import { Fuel, Zap, CloudRain, Sun, Cloud, Thermometer, RefreshCw, Plus, Minus, XCircle } from 'lucide-react';
 import type { TelemetryData, WeatherNode } from '../../types';
 import WeatherWidget from './WeatherWidget';
-
-
-// --- FONCTIONS UTILITAIRES ---
-const formatLapTime = (seconds: number) => {
-    if (!seconds || seconds <= 0) return "--:--.---";
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds - Math.floor(seconds)) * 1000);
-    return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
-};
+import { formatLapTimePrecise as formatLapTime } from '../../utils/helpers';
 
 const getTireColorGradient = (wear: number) => {
     if (wear > 80) return 'bg-gradient-to-t from-emerald-600 to-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4)]';

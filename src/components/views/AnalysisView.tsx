@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Database, Trash2, Settings, Check, ChevronDown, ChevronRight } from 'lucide-react';
 
-// CONFIGURATION API
-const API_BASE_URL = "https://api.racetelemetrybyfbt.com";
+import { API_BASE_URL } from '../../constants';
 
 // --- DEFINITION DES CANAUX DE DONNEES ---
 interface ChannelConfig {

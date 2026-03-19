@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { X, User, Lock, LogIn, Shield, UserCheck, Key } from 'lucide-react';
 
-const API_URL = "https://api.racetelemetrybyfbt.com";
+import { API_BASE_URL } from '../constants';
+const API_URL = API_BASE_URL;
 
 export const AuthModal = ({ onClose }: { onClose: () => void }) => {
     const { login } = useAuth();

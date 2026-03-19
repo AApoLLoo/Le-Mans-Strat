@@ -11,6 +11,7 @@ import LandingPage from './components/LandingPage';
 import SettingsModal from './components/SettingsModal';
 import { useRaceData } from './hooks/useRaceData';
 import { getSafeDriver, formatTime } from './utils/helpers';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const globalCss = `
   :root, body, #root { width: 100vw; height: 100vh; margin: 0; padding: 0; max-width: none !important; overflow: hidden; background-color: #020408; }
@@ -58,15 +59,16 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
         navigate('/');
     };
 
-    const handleSendMessage = () => {
-        if (!chatInput.trim()) return;
+    const handleSendMessage = (overrideText?: string) => {
+        const text = overrideText || chatInput;
+        if (!text.trim()) return;
         const newMessage = {
             id: Date.now(),
             user: username,
             team: teamName,
             teamColor: teamColor,
             category: gameState.telemetry.carCategory || "Cat?",
-            text: chatInput,
+            text,
             time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
         };
 
@@ -229,61 +231,74 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
 
                     <div className="flex-1 overflow-hidden relative">
                         {viewMode === "STRATEGY" && (
-                            <StrategyView
-                                strategyData={strategyData}
-                                currentLap={gameState.telemetry.laps}
-                                telemetry={gameState.telemetry}
-                                drivers={gameState.drivers}
-                                onUpdateStint={updateStintConfig}
-                                onUpdateNote={(idx, val) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [idx]: val } })}
-                            />
+                            <ErrorBoundary fallbackLabel="Strategy">
+                                <StrategyView
+                                    strategyData={strategyData}
+                                    currentLap={gameState.telemetry.laps}
+                                    telemetry={gameState.telemetry}
+                                    drivers={gameState.drivers}
+                                    onUpdateStint={updateStintConfig}
+                                    onUpdateNote={(idx, val) => syncUpdate({ stintNotes: { ...gameState.stintNotes, [idx]: val } })}
+                                />
+                            </ErrorBoundary>
                         )}
                         {viewMode === "LIVE" && (
-                            <div className="h-full p-0 overflow-hidden rounded-xl border border-white/5">
-                                <LiveTimingView
-                                    telemetryData={gameState.telemetry}
-                                    isHypercar={isHypercar}
-                                    vehicles={gameState.allVehicles}
-                                />
-                            </div>
+                            <ErrorBoundary fallbackLabel="Live Timing">
+                                <div className="h-full p-0 overflow-hidden rounded-xl border border-white/5">
+                                    <LiveTimingView
+                                        telemetryData={gameState.telemetry}
+                                        isHypercar={isHypercar}
+                                        vehicles={gameState.allVehicles}
+                                    />
+                                </div>
+                            </ErrorBoundary>
                         )}
                         {viewMode === "TELEMETRY" && (
-                            <TelemetryView
-                                telemetryData={gameState.telemetry}
-                                isHypercar={isHypercar}
-                                isLMGT3={isLMGT3}
-                                position={gameState.position}
-                                avgLapTimeSeconds={gameState.avgLapTimeSeconds}
-                                weather={gameState.weather}
-                                airTemp={gameState.airTemp}
-                                trackTemp={gameState.trackTemp}
-                                trackWetness={gameState.trackWetness}
-                                weatherForecast={gameState.weatherForecast}
-                                targetFuelCons={strategyData.targetFuelCons}
-                                targetVECons={strategyData.targetVECons}
-                                onSetFuelTarget={setManualFuelTarget}
-                                onSetVETarget={setManualVETarget}
-                            />
+                            <ErrorBoundary fallbackLabel="Telemetry">
+                                <TelemetryView
+                                    telemetryData={gameState.telemetry}
+                                    isHypercar={isHypercar}
+                                    isLMGT3={isLMGT3}
+                                    position={gameState.position}
+                                    avgLapTimeSeconds={gameState.avgLapTimeSeconds}
+                                    weather={gameState.weather}
+                                    airTemp={gameState.airTemp}
+                                    trackTemp={gameState.trackTemp}
+                                    trackWetness={gameState.trackWetness}
+                                    weatherForecast={gameState.weatherForecast}
+                                    targetFuelCons={strategyData.targetFuelCons}
+                                    targetVECons={strategyData.targetVECons}
+                                    onSetFuelTarget={setManualFuelTarget}
+                                    onSetVETarget={setManualVETarget}
+                                />
+                            </ErrorBoundary>
                         )}
-                        {/* 2. CORRIGEZ L'APPEL ICI */}
                         {viewMode === "MAP" && (
-                            <MapView
-                                vehicles={gameState.allVehicles}
-                                myCarId={gameState.telemetry.position}
-                                savedMap={gameState.trackMap}
-                                onSaveMap={saveTrackMap} // <--- UTILISEZ LA VARIABLE, NE RAPPELEZ PAS useRaceData()
-                            />
+                            <ErrorBoundary fallbackLabel="Map">
+                                <MapView
+                                    vehicles={gameState.allVehicles}
+                                    myCarId={gameState.telemetry.position}
+                                    savedMap={gameState.trackMap}
+                                    onSaveMap={saveTrackMap}
+                                />
+                            </ErrorBoundary>
                         )}
-                        {viewMode === "ANALYSIS" && <AnalysisView />}
+                        {viewMode === "ANALYSIS" && (
+                            <ErrorBoundary fallbackLabel="Analysis">
+                                <AnalysisView />
+                            </ErrorBoundary>
+                        )}
                         {viewMode === "CHAT" && (
-                            <ChatView
-                                messages={gameState.chatMessages} // Utilisation du state global
-                                username={username}
-                                setUsername={setUsername}
-                                chatInput={chatInput}
-                                setChatInput={setChatInput}
-                                onSendMessage={handleSendMessage}
-                            />
+                            <ErrorBoundary fallbackLabel="Chat">
+                                <ChatView
+                                    messages={gameState.chatMessages}
+                                    username={username}
+                                    setUsername={setUsername}
+                                    chatInput={chatInput}
+                                    setChatInput={setChatInput}
+                                    onSendMessage={handleSendMessage}
+                                />
+                            </ErrorBoundary>
                         )}
                     </div>
                 </div>

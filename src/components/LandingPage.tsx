@@ -12,8 +12,8 @@ import imgLmp2Elms from '../assets/LMP2-ELMS.jpg';
 import imgLmp3 from '../assets/LMP3.jpg';
 import imgGt3 from '../assets/LMGT3-MERC.jpg';
 
-// URL DE VOTRE VPS
-const VPS_API_URL = "https://api.racetelemetrybyfbt.com";
+import { API_BASE_URL } from '../constants';
+const VPS_API_URL = API_BASE_URL;
 
 const CATEGORIES = ["Hypercar", "LMP2", "LMP2 (ELMS)", "LMP3", "GT3"];
 

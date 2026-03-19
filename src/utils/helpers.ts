@@ -14,12 +14,29 @@ export const formatTime = (s: number) => {
     return `${h}:${m}:${sec}`;
 };
 
+/** Format lap time with 1 decimal (e.g. "3:24.5") — for strategy/summary displays */
 export const formatLapTime = (s: number) => {
     if (isNaN(s) || s <= 0) return "---";
     const minutes = Math.floor(s / 60);
     const seconds = s % 60;
-    // Ici on garde 1 décimale pour les temps au tour (ex: 3:24.5)
-    return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`; 
+    return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`;
+};
+
+/** Format lap time with milliseconds (e.g. "3:24.512") — for telemetry/timing displays */
+export const formatLapTimePrecise = (seconds: number) => {
+    if (!seconds || isNaN(seconds) || seconds <= 0) return "--:--.---";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds - Math.floor(seconds)) * 1000);
+    return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+};
+
+/** Format lap time for timing tables (e.g. "3:24.512" or "-:--.---") */
+export const formatLapTimeForTable = (seconds?: number) => {
+    if (!seconds || seconds <= 0) return "-:--.---";
+    const mins = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(3);
+    return `${mins}:${secs.padStart(6, '0')}`;
 };
 
 export const getSafeDriver = (driver: Driver | undefined): Driver => {
