@@ -25,18 +25,23 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
 
     const lastPosRef = useRef<{x: number, z: number} | null>(null);
     const lastLapsCountRef = useRef<number>(-1);
+    const lastTrackNameRef = useRef<string | undefined>(trackName);
+    const localTrackRef = useRef<MapPoint[]>(localTrack);
+    localTrackRef.current = localTrack;
 
-    // --- 3. NOUVEAU : RESET AUTOMATIQUE AU CHANGEMENT DE CIRCUIT ---
+    // --- RESET AUTOMATIQUE AU CHANGEMENT DE CIRCUIT ---
     useEffect(() => {
-        // Si le nom du circuit change, on vide tout
+        // Ignorer les valeurs transitoires vides et le premier rendu
+        if (!trackName || trackName === lastTrackNameRef.current) return;
+        lastTrackNameRef.current = trackName;
+
         setLocalTrack([]);
         setHasCrossedStart(false);
         setIsRecording(true);
         lastLapsCountRef.current = -1;
         lastPosRef.current = null;
-        console.log(`🗺️ Nouveau circuit détecté : ${trackName} -> Reset Map`);
-    }, [trackName]); // Se déclenche uniquement quand trackName change
-    // -------------------------------------------------------------
+        console.log(`Map: new track detected: ${trackName} -> Reset`);
+    }, [trackName]);
 
     const activeTrack = savedMap.length > 50 ? savedMap : localTrack;
     const isMapLoaded = savedMap.length > 50;
@@ -55,9 +60,8 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
         // DÉTECTION LIGNE DE DÉPART
         if (lastLapsCountRef.current > -1 && currentLaps > lastLapsCountRef.current) {
             if (!hasCrossedStart) {
-                console.log("🏁 START LINE DETECTED");
+                console.log("START LINE DETECTED");
                 setHasCrossedStart(true);
-                // On enregistre le premier point avec son secteur
                 setLocalTrack([{ x: tracer.x, z: tracer.z, sector: currentSector }]);
                 lastPosRef.current = { x: tracer.x, z: tracer.z };
             }
@@ -65,24 +69,24 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
         lastLapsCountRef.current = currentLaps;
 
         // ENREGISTREMENT DES POINTS
-        if (hasCrossedStart && lastPosRef.current) {
-            const { x, z } = tracer;
-            if (Math.hypot(lastPosRef.current.x - x, lastPosRef.current.z - z) > 5) {
+        if (!hasCrossedStart || !lastPosRef.current) return;
 
-                // Si on boucle (Auto-Save)
-                if (localTrack.length > 200 && Math.hypot(localTrack[0].x - x, localTrack[0].z - z) < 40) {
-                    const finalTrack = [...localTrack, { x, z, sector: currentSector }];
-                    setLocalTrack(finalTrack);
-                    setIsRecording(false);
-                    if (onSaveMap) onSaveMap(finalTrack);
-                } else {
-                    // Ajout du point avec son secteur
-                    setLocalTrack(prev => [...prev, { x, z, sector: currentSector }]);
-                }
-                lastPosRef.current = { x, z };
-            }
+        const { x, z } = tracer;
+        const dist = Math.hypot(lastPosRef.current.x - x, lastPosRef.current.z - z);
+        if (dist <= 5) return;
+
+        const track = localTrackRef.current;
+        // Si on boucle (Auto-Save)
+        if (track.length > 200 && Math.hypot(track[0].x - x, track[0].z - z) < 40) {
+            const finalTrack = [...track, { x, z, sector: currentSector }];
+            setLocalTrack(finalTrack);
+            setIsRecording(false);
+            if (onSaveMap) onSaveMap(finalTrack);
+        } else {
+            setLocalTrack(prev => [...prev, { x, z, sector: currentSector }]);
         }
-    }, [vehicles, isMapLoaded, isRecording, localTrack, onSaveMap, hasCrossedStart]);
+        lastPosRef.current = { x, z };
+    }, [vehicles, isMapLoaded, isRecording, onSaveMap, hasCrossedStart]);
 
     const handleReset = () => {
         if (confirm("🗑️ Voulez-vous vraiment SUPPRIMER la carte ?")) {

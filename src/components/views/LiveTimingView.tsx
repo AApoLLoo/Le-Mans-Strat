@@ -108,8 +108,9 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         const s1 = v.sectors_cur?.[0] || 0;
                         const s2_cumul = v.sectors_cur?.[1] || 0;
                         const s2 = (s2_cumul > s1) ? s2_cumul - s1 : 0;
-                        const s2_best_cumul = v.sectors_best?.[1] || 0;
-                        const s3_best = (v.best_lap && s2_best_cumul) ? v.best_lap - s2_best_cumul : 0;
+                        const s2_best_cumul = (v.sectors_best?.length ?? 0) >= 2 ? (v.sectors_best![1] || 0) : 0;
+                        const s3_best = (v.best_lap && v.best_lap > 0 && s2_best_cumul > 0 && v.best_lap > s2_best_cumul)
+                            ? v.best_lap - s2_best_cumul : 0;
 
                         // Barre de fuel estimée
                         const maxLaps = v.class?.includes('Hyper') ? 13 : 12;

@@ -298,7 +298,10 @@ export const useRaceData = (teamId: string) => {
 
         socket.on('chat_message', (msg) => setGameState(prev => ({ ...prev, chatMessages: [...prev.chatMessages, msg] })));
 
-        return () => { socket.disconnect(); };
+        return () => {
+            socket.removeAllListeners();
+            socket.disconnect();
+        };
     }, [SESSION_ID, processGameUpdate]);
 
     // --- MAP AUTO-LOAD ---
