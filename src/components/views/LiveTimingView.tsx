@@ -1,20 +1,14 @@
 import React, { useState } from 'react';
 import type { RawVehicle, TelemetryData } from '../../types';
+import { CLASS_BORDER_STYLES, getClassKey } from '../../utils/carClasses';
+import { formatLapTimeForTable } from '../../utils/helpers';
+import { MAX_LAPS_HYPERCAR, MAX_LAPS_DEFAULT } from '../../constants';
 
 interface LiveTimingViewProps {
     telemetryData: TelemetryData;
     isHypercar: boolean;
     vehicles?: RawVehicle[];
 }
-
-// Couleurs des catégories (WEC style)
-const CLASS_COLORS: Record<string, string> = {
-    'hypercar': 'border-l-4 border-l-red-600',
-    'lmp2': 'border-l-4 border-l-blue-600',
-    'gt3': 'border-l-4 border-l-orange-500',
-    'lmgt3': 'border-l-4 border-l-orange-500',
-    'default': 'border-l-4 border-l-slate-500'
-};
 
 const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
     const [filterClass, setFilterClass] = useState<string>('ALL');
@@ -37,14 +31,6 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
         }
         return c.includes(f);
     });
-
-    // Helpers de formatage
-    const formatLap = (seconds?: number) => {
-        if (!seconds || seconds <= 0) return "-:--.---";
-        const mins = Math.floor(seconds / 60);
-        const secs = (seconds % 60).toFixed(3);
-        return `${mins}:${secs.padStart(6, '0')}`;
-    };
 
     const formatGap = (gap?: number) => {
         if (gap === undefined || gap === null) return "";
@@ -98,11 +84,7 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         if (v.status === 2) rowClass += " text-red-500 line-through opacity-50";
 
                         // Style catégorie
-                        let catKey = 'default';
-                        const cStr = (v.class || "").toLowerCase();
-                        if (cStr.includes('hyper') || cStr.includes('lmh') || cStr.includes('lmdh')) catKey = 'hypercar';
-                        else if (cStr.includes('lmp2')) catKey = 'lmp2';
-                        else if (cStr.includes('gt3')) catKey = 'gt3';
+                        const catKey = getClassKey(v.class || "");
 
                         // Calcul Secteurs Courants
                         const s1 = v.sectors_cur?.[0] || 0;
@@ -113,7 +95,7 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                             ? v.best_lap - s2_best_cumul : 0;
 
                         // Barre de fuel estimée
-                        const maxLaps = v.class?.includes('Hyper') ? 13 : 12;
+                        const maxLaps = v.class?.includes('Hyper') ? MAX_LAPS_HYPERCAR : MAX_LAPS_DEFAULT;
                         const fuelPct = Math.max(0, 100 - ((v.stint_laps || 0) / maxLaps * 100));
                         let fuelColor = 'bg-emerald-500';
                         if (fuelPct < 30) fuelColor = 'bg-yellow-500';
@@ -123,7 +105,7 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                         const activeSectorBg = "bg-yellow-500/20 text-yellow-200 font-bold";
 
                         return (
-                            <tr key={v.id || Math.random()} className={`${rowClass} ${CLASS_COLORS[catKey]}`}>
+                            <tr key={v.id || Math.random()} className={`${rowClass} ${CLASS_BORDER_STYLES[catKey]}`}>
                                 <td className="p-2 text-center font-bold text-white text-sm">{v.position}</td>
                                 <td className="p-2">
                                     <div className="font-bold truncate max-w-[150px]">{v.driver}</div>
@@ -131,8 +113,8 @@ const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
                                 </td>
                                 <td className="p-2 text-right text-yellow-400">{v.position === 1 ? 'Leader' : formatGap(v.gap_leader)}</td>
                                 <td className="p-2 text-right text-slate-400">{formatGap(v.gap_next)}</td>
-                                <td className="p-2 text-right font-bold">{formatLap(v.last_lap)}</td>
-                                <td className="p-2 text-right text-purple-400">{formatLap(v.best_lap)}</td>
+                                <td className="p-2 text-right font-bold">{formatLapTimeForTable(v.last_lap)}</td>
+                                <td className="p-2 text-right text-purple-400">{formatLapTimeForTable(v.best_lap)}</td>
 
                                 <td className={`p-2 text-center text-[10px] ${v.sector === 1 ? activeSectorBg : 'text-slate-500'}`}>
                                     {s1 > 0 ? s1.toFixed(1) : '-'}

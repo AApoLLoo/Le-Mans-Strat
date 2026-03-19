@@ -5,8 +5,9 @@ import type {
     RawTelemetry, RawScoring, RawPit, RawWeather, RawRules, RawExtended, ChatMessage
 } from '../types';
 import { getSafeDriver } from '../utils/helpers';
+import { calculateStrategy } from '../engine/strategyEngine';
 
-const VPS_URL = "https://api.racetelemetrybyfbt.com";
+import { API_BASE_URL, PIT_LANE_LOSS, DEFAULT_STATIONARY_TIME, DEFAULT_LAP_TIME, MAX_STINTS_LOOKAHEAD } from '../constants';
 
 export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId;
@@ -247,7 +248,7 @@ export const useRaceData = (teamId: string) => {
     // --- SOCKET.IO ---
     useEffect(() => {
         const token = localStorage.getItem('token');
-        const socket = io(VPS_URL, {
+        const socket = io(API_BASE_URL, {
             transports: ['websocket'],
             reconnectionAttempts: 10,
             auth: { token }
@@ -311,7 +312,7 @@ export const useRaceData = (teamId: string) => {
         const uniqueMapId = (trackName && trackLen > 0) ? `${trackName}_${trackLen}` : trackName;
 
         if (uniqueMapId && uniqueMapId !== "WAITING..." && uniqueMapId !== "Unknown" && currentTrackLoadedRef.current !== uniqueMapId) {
-            fetch(`${VPS_URL}/api/tracks/${encodeURIComponent(uniqueMapId)}`)
+            fetch(`${API_BASE_URL}/api/tracks/${encodeURIComponent(uniqueMapId)}`)
                 .then(res => res.ok ? res.json() : [])
                 .then(points => { if(points.length > 0) syncUpdate({ trackMap: points }); })
                 .catch(() => {});
@@ -334,7 +335,7 @@ export const useRaceData = (teamId: string) => {
     const saveTrackMap = useCallback((points: MapPoint[]) => {
         syncUpdate({ trackMap: points });
         const uniqueMapId = `${gameState.trackName}_${Math.round(gameState.trackLength || 0)}`;
-        fetch(`${VPS_URL}/api/tracks`, {
+        fetch(`${API_BASE_URL}/api/tracks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ trackName: uniqueMapId, points })
@@ -343,189 +344,36 @@ export const useRaceData = (teamId: string) => {
 
     // --- CALCULATEUR STRATÉGIQUE (V3) ---
     const strategyData: StrategyData = useMemo(() => {
-        // Fix Crash VE
         const veStats = gameState.telemetry.VE || { VEcurrent: 0, VElastLapCons: 0, VEaverageCons: 0 };
         const fuelStats = gameState.telemetry.fuel || { current: 0, max: 0, lastLapCons: 0, averageCons: 0 };
 
-        // 1. CIBLES DE COURSE
-        let totalLapsTarget = 300;
-        const leaderLaps = gameState.telemetry.leaderLaps || 0;
-        const leaderAvg = gameState.telemetry.leaderAvgLapTime || 210;
-        const myLaps = gameState.telemetry.laps || 0;
-        const myAvg = gameState.avgLapTimeSeconds > 0 ? gameState.avgLapTimeSeconds : 210;
-
-        if (leaderLaps > 0 && leaderAvg > 0) {
-            totalLapsTarget = Math.floor(leaderLaps + (localRaceTime / leaderAvg));
-        } else if (myLaps > 0) {
-            totalLapsTarget = Math.floor(myLaps + (localRaceTime / myAvg));
-        }
-
-        // 2. DÉTECTION HYBRIDE / VE
-        const carCat = (gameState.telemetry.carCategory || "").toLowerCase();
-        const isHybridCar = carCat.includes('hyper') || carCat.includes('lmh') || carCat.includes('lmdh') || carCat.includes('gt3');
-        const useVE = isHybridCar || isHypercar || isLMGT3 || (veStats.VElastLapCons > 0.1);
-
-        // 3. CONSOMMATIONS
-        const activeFuelCons = Math.max(0.1, fuelStats.averageCons || gameState.fuelCons);
-        const activeVECons = Math.max(0.1, veStats.VEaverageCons || gameState.veCons);
-        const tankCapacity = Math.max(1, fuelStats.max || gameState.tankCapacity);
-
-        const maxLapsFuel = Math.floor(tankCapacity / activeFuelCons);
-        const maxLapsVE = (useVE && activeVECons > 0) ? Math.floor(100 / activeVECons) : 999;
-        const maxLapsPerStint = Math.max(1, useVE ? Math.min(maxLapsVE, maxLapsFuel) : maxLapsFuel);
-
-        const stints: import('../types').Stint[] = [];
-        const currentLap = gameState.telemetry.laps;
-        const currentStintIndex = gameState.currentStint;
-
-        // A. Relais Passés
-        for (let i = 0; i < currentStintIndex; i++) {
-            const config = gameState.stintConfig[i] || {};
-            const driverId = config.driverId || gameState.stintAssignments[i] || gameState.drivers[i % gameState.drivers.length]?.id;
-            const d = getSafeDriver(gameState.drivers.find(drv => drv.id === driverId));
-            stints.push({ id: i, stopNum: i + 1, startLap: 0, endLap: 0, lapsCount: 0, fuel: "DONE", driver: d, driverId: d.id, tyres: config.tyres, isCurrent: false, isNext: false, isDone: true, note: String(gameState.stintNotes[i+1] || "") });
-        }
-
-        // B. Relais Actuel & Futurs (RESTAURÉ)
-        let simulationLap = currentLap;
-        let simIdx = currentStintIndex;
-
-        while (simulationLap < totalLapsTarget) {
-            const config = gameState.stintConfig[simIdx] || {};
-
-            let driverId = config.driverId || gameState.stintAssignments[simIdx];
-            if (!driverId && gameState.drivers.length > 0) {
-                const prevStint = stints[stints.length - 1];
-                const prevDriverId = prevStint ? prevStint.driverId : gameState.activeDriverId;
-                const prevIdx = gameState.drivers.findIndex(d => d.id === prevDriverId);
-                driverId = gameState.drivers[(prevIdx + 1) % gameState.drivers.length].id;
-            }
-            const d = getSafeDriver(gameState.drivers.find(drv => drv.id === driverId));
-
-            // Durée
-            let lapsDuration = maxLapsPerStint;
-            if (config.laps && config.laps > 0) lapsDuration = Math.min(config.laps, maxLapsPerStint);
-            if (simulationLap + lapsDuration > totalLapsTarget) lapsDuration = totalLapsTarget - simulationLap;
-            lapsDuration = Math.max(1, lapsDuration);
-
-            // Ratio Fuel/Energy
-            const ratio = config.fuelEnergyRatio !== undefined ? config.fuelEnergyRatio : 1.0;
-
-            // Calculs
-            let veNeeded = 0;
-            let veDisplay = "-";
-            let fuelNeeded = 0;
-            let fuelDisplay = "";
-
-            if (useVE) {
-                veNeeded = lapsDuration * activeVECons;
-                veDisplay = `${veNeeded.toFixed(0)}%`;
-                fuelNeeded = veNeeded * ratio;
-            } else {
-                fuelNeeded = lapsDuration * activeFuelCons;
-            }
-
-            if (simIdx === currentStintIndex) {
-                fuelDisplay = `${fuelStats.current.toFixed(1)}L (Rest)`;
-            } else {
-                fuelDisplay = `${fuelNeeded.toFixed(1)}L`;
-            }
-
-            stints.push({
-                id: simIdx,
-                stopNum: simIdx + 1,
-                startLap: simulationLap,
-                endLap: simulationLap + lapsDuration,
-                lapsCount: lapsDuration,
-                fuel: fuelDisplay,
-                virtualEnergy: veDisplay,
-                fuelEnergyRatio: ratio,
-                driver: d,
-                driverId: d.id,
-                tyres: config.tyres || 'AUTO',
-                isCurrent: simIdx === currentStintIndex,
-                isNext: simIdx === currentStintIndex + 1,
-                isDone: false,
-                note: String(gameState.stintNotes[simIdx+1] || "")
-            });
-
-            simulationLap += lapsDuration;
-            simIdx++;
-            if (simIdx > currentStintIndex + 20) break;
-        }
-
-        // --- PRÉDICTION TRAFIC (RESTAURÉE) ---
-        const pitLaneLoss = 28;
-        const stationaryTime = gameState.telemetry.strategyEstPitTime > 0 ? gameState.telemetry.strategyEstPitTime : 35;
-        const totalPitLoss = pitLaneLoss + stationaryTime;
-
-        // On cherche notre voiture dans le scoring
-        const myCar = gameState.allVehicles.find(v => Number(v.is_player) === 1 || v.id === gameState.telemetry.position);
-        const myGapToLeader = Number(myCar?.gap_leader || 0);
-
-        const myProjectedGap = myGapToLeader + totalPitLoss;
-
-        let predictedPos = 1;
-        let carAhead = null;
-        let carBehind = null;
-        let minGapAhead = 9999;
-        let minGapBehind = 9999;
-        let trafficCount = 0;
-
-        // Tri des véhicules par écart au leader pour comparer
-        const sortedVehicles = [...gameState.allVehicles].sort((a, b) => Number(a.gap_leader || 0) - Number(b.gap_leader || 0));
-
-        for (const v of sortedVehicles) {
-            if (Number(v.is_player) === 1) continue;
-
-            const vGap = Number(v.gap_leader || 0);
-
-            // Si l'écart de cette voiture est plus petit que mon écart projeté, elle est devant
-            if (vGap < myProjectedGap) {
-                predictedPos++;
-                const gap = myProjectedGap - vGap;
-                if (gap < minGapAhead) {
-                    minGapAhead = gap;
-                    carAhead = v.driver || v.name || `Car #${v.id}`;
-                }
-            } else {
-                // Elle est derrière
-                const gap = vGap - myProjectedGap;
-                if (gap < minGapBehind) {
-                    minGapBehind = gap;
-                    carBehind = v.driver || v.name || `Car #${v.id}`;
-                }
-            }
-
-            // Densité : si voiture à moins de 5 sec de ma position projetée
-            if (Math.abs(vGap - myProjectedGap) < 5.0) trafficCount++;
-        }
-
-        let trafficLevel: 'CLEAR' | 'BUSY' | 'TRAFFIC' = 'CLEAR';
-        if (trafficCount >= 1) trafficLevel = 'BUSY';
-        if (trafficCount >= 3) trafficLevel = 'TRAFFIC';
-
-        const pitPrediction = {
-            predictedPosition: predictedPos,
-            carAhead,
-            carBehind,
-            gapToAhead: minGapAhead === 9999 ? 0 : minGapAhead,
-            gapToBehind: minGapBehind === 9999 ? 0 : minGapBehind,
-            trafficLevel
-        };
-
-        return {
-            stints,
-            totalLaps: totalLapsTarget,
-            lapsPerTank: maxLapsFuel,
-            activeFuelCons,
-            activeVECons,
-            activeLapTime: gameState.avgLapTimeSeconds,
-            pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex),
-            targetFuelCons: activeFuelCons,
-            targetVECons: activeVECons,
-            pitPrediction
-        };
+        return calculateStrategy({
+            currentLap: gameState.telemetry.laps,
+            carCategory: gameState.telemetry.carCategory || "",
+            fuelCurrent: fuelStats.current,
+            fuelMax: fuelStats.max,
+            fuelAvgCons: fuelStats.averageCons,
+            veAvgCons: veStats.VEaverageCons,
+            veLastLapCons: veStats.VElastLapCons,
+            strategyEstPitTime: gameState.telemetry.strategyEstPitTime,
+            telemetryPosition: gameState.telemetry.position,
+            currentStint: gameState.currentStint,
+            raceTimeRemaining: localRaceTime,
+            avgLapTimeSeconds: gameState.avgLapTimeSeconds,
+            leaderLaps: gameState.telemetry.leaderLaps || 0,
+            leaderAvgLapTime: gameState.telemetry.leaderAvgLapTime || 0,
+            activeDriverId: gameState.activeDriverId,
+            drivers: gameState.drivers,
+            stintConfig: gameState.stintConfig,
+            stintAssignments: gameState.stintAssignments || {},
+            stintNotes: gameState.stintNotes,
+            fuelCons: gameState.fuelCons,
+            veCons: gameState.veCons,
+            tankCapacity: gameState.tankCapacity,
+            isHypercar,
+            isLMGT3,
+            allVehicles: gameState.allVehicles
+        });
     }, [gameState, localRaceTime, isHypercar, isLMGT3, manualFuelTarget, manualVETarget]);
 
     const confirmPitStop = () => {
