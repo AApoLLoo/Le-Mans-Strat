@@ -40,6 +40,155 @@ const getWeatherIcon = (weather: string) => {
     return <Sun size={18} className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]"/>;
 };
 
+// --- SOUS-COMPOSANTS CONSO ---
+
+interface ConsumptionWidgetProps {
+    label: string;
+    icon: React.ReactNode;
+    barColor: string;
+    current: number;
+    max: number;
+    lastLap: number;
+    avg: number;
+    target?: number;
+    unit: string;
+    threshold: number;
+    step: number;
+    onAdjust: (delta: number) => void;
+    onReset: () => void;
+}
+
+const ConsumptionWidget: React.FC<ConsumptionWidgetProps> = ({
+    label, icon, barColor, current, max, lastLap, avg, target, unit, threshold, step, onAdjust, onReset
+}) => {
+    const pct = Math.min(100, Math.max(0, (current / (max || 1)) * 100));
+    const effectiveTarget = target ?? avg;
+    const isManual = target !== undefined && target !== null && Math.abs(target - avg) > 0.001;
+    const delta = avg - effectiveTarget;
+
+    let statusColor = 'text-slate-400';
+    let statusText = 'OK';
+    if (delta > threshold) { statusColor = 'text-red-500 animate-pulse'; statusText = 'LIFT'; }
+    else if (delta < -threshold) { statusColor = 'text-emerald-400'; statusText = 'SAVE'; }
+
+    return (
+        <div className="bg-slate-900/50 rounded-xl p-3 border border-white/5 flex-1 relative overflow-hidden group">
+            <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5">{icon} {label}</span>
+                <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${statusColor} bg-black/20`}>{statusText}</span>
+            </div>
+            <div className="h-2 bg-slate-950 rounded border border-slate-700 overflow-hidden mb-2">
+                <div className={`h-full ${barColor} transition-all duration-500`} style={{width: `${pct}%`}}/>
+            </div>
+            <div className="flex justify-between items-end">
+                <div>
+                    <div className="text-xl font-black text-white leading-none">
+                        {current.toFixed(1)} <span className="text-xs text-slate-500">{unit}</span>
+                    </div>
+                    <div className="text-[9px] text-slate-500 mt-0.5">Last: {lastLap.toFixed(2)}</div>
+                </div>
+                <div className="text-right flex flex-col items-end">
+                    <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                        {isManual && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" title="Manual target"/>}
+                        Target
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 rounded px-1 border border-slate-700">
+                            <button onClick={() => onAdjust(-step)} className="p-0.5 hover:text-white text-slate-400"><Minus size={9}/></button>
+                            <button onClick={onReset} className="p-0.5 hover:text-blue-400 text-slate-400"><XCircle size={9}/></button>
+                            <button onClick={() => onAdjust(step)} className="p-0.5 hover:text-white text-slate-400"><Plus size={9}/></button>
+                        </div>
+                    </div>
+                    <div className={`text-base font-mono font-bold ${statusColor}`}>
+                        {avg.toFixed(2)}
+                        <span className="text-[9px] text-slate-500 ml-1">/ {effectiveTarget.toFixed(2)}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+interface SingleConsumptionWidgetProps {
+    fuel: any;
+    VE: any;
+    isVE: boolean;
+    isCategoryGT3: boolean;
+    targetFuelCons?: number;
+    targetVECons?: number;
+    onSetFuelTarget?: (v: number | null) => void;
+    onSetVETarget?: (v: number | null) => void;
+    onToggle: () => void;
+}
+
+const SingleConsumptionWidget: React.FC<SingleConsumptionWidgetProps> = ({
+    fuel, VE, isVE, isCategoryGT3, targetFuelCons, targetVECons, onSetFuelTarget, onSetVETarget, onToggle
+}) => {
+    const current = Number(isVE ? VE?.VEcurrent : fuel?.current) || 0;
+    const max = Number(isVE ? 100 : fuel?.max) || 100;
+    const pct = Math.min(100, Math.max(0, (current / max) * 100));
+    const lastLap = Number(isVE ? VE?.VElastLapCons : fuel?.lastLapCons) || 0;
+    const avg = Number(isVE ? VE?.VEaverageCons : fuel?.averageCons) || 0;
+    const target = isVE ? (targetVECons ?? avg) : (targetFuelCons ?? avg);
+    const isManual = isVE
+        ? (targetVECons !== undefined && targetVECons !== null && Math.abs(targetVECons - avg) > 0.001)
+        : (targetFuelCons !== undefined && targetFuelCons !== null && Math.abs(targetFuelCons - avg) > 0.001);
+    const threshold = isVE ? 0.5 : 0.1;
+    const step = isVE ? 0.5 : 0.1;
+    const delta = avg - target;
+    const barColor = isVE ? 'bg-cyan-500' : 'bg-blue-500';
+    const label = isVE ? 'VIRTUAL ENERGY' : 'FUEL LEVEL';
+    const icon = isVE ? <Zap size={14} className="text-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
+    const unit = isVE ? '%' : 'L';
+    const setFunc = isVE ? onSetVETarget : onSetFuelTarget;
+
+    let statusColor = 'text-slate-400';
+    let statusText = 'OK';
+    if (delta > threshold) { statusColor = 'text-red-500 animate-pulse'; statusText = 'LIFT'; }
+    else if (delta < -threshold) { statusColor = 'text-emerald-400'; statusText = 'SAVE'; }
+
+    const adjust = (d: number) => { if (setFunc) setFunc(Number((target + d).toFixed(2))); };
+    const reset = () => { if (setFunc) setFunc(null); };
+
+    return (
+        <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1 relative overflow-hidden group">
+            <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-bold text-slate-400 flex items-center gap-2">{icon} {label}</span>
+                {isCategoryGT3 && (
+                    <button onClick={onToggle} className="text-slate-500 hover:text-white transition-colors">
+                        <RefreshCw size={12}/>
+                    </button>
+                )}
+            </div>
+            <div className="h-4 bg-slate-950 rounded border border-slate-700 overflow-hidden mb-2">
+                <div className={`h-full ${barColor} transition-all duration-500`} style={{width: `${pct}%`}}/>
+            </div>
+            <div className="flex justify-between items-end">
+                <div>
+                    <div className="text-2xl font-black text-white leading-none">
+                        {current.toFixed(1)} <span className="text-sm text-slate-500">{unit}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">Last: {lastLap.toFixed(2)}</div>
+                </div>
+                <div className="text-right flex flex-col items-end">
+                    <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                        {isManual && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" title="Manual target"/>}
+                        Target
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 rounded px-1 border border-slate-700">
+                            <button onClick={() => adjust(-step)} className="p-0.5 hover:text-white text-slate-400"><Minus size={10}/></button>
+                            <button onClick={reset} className="p-0.5 hover:text-blue-400 text-slate-400"><XCircle size={10}/></button>
+                            <button onClick={() => adjust(step)} className="p-0.5 hover:text-white text-slate-400"><Plus size={10}/></button>
+                        </div>
+                    </div>
+                    <div className={`text-xl font-mono font-bold ${statusColor}`}>
+                        {avg.toFixed(2)}
+                        <span className="text-[10px] text-slate-500 ml-1">/ {target.toFixed(2)}</span>
+                    </div>
+                    <div className={`text-[10px] font-black ${statusColor} uppercase tracking-wider bg-black/20 px-1 rounded`}>{statusText}</div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- COMPOSANT PRINCIPAL ---
 
 interface TelemetryViewProps {
@@ -79,40 +228,9 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
     const isCategoryHypercar = isHypercar || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('hyper') || carCategory.toLowerCase().includes('lmh') || carCategory.toLowerCase().includes('lmdh') || carCategory.toLowerCase().includes('gtop')));
 
     const [showVirtualEnergy, setShowVirtualEnergy] = useState(true);
-    const isVE = showVirtualEnergy && (isCategoryHypercar || isCategoryGT3);
 
-    const currentResource = Number(isVE ? VE?.VEcurrent : fuel?.current) || 0;
-    const maxResource = Number(isVE ? 100 : fuel?.max) || 100;
-    const resourcePercentage = Math.min(100, Math.max(0, (currentResource / maxResource) * 100));
-
-    const lastLapCons = Number(isVE ? VE?.VElastLapCons : fuel?.lastLapCons) || 0;
-    const avgCons = Number(isVE ? VE?.VEaverageCons : fuel?.averageCons) || 0;
-
-    const currentTarget = isVE ? (targetVECons || avgCons) : (targetFuelCons || avgCons);
-    const setTargetFunc = isVE ? onSetVETarget : onSetFuelTarget;
-
-    const deltaCons = avgCons - currentTarget;
-    const threshold = isVE ? 0.5 : 0.1;
-
-    let statusColor = 'text-slate-400';
-    let statusText = 'TARGET';
-
-    if (deltaCons > threshold) {
-        statusColor = 'text-red-500 animate-pulse';
-        statusText = 'LIFT';
-    } else if (deltaCons < -threshold) {
-        statusColor = 'text-emerald-400';
-        statusText = 'SAFE';
-    } else {
-        statusText = 'OK';
-    }
-
-    const adjustTarget = (delta: number) => { if (setTargetFunc) setTargetFunc(Number((currentTarget + delta).toFixed(2))); };
-    const resetTarget = () => { if (setTargetFunc) setTargetFunc(null); };
-
-    const barColor = isVE ? 'bg-cyan-500' : 'bg-blue-500';
-    const label = isVE ? 'VIRTUAL ENERGY' : 'FUEL LEVEL';
-    const icon = isVE ? <Zap size={14} className="text-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
+    // For non-hypercar GT3: toggle between fuel and VE
+    const isVE = showVirtualEnergy && !isCategoryHypercar && isCategoryGT3;
 
     // --- LOGIQUE RPM AMÉLIORÉE ---
     const currentRpm = Math.round(Number(rpm) || 0);
@@ -244,43 +362,53 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
 
                 {/* DATA (Droite) */}
                 <div className="col-span-3 flex flex-col gap-3">
-                    {/* WIDGET CONSO INTELLIGENT */}
-                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1 relative overflow-hidden group">
-                        <div className="flex justify-between items-center mb-2">
-                            <span className="text-xs font-bold text-slate-400 flex items-center gap-2">{icon} {label}</span>
-                            {(isCategoryHypercar || isCategoryGT3) && (
-                                <button onClick={() => setShowVirtualEnergy(!showVirtualEnergy)} className="text-slate-500 hover:text-white transition-colors">
-                                    <RefreshCw size={12}/>
-                                </button>
-                            )}
+                    {/* WIDGET CONSO — dual for Hypercar, single+toggle for GT3/others */}
+                    {isCategoryHypercar ? (
+                        <div className="flex flex-col gap-2 flex-1">
+                            <ConsumptionWidget
+                                label="FUEL LEVEL"
+                                icon={<Fuel size={12} className="text-blue-400"/>}
+                                barColor="bg-blue-500"
+                                current={Number(fuel?.current) || 0}
+                                max={Number(fuel?.max) || 100}
+                                lastLap={Number(fuel?.lastLapCons) || 0}
+                                avg={Number(fuel?.averageCons) || 0}
+                                target={targetFuelCons}
+                                unit="L"
+                                threshold={0.1}
+                                step={0.1}
+                                onAdjust={(d) => onSetFuelTarget && onSetFuelTarget(Number(((targetFuelCons || Number(fuel?.averageCons) || 0) + d).toFixed(2)))}
+                                onReset={() => onSetFuelTarget && onSetFuelTarget(null)}
+                            />
+                            <ConsumptionWidget
+                                label="VIRTUAL ENERGY"
+                                icon={<Zap size={12} className="text-cyan-300"/>}
+                                barColor="bg-cyan-500"
+                                current={Number(VE?.VEcurrent) || 0}
+                                max={100}
+                                lastLap={Number(VE?.VElastLapCons) || 0}
+                                avg={Number(VE?.VEaverageCons) || 0}
+                                target={targetVECons}
+                                unit="%"
+                                threshold={0.5}
+                                step={0.5}
+                                onAdjust={(d) => onSetVETarget && onSetVETarget(Number(((targetVECons || Number(VE?.VEaverageCons) || 0) + d).toFixed(2)))}
+                                onReset={() => onSetVETarget && onSetVETarget(null)}
+                            />
                         </div>
-                        <div className="h-4 bg-slate-950 rounded border border-slate-700 overflow-hidden mb-2 relative">
-                            <div className={`h-full ${barColor} transition-all duration-500`} style={{width: `${resourcePercentage}%`}}></div>
-                        </div>
-                        <div className="flex justify-between items-end">
-                            <div>
-                                <div className="text-2xl font-black text-white leading-none">
-                                    {currentResource.toFixed(1)} <span className="text-sm text-slate-500">{isVE ? '%' : 'L'}</span>
-                                </div>
-                                <div className="text-[10px] text-slate-400 mt-1">Last: {lastLapCons.toFixed(2)}</div>
-                            </div>
-                            <div className="text-right flex flex-col items-end">
-                                <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                                    Target
-                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 rounded px-1 border border-slate-700">
-                                        <button onClick={() => adjustTarget(isVE ? -0.5 : -0.1)} className="p-0.5 hover:text-white text-slate-400"><Minus size={10}/></button>
-                                        <button onClick={resetTarget} className="p-0.5 hover:text-blue-400 text-slate-400"><XCircle size={10}/></button>
-                                        <button onClick={() => adjustTarget(isVE ? 0.5 : 0.1)} className="p-0.5 hover:text-white text-slate-400"><Plus size={10}/></button>
-                                    </div>
-                                </div>
-                                <div className={`text-xl font-mono font-bold ${statusColor}`}>
-                                    {avgCons.toFixed(2)}
-                                    <span className="text-[10px] text-slate-500 ml-1">/ {currentTarget.toFixed(2)}</span>
-                                </div>
-                                <div className={`text-[10px] font-black ${statusColor} uppercase tracking-wider bg-black/20 px-1 rounded`}>{statusText}</div>
-                            </div>
-                        </div>
-                    </div>
+                    ) : (
+                        <SingleConsumptionWidget
+                            fuel={fuel}
+                            VE={VE}
+                            isVE={isVE}
+                            isCategoryGT3={!!isCategoryGT3}
+                            targetFuelCons={targetFuelCons}
+                            targetVECons={targetVECons}
+                            onSetFuelTarget={onSetFuelTarget}
+                            onSetVETarget={onSetVETarget}
+                            onToggle={() => setShowVirtualEnergy(!showVirtualEnergy)}
+                        />
+                    )}
 
                     {/* WIDGET HYBRIDE (Nouveau) - Uniquement si Hypercar */}
                     {isCategoryHypercar && (

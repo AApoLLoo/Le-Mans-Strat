@@ -72,7 +72,11 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
 
         const track = localTrackRef.current;
         // Si on boucle (Auto-Save)
-        if (track.length > MAP_MIN_POINTS_FOR_LOOP && Math.hypot(track[0].x - x, track[0].z - z) < MAP_AUTO_CLOSE_THRESHOLD) {
+        // Dynamic threshold: scale with track perimeter to avoid false closures on long circuits
+        const dynamicThreshold = track.length > 100
+            ? Math.max(20, Math.min(MAP_AUTO_CLOSE_THRESHOLD, track.length * 0.15))
+            : MAP_AUTO_CLOSE_THRESHOLD;
+        if (track.length > MAP_MIN_POINTS_FOR_LOOP && Math.hypot(track[0].x - x, track[0].z - z) < dynamicThreshold) {
             const finalTrack = [...track, { x, z, sector: currentSector }];
             setLocalTrack(finalTrack);
             setIsRecording(false);
@@ -108,7 +112,7 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
         const width = maxX - minX; const height = maxZ - minZ;
         const padding = Math.max(width, height) * MAP_PADDING;
         return { minX: minX - padding, width: width + padding * 2, minZ: minZ - padding, height: height + padding * 2 };
-    }, [activeTrack, vehicles.length === 0]);
+    }, [activeTrack, vehicles]);
 
     const project = (x: number, z: number) => {
         if (!bounds) return { x: 50, y: 50 };

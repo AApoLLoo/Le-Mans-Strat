@@ -78,6 +78,9 @@ export const useRaceData = (teamId: string) => {
     const lastProcessedLapRef = useRef<number>(-1);
     const socketRef = useRef<Socket | null>(null);
     const currentTrackLoadedRef = useRef<string>("");
+    const isRaceRunningRef = useRef(false);
+    const activeDriverIdRef = useRef<number | string>(1);
+    const pitCooldownRef = useRef(false);
 
     const tId = teamId.toLowerCase();
     const isHypercar = tId.includes('hyper');
@@ -217,7 +220,21 @@ export const useRaceData = (teamId: string) => {
 
         return {
             ...prev,
-            ...docData,
+            // Strategy-sync keys (only override if present in docData)
+            ...(docData.drivers !== undefined && { drivers: docData.drivers }),
+            ...(docData.incidents !== undefined && { incidents: docData.incidents }),
+            ...(docData.stintAssignments !== undefined && { stintAssignments: docData.stintAssignments }),
+            ...(docData.activeDriverId !== undefined && { activeDriverId: docData.activeDriverId }),
+            ...(docData.currentStint !== undefined && { currentStint: docData.currentStint }),
+            ...(docData.stintDuration !== undefined && { stintDuration: docData.stintDuration }),
+            ...(docData.raceDurationHours !== undefined && { raceDurationHours: docData.raceDurationHours }),
+            ...(docData.tankCapacity !== undefined && { tankCapacity: docData.tankCapacity }),
+            ...(docData.fuelCons !== undefined && { fuelCons: docData.fuelCons }),
+            ...(docData.veCons !== undefined && { veCons: docData.veCons }),
+            ...(docData.isRaceRunning !== undefined && { isRaceRunning: docData.isRaceRunning }),
+            ...(docData.raceTime !== undefined && { raceTime: docData.raceTime }),
+
+            // Array/object merges with fallback
             weatherForecast: (docData.weatherForecast as any[]) || prev.weatherForecast || [],
             allVehicles: (scoring.vehicles as import('../types').RawVehicle[]) || prev.allVehicles || [],
             lapHistory: (docData.lapHistory as LapData[]) || prev.lapHistory || [],
@@ -226,6 +243,7 @@ export const useRaceData = (teamId: string) => {
             trackMap: (docData.trackMap as MapPoint[]) || prev.trackMap || [],
             chatMessages: (docData.chatMessages as ChatMessage[]) || prev.chatMessages || [],
 
+            // Processed bridge fields
             scActive: rules.sc ? scActive : prev.scActive,
             yellowFlag: scoring.flags ? yellowFlag : prev.yellowFlag,
             isRain: weatherStatus === "RAIN",
@@ -240,8 +258,8 @@ export const useRaceData = (teamId: string) => {
             trackWetness: trackWetnessVal * 100,
             rainIntensity: (weather.rain_intensity ?? prev.rainIntensity),
             telemetry: newTelemetry,
-            drivers: docData.drivers || prev.drivers,
-            avgLapTimeSeconds: calculatedAvg
+            avgLapTimeSeconds: calculatedAvg,
+            position: myPosition
         };
     }, []);
 
@@ -297,13 +315,56 @@ export const useRaceData = (teamId: string) => {
             });
         });
 
-        socket.on('chat_message', (msg) => setGameState(prev => ({ ...prev, chatMessages: [...prev.chatMessages, msg] })));
+        socket.on('chat_message', (msg) => setGameState(prev => {
+            if (prev.chatMessages.some(m => m.id === msg.id)) return prev;
+            const msgs = [...prev.chatMessages, msg];
+            return { ...prev, chatMessages: msgs.length > 500 ? msgs.slice(-500) : msgs };
+        }));
 
         return () => {
             socket.removeAllListeners();
             socket.disconnect();
         };
     }, [SESSION_ID, processGameUpdate]);
+
+    // --- OFFLINE FALLBACK: persist critical state to localStorage ---
+    const cacheKey = `race_state_${SESSION_ID}`;
+    useEffect(() => {
+        if (gameState.trackName === "WAITING..." || !gameState.isRaceRunning) return;
+        const toCache = {
+            currentStint: gameState.currentStint, activeDriverId: gameState.activeDriverId,
+            drivers: gameState.drivers, stintConfig: gameState.stintConfig,
+            stintAssignments: gameState.stintAssignments, stintNotes: gameState.stintNotes,
+            fuelCons: gameState.fuelCons, veCons: gameState.veCons, tankCapacity: gameState.tankCapacity,
+            raceDurationHours: gameState.raceDurationHours, trackName: gameState.trackName,
+            _ts: Date.now()
+        };
+        try { localStorage.setItem(cacheKey, JSON.stringify(toCache)); } catch {}
+    }, [gameState.currentStint, gameState.drivers, gameState.stintConfig, gameState.stintAssignments, cacheKey]);
+
+    // Restore from cache on mount (before first socket data)
+    useEffect(() => {
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            if (!cached) return;
+            const data = JSON.parse(cached);
+            // Only restore if cache is less than 2 hours old
+            if (data._ts && Date.now() - data._ts < 7200000) {
+                setGameState(prev => ({
+                    ...prev,
+                    ...(data.currentStint !== undefined && { currentStint: data.currentStint }),
+                    ...(data.activeDriverId !== undefined && { activeDriverId: data.activeDriverId }),
+                    ...(data.drivers && { drivers: data.drivers }),
+                    ...(data.stintConfig && { stintConfig: data.stintConfig }),
+                    ...(data.stintAssignments && { stintAssignments: data.stintAssignments }),
+                    ...(data.stintNotes && { stintNotes: data.stintNotes }),
+                    ...(data.fuelCons && { fuelCons: data.fuelCons }),
+                    ...(data.veCons && { veCons: data.veCons }),
+                    ...(data.tankCapacity && { tankCapacity: data.tankCapacity }),
+                }));
+            }
+        } catch {}
+    }, [cacheKey]);
 
     // --- MAP AUTO-LOAD ---
     useEffect(() => {
@@ -342,6 +403,26 @@ export const useRaceData = (teamId: string) => {
         }).catch(console.error);
     }, [SESSION_ID, gameState.trackName, gameState.trackLength]);
 
+    // --- TIMERS ---
+    useEffect(() => { isRaceRunningRef.current = gameState.isRaceRunning; }, [gameState.isRaceRunning]);
+    useEffect(() => { activeDriverIdRef.current = gameState.activeDriverId; }, [gameState.activeDriverId]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (!isRaceRunningRef.current) return;
+            setLocalStintTime(prev => prev + 1);
+            setGameState(prev => ({
+                ...prev,
+                drivers: prev.drivers.map(d =>
+                    d.id === activeDriverIdRef.current
+                        ? { ...d, totalDriveTime: (d.totalDriveTime || 0) + 1 }
+                        : d
+                )
+            }));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, []);
+
     // --- CALCULATEUR STRATÉGIQUE (V3) ---
     const strategyData: StrategyData = useMemo(() => {
         const veStats = gameState.telemetry.VE || { VEcurrent: 0, VElastLapCons: 0, VEaverageCons: 0 };
@@ -370,13 +451,27 @@ export const useRaceData = (teamId: string) => {
             fuelCons: gameState.fuelCons,
             veCons: gameState.veCons,
             tankCapacity: gameState.tankCapacity,
+            manualFuelTarget,
+            manualVETarget,
             isHypercar,
             isLMGT3,
             allVehicles: gameState.allVehicles
         });
-    }, [gameState, localRaceTime, isHypercar, isLMGT3, manualFuelTarget, manualVETarget]);
+    }, [
+        gameState.telemetry.laps, gameState.telemetry.fuel, gameState.telemetry.VE,
+        gameState.telemetry.position, gameState.telemetry.strategyEstPitTime,
+        gameState.telemetry.carCategory, gameState.telemetry.leaderLaps, gameState.telemetry.leaderAvgLapTime,
+        gameState.currentStint, gameState.stintConfig, gameState.stintAssignments, gameState.stintNotes,
+        gameState.drivers, gameState.activeDriverId, gameState.avgLapTimeSeconds,
+        gameState.fuelCons, gameState.veCons, gameState.tankCapacity, gameState.allVehicles,
+        localRaceTime, isHypercar, isLMGT3, manualFuelTarget, manualVETarget
+    ]);
 
     const confirmPitStop = () => {
+        if (pitCooldownRef.current) return;
+        pitCooldownRef.current = true;
+        setTimeout(() => { pitCooldownRef.current = false; }, 2000);
+
         const nextStint = (gameState.currentStint || 0) + 1;
         let nextDriverId = gameState.stintAssignments[nextStint];
         if (!nextDriverId && gameState.drivers.length > 0) {
@@ -420,7 +515,10 @@ export const useRaceData = (teamId: string) => {
         confirmPitStop, undoPitStop, resetRace, CHAT_ID, isHypercar, isLMGT3, isLMP3, isLMP2ELMS,
         setManualFuelTarget, setManualVETarget, updateStintConfig, saveTrackMap,
         sendMessage: (msg: ChatMessage) => {
-            setGameState(prev => ({ ...prev, chatMessages: [...prev.chatMessages, msg] }));
+            setGameState(prev => {
+                const msgs = [...prev.chatMessages, msg];
+                return { ...prev, chatMessages: msgs.length > 500 ? msgs.slice(-500) : msgs };
+            });
             socketRef.current?.emit('send_chat_message', { teamId: SESSION_ID, message: msg });
         },
         canEditStrategy,

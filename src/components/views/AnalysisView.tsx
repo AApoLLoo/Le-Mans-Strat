@@ -94,6 +94,7 @@ const DetailedAnalysis = () => {
     const [laps, setLaps] = useState<TelemetryLap[]>([]);
     const [selectedLap, setSelectedLap] = useState<TelemetryLap | null>(null);
     const [loading, setLoading] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
 
     // GESTION CANAUX
     const [activeChannels, setActiveChannels] = useState<string[]>(['s', 'r', 'g', 't', 'b']);
@@ -102,10 +103,18 @@ const DetailedAnalysis = () => {
 
     // API Calls
     const fetchSessions = async () => {
+        setFetchError(null);
         try {
             const res = await fetch(`${API_BASE_URL}/api/analysis/sessions`);
-            if (res.ok) setSessions(await res.json());
-        } catch (err) { console.error(err); }
+            if (res.ok) {
+                setSessions(await res.json());
+            } else {
+                setFetchError(`Server returned ${res.status}`);
+            }
+        } catch (err) {
+            console.error(err);
+            setFetchError("Cannot connect to analysis server");
+        }
     };
     useEffect(() => { fetchSessions(); }, []);
 
@@ -154,7 +163,7 @@ const DetailedAnalysis = () => {
 
     const handleDeleteSession = async () => {
         if (!selectedSession || !confirm("Supprimer ?")) return;
-        await fetch(`${API_BASE_URL}/api/analysis/sessions/${selectedSession}`, { method: 'DELETE' });
+        await fetch(`${API_BASE_URL}/api/analysis/sessions/${encodeURIComponent(selectedSession)}`, { method: 'DELETE' });
         setSessions(prev => prev.filter(s => s.session_id !== selectedSession));
         setSelectedSession(null); setLaps([]); setSelectedLap(null);
     };
@@ -214,6 +223,13 @@ const DetailedAnalysis = () => {
         const validTimes = laps.map(l => l.lap_time).filter(t => t > 0);
         return validTimes.length > 0 ? Math.min(...validTimes) : null;
     }, [laps]);
+
+    // Domaine X basé sur la distance max réelle du tour sélectionné
+    const xDomain = useMemo<[number, number]>(() => {
+        if (!selectedLap?.samples?.length) return [0, 6000];
+        const maxD = Math.max(...selectedLap.samples.map((s: any) => s.d ?? 0));
+        return [0, Math.ceil(maxD / 100) * 100];
+    }, [selectedLap]);
 
     return (
         <div className="h-full flex flex-col bg-[#0b0f19] text-white overflow-hidden relative">
@@ -279,7 +295,16 @@ const DetailedAnalysis = () => {
                     {!selectedLap ? (
                         <div className="h-full flex items-center justify-center text-slate-500 flex-col gap-4">
                             <Database size={48} opacity={0.5} />
-                            <p>Sélectionnez une session et un tour</p>
+                            {fetchError ? (
+                                <>
+                                    <p className="text-red-400 text-sm">{fetchError}</p>
+                                    <button onClick={fetchSessions} className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded text-slate-300 transition-colors">
+                                        Retry
+                                    </button>
+                                </>
+                            ) : (
+                                <p>Sélectionnez une session et un tour</p>
+                            )}
                         </div>
                     ) : (
                         <div className="flex flex-col min-h-full pb-10">
@@ -303,7 +328,7 @@ const DetailedAnalysis = () => {
                                                 margin={{top: 10, right: 10, left: 0, bottom: 0}}
                                             >
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} vertical={false} />
-                                                <XAxis dataKey="d" type="number" unit="m" hide={index !== activeCategories.length - 1} stroke="#64748b" tick={{fontSize: 10}} />
+                                                <XAxis dataKey="d" type="number" unit="m" domain={xDomain} hide={index !== activeCategories.length - 1} stroke="#64748b" tick={{fontSize: 10}} />
                                                 <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'white', strokeWidth: 1 }} isAnimationActive={false} />
                                                 <Legend verticalAlign="top" align="right" height={24} iconType="circle" iconSize={6} wrapperStyle={{fontSize: '10px', paddingTop: '5px', paddingRight: '10px'}} />
 

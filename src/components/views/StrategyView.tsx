@@ -14,7 +14,7 @@ interface StrategyViewProps {
 const StrategyView: React.FC<StrategyViewProps> = ({
                                                        strategyData, telemetry, drivers, onUpdateStint, onUpdateNote
                                                    }) => {
-    const { pitPrediction, stints, totalLaps, activeLapTime } = strategyData;
+    const { pitPrediction, stints, totalLaps, activeLapTime, activeVECons } = strategyData;
 
     // --- LOGIQUE D'AFFICHAGE ROBUSTE ---
     // On affiche les colonnes Énergie/Ratio si AU MOINS UN relais utilise l'énergie virtuelle.
@@ -146,7 +146,7 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                                 <th className="p-3 w-20">Length</th>
                                 <th className="p-3">Driver</th>
                                 <th className="p-3 w-28">Tyres</th>
-                                {showEnergy && <th className="p-3 w-16 text-center text-cyan-400" title="Ratio Fuel/Energy">F/E</th>}
+                                {showEnergy && <th className="p-3 w-16 text-center text-cyan-400" title="VE deployment factor: 1.0=target rate, 0.8=save (-20% VE/lap), 1.2=push (+20% VE/lap). Does not affect fuel consumption.">VE DEP</th>}
                                 <th className="p-3 w-20 text-center">Fuel</th>
                                 {showEnergy && <th className="p-3 w-20 text-center">NRG</th>}
                                 <th className="p-3">Notes</th>
@@ -269,9 +269,14 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                                         {/* NRG - Affiché uniquement si showEnergy est true */}
                                         {showEnergy && (
                                             <td className="p-2 text-center">
-                                                    <span className="text-xs font-mono font-bold text-cyan-400">
-                                                        {stint.virtualEnergy || "-"}
-                                                    </span>
+                                                <span className="text-xs font-mono font-bold text-cyan-400">
+                                                    {stint.virtualEnergy || "-"}
+                                                </span>
+                                                {stint.virtualEnergy && stint.virtualEnergy !== "-" && activeVECons && (
+                                                    <div className="text-[9px] text-slate-500 font-mono">
+                                                        {((activeVECons) * (stint.fuelEnergyRatio ?? 1.0)).toFixed(1)}%/L
+                                                    </div>
+                                                )}
                                             </td>
                                         )}
 
