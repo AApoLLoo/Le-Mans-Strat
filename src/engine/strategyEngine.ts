@@ -31,6 +31,8 @@ export interface StrategyInput {
     fuelCons: number;
     veCons: number;
     tankCapacity: number;
+    manualFuelTarget?: number | null;
+    manualVETarget?: number | null;
 
     // Team flags
     isHypercar: boolean;
@@ -48,6 +50,7 @@ export function calculateStrategy(input: StrategyInput): StrategyData {
         leaderLaps, leaderAvgLapTime, activeDriverId,
         drivers, stintConfig, stintAssignments, stintNotes,
         fuelCons, veCons, tankCapacity: configTankCapacity,
+        manualFuelTarget, manualVETarget,
         isHypercar, isLMGT3,
         allVehicles
     } = input;
@@ -107,34 +110,34 @@ export function calculateStrategy(input: StrategyInput): StrategyData {
         }
         const d = getSafeDriver(drivers.find(drv => drv.id === driverId));
 
-        // Durée
-        let lapsDuration = maxLapsPerStint;
-        if (config.laps && config.laps > 0) lapsDuration = Math.min(config.laps, maxLapsPerStint);
+        // Ratio VE : modificateur de déploiement VE par relais (1.0 = normal, 0.8 = économie, 1.2 = agressif)
+        // Ce ratio n'affecte QUE la VE, le carburant est toujours calculé indépendamment.
+        const ratio = config.fuelEnergyRatio !== undefined ? config.fuelEnergyRatio : 1.0;
+
+        // Durée — calculée avec les vrais max du relais (tenant compte du ratio VE)
+        const stintVECons = (useVE && activeVECons > 0) ? activeVECons * ratio : 0;
+        const stintMaxLapsByVE = stintVECons > 0 ? Math.floor(100 / stintVECons) : 999;
+        const stintMaxLapsByFuel = Math.floor(tankCapacity / activeFuelCons);
+        const stintMaxLaps = useVE ? Math.min(stintMaxLapsByVE, stintMaxLapsByFuel) : stintMaxLapsByFuel;
+
+        let lapsDuration = stintMaxLaps;
+        if (config.laps && config.laps > 0) lapsDuration = Math.min(config.laps, stintMaxLaps);
         if (simulationLap + lapsDuration > totalLapsTarget) lapsDuration = totalLapsTarget - simulationLap;
         lapsDuration = Math.max(1, lapsDuration);
 
-        // Ratio Fuel/Energy
-        const ratio = config.fuelEnergyRatio !== undefined ? config.fuelEnergyRatio : 1.0;
-
-        // Calculs
-        let veNeeded = 0;
+        // Calculs — fuel et VE sont toujours indépendants (comme dans LMU)
+        const fuelNeeded = lapsDuration * activeFuelCons;
         let veDisplay = "-";
-        let fuelNeeded = 0;
         let fuelDisplay = "";
 
-        if (useVE) {
-            veNeeded = lapsDuration * activeVECons;
+        if (useVE && stintVECons > 0) {
+            const veNeeded = lapsDuration * stintVECons;
             veDisplay = `${veNeeded.toFixed(0)}%`;
-            fuelNeeded = veNeeded * ratio;
-        } else {
-            fuelNeeded = lapsDuration * activeFuelCons;
         }
 
-        if (simIdx === currentStintIndex) {
-            fuelDisplay = `${fuelCurrent.toFixed(1)}L (Rest)`;
-        } else {
-            fuelDisplay = `${fuelNeeded.toFixed(1)}L`;
-        }
+        fuelDisplay = simIdx === currentStintIndex
+            ? `${fuelCurrent.toFixed(1)}L (Rest)`
+            : `${fuelNeeded.toFixed(1)}L`;
 
         stints.push({
             id: simIdx, stopNum: simIdx + 1,
@@ -163,8 +166,8 @@ export function calculateStrategy(input: StrategyInput): StrategyData {
         activeVECons,
         activeLapTime: avgLapTimeSeconds,
         pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex),
-        targetFuelCons: activeFuelCons,
-        targetVECons: activeVECons,
+        targetFuelCons: manualFuelTarget ?? activeFuelCons,
+        targetVECons: manualVETarget ?? activeVECons,
         pitPrediction
     };
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, X, Trash2, Car, RefreshCw, Palette, Save, LogOut, User as UserIcon, Lock } from 'lucide-react';
+import { Plus, Users, X, Trash2, Car, RefreshCw, Palette, Save, LogOut, User as UserIcon, Lock, Gauge, Timer, MessageSquare, Map, BarChart3, Fuel, ChevronDown, Radio } from 'lucide-react';
 import type { Driver } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { AuthModal } from './AuthModal';
@@ -17,7 +17,6 @@ const VPS_API_URL = API_BASE_URL;
 
 const CATEGORIES = ["Hypercar", "LMP2", "LMP2 (ELMS)", "LMP3", "GT3"];
 
-// Fonction pour récupérer l'image de fond selon la catégorie
 const getCategoryBg = (category: string) => {
     const c = (category || "").toLowerCase();
     if (c.includes('elms')) return imgLmp2Elms;
@@ -34,6 +33,36 @@ type Session = {
     drivers?: Driver[] | Record<string, Driver>;
     driverName?: string;
 };
+
+const FEATURES = [
+    { icon: Gauge, title: "Live Telemetry", desc: "Real-time speed, fuel and tire data streamed directly from the car." },
+    { icon: Timer, title: "Stint Planning", desc: "Precise pit stop timing and driver rotation management." },
+    { icon: Fuel, title: "Fuel Calculator", desc: "Optimal fuel loads based on consumption and remaining laps." },
+    { icon: Map, title: "Track Map", desc: "Live car positioning and incident tracking on circuit." },
+    { icon: MessageSquare, title: "Team Radio", desc: "Real-time chat between pit wall and engineering crew." },
+    { icon: BarChart3, title: "Race Analysis", desc: "Post-stint analytics and performance comparison tools." },
+];
+
+const landingStyles = `
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes pulseGlow {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 0.25; }
+  }
+  .animate-fade-in-up { animation: fadeInUp 0.7s ease-out both; }
+  .animate-fade-in-up-d1 { animation: fadeInUp 0.7s ease-out 0.1s both; }
+  .animate-fade-in-up-d2 { animation: fadeInUp 0.7s ease-out 0.2s both; }
+  .animate-fade-in-up-d3 { animation: fadeInUp 0.7s ease-out 0.3s both; }
+  .animate-float { animation: float 6s ease-in-out infinite; }
+  .animate-pulse-glow { animation: pulseGlow 4s ease-in-out infinite; }
+`;
 
 // --- MODAL JOIN WITH PASSWORD ---
 const JoinPasswordModal = ({ onClose, onConfirm }: { onClose: () => void, onConfirm: (pwd: string) => void }) => {
@@ -175,7 +204,6 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
     return (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-[#0f172a] w-full max-w-md rounded-xl border border-white/10 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                {/* ... (Contenu Edit identique) ... */}
                 <div className="bg-slate-800/50 p-4 border-b border-white/5 flex justify-between items-center">
                     <div>
                         <h2 className="text-lg font-black italic text-white tracking-wider">EDIT LINE UP</h2>
@@ -270,7 +298,6 @@ const LandingPage = () => {
     const [error, setError] = useState<string|null>(null);
     const [joinPasswordTarget, setJoinPasswordTarget] = useState<string | null>(null);
 
-    // --- CORRECTION DU CRASH ---
     const fetchSessions = async () => {
         setLoading(true);
         try {
@@ -319,7 +346,6 @@ const LandingPage = () => {
                 body: JSON.stringify({ password })
             });
 
-            // Safety check for JSON response
             const contentType = res.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") === -1) {
                 const text = await res.text();
@@ -375,7 +401,6 @@ const LandingPage = () => {
         }
     };
 
-    // ... (handleSaveSessionData et handleDeleteTeam inchangés, assurez-vous juste qu'ils sont là) ...
     const handleSaveSessionData = async (teamId: string, updatedDrivers: Driver[], updatedCategory: string) => {
         try {
             const res = await fetch(`${VPS_API_URL}/api/lineups/${teamId}/drivers`, {
@@ -409,190 +434,294 @@ const LandingPage = () => {
         return 'bg-white/10 text-slate-300 border-white/10';
     };
 
+    const getCategoryBorderColor = (cat: string) => {
+        const c = (cat || "").toLowerCase();
+        if (c.includes('hyper')) return 'border-b-red-500/50';
+        if (c.includes('lmp2')) return 'border-b-blue-500/50';
+        if (c.includes('gt3')) return 'border-b-orange-500/50';
+        return 'border-b-slate-700/50';
+    };
+
+    const scrollToSessions = () => {
+        document.getElementById('sessions')?.scrollIntoView({ behavior: 'smooth' });
+    };
+
     return (
-        <div className="min-h-screen bg-[#020408] text-white font-display overflow-x-hidden relative">
+        <div className="min-h-screen bg-[#020408] text-white font-display relative" style={{ overflow: 'auto', height: '100vh' }}>
+            <style>{landingStyles}</style>
 
-            {/* --- HEADER UTILISATEUR --- */}
-            <div className="absolute top-6 right-6 z-50 flex items-center gap-4">
-                {isAuthenticated ? (
-                    <div className="flex items-center gap-3 bg-slate-900/80 p-1.5 pr-4 rounded-full border border-white/10 backdrop-blur shadow-2xl animate-in fade-in slide-in-from-top-2">
-                        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-white shadow-inner">
-                            {user?.username.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-xs font-bold text-white leading-tight">{user?.username}</span>
-                            <button onClick={logout} className="text-[9px] text-slate-400 hover:text-red-400 uppercase font-bold text-left flex items-center gap-1 transition-colors">
-                                <LogOut size={8}/> Logout
+            {/* --- BACKGROUND LAYERS --- */}
+            <div className="fixed inset-0 pointer-events-none z-0">
+                {/* Dot grid */}
+                <div className="absolute inset-0 opacity-[0.03]" style={{
+                    backgroundImage: 'radial-gradient(circle, #94a3b8 1px, transparent 1px)',
+                    backgroundSize: '40px 40px'
+                }} />
+                {/* Radial glow top */}
+                <div className="absolute inset-0 animate-pulse-glow" style={{
+                    background: 'radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.15) 0%, transparent 60%)'
+                }} />
+                {/* Blobs */}
+                <div className="absolute top-[-15%] left-[-10%] w-[50%] h-[50%] bg-indigo-900/15 blur-[150px] rounded-full"></div>
+                <div className="absolute bottom-[-15%] right-[-10%] w-[45%] h-[45%] bg-blue-900/15 blur-[150px] rounded-full"></div>
+                <div className="absolute bottom-[10%] left-[30%] w-[30%] h-[30%] bg-violet-900/10 blur-[120px] rounded-full"></div>
+            </div>
+
+            {/* --- NAVBAR --- */}
+            <nav className="sticky top-0 z-50 bg-slate-900/50 backdrop-blur-md border-b border-white/5">
+                <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <img src="/Logo Team LMU.svg" alt="FBT" className="w-8 h-8 object-contain" />
+                        <span className="text-sm font-bold text-white/80 tracking-wider">FBT</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        {isAuthenticated ? (
+                            <div className="flex items-center gap-3 bg-slate-800/60 p-1.5 pr-4 rounded-full border border-white/10 backdrop-blur">
+                                <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-white text-xs shadow-inner">
+                                    {user?.username.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-xs font-bold text-white leading-tight">{user?.username}</span>
+                                    <button onClick={logout} className="text-[9px] text-slate-400 hover:text-red-400 uppercase font-bold text-left flex items-center gap-1 transition-colors">
+                                        <LogOut size={8}/> Logout
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => setShowAuthModal(true)}
+                                className="bg-white/5 hover:bg-white/10 text-white border border-white/10 px-5 py-2 rounded-full text-xs font-bold transition-all backdrop-blur flex items-center gap-2 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                            >
+                                <UserIcon size={14}/> LOGIN / REGISTER
                             </button>
-                        </div>
+                        )}
                     </div>
-                ) : (
-                    <button
-                        onClick={() => setShowAuthModal(true)}
-                        className="bg-white/5 hover:bg-white/10 text-white border border-white/10 px-5 py-2 rounded-full text-xs font-bold transition-all backdrop-blur flex items-center gap-2 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]"
-                    >
-                        <UserIcon size={14}/> LOGIN / REGISTER
-                    </button>
-                )}
-            </div>
+                </div>
+            </nav>
 
-            <div className="fixed inset-0 pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-900/20 blur-[120px] rounded-full animate-pulse"></div>
-                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-900/20 blur-[120px] rounded-full animate-pulse delay-1000"></div>
-            </div>
-
-            <div className="relative z-10 max-w-7xl mx-auto px-6 py-12 flex flex-col items-center">
-                <div className="flex flex-col md:flex-row items-center justify-center mb-16 space-y-4 md:space-y-0 md:space-x-8">
-                    <div className="text-center md:text-right min-w-0">
-                        <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter
-                        text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-500
-                        drop-shadow-2xl relative z-10
-                        transition-all duration-300 ease-in-out
-                        hover:drop-shadow-[0_0_80px_rgba(99,102,241,0.8)]"
-                        >
-                            French Baguette <span className="text-indigo-500"> TEAM</span>
-                        </h1>
-                        <p className="text-slate-400 text-lg uppercase tracking-[0.3em] font-bold">
-                            Race Telemetry USED ONLY FOR FBT
-                        </p>
-                    </div>
+            {/* --- HERO SECTION --- */}
+            <section className="relative z-10 min-h-[85vh] flex flex-col items-center justify-center px-6">
+                <div className="flex flex-col items-center text-center max-w-4xl mx-auto">
                     <img
                         src="/Logo Team LMU.svg"
                         alt="Team Logo"
-                        className="w-24 h-24 md:w-56 md:h-56 object-contain
-                   drop-shadow-[0_0_10px_rgba(99,102,241,0.5)]
-                   shrink-0
-                   transition-transform duration-300 ease-in-out
-                   hover:scale-105 hover:rotate-3
-                   animate-in fade-in zoom-in duration-700"
+                        className="w-32 h-32 md:w-48 md:h-48 object-contain animate-float
+                            drop-shadow-[0_0_20px_rgba(99,102,241,0.4)]
+                            mb-8 animate-fade-in-up"
                     />
-                </div>
 
-                <div className="w-full max-w-2xl flex gap-4 mb-16">
-                    <button
-                        onClick={() => {
-                            if (isAuthenticated) setShowCreateModal(true);
-                            else setShowAuthModal(true);
-                        }}
-                        className="flex-1 group relative overflow-hidden bg-gradient-to-r from-indigo-600 to-blue-600 p-1 rounded-xl shadow-[0_0_40px_rgba(79,70,229,0.3)] hover:shadow-[0_0_60px_rgba(79,70,229,0.5)] transition-all duration-300 transform hover:-translate-y-1"
+                    <h1 className="animate-fade-in-up-d1 text-5xl md:text-7xl lg:text-8xl font-black italic tracking-tighter
+                        text-transparent bg-clip-text bg-gradient-to-br from-white via-slate-200 to-slate-500
+                        leading-[0.9]"
                     >
-                        <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                        <div className="bg-[#050a10] rounded-lg h-full px-8 py-6 flex items-center justify-center gap-4 relative z-10">
-                            <Plus className="w-8 h-8 text-indigo-400 group-hover:rotate-90 transition-transform duration-300"/>
-                            <div className="text-left">
-                                <div className="text-xl font-bold text-white italic">CREATE NEW STRATEGY</div>
-                                <div className="text-xs text-indigo-400 font-bold tracking-wider">
-                                    {isAuthenticated ? "START A NEW SESSION" : "LOGIN REQUIRED"}
+                        French Baguette <span className="text-indigo-500">TEAM</span>
+                    </h1>
+
+                    <p className="animate-fade-in-up-d2 text-base md:text-lg text-slate-400 tracking-[0.2em] uppercase font-medium mt-6">
+                        Endurance Racing Strategy Platform
+                    </p>
+
+                    <div className="animate-fade-in-up-d2 w-24 h-px bg-gradient-to-r from-transparent via-indigo-500 to-transparent mx-auto mt-6"></div>
+
+                    <div className="animate-fade-in-up-d3 flex flex-col sm:flex-row gap-4 mt-10">
+                        <button
+                            onClick={() => {
+                                if (isAuthenticated) setShowCreateModal(true);
+                                else setShowAuthModal(true);
+                            }}
+                            className="group relative overflow-hidden bg-gradient-to-r from-indigo-600 to-blue-600 p-px rounded-xl shadow-[0_0_30px_rgba(79,70,229,0.25)] hover:shadow-[0_0_50px_rgba(79,70,229,0.4)] transition-all duration-300 hover:-translate-y-0.5"
+                        >
+                            <div className="bg-[#050a10] rounded-[11px] px-8 py-4 flex items-center gap-3 relative z-10">
+                                <Plus className="w-5 h-5 text-indigo-400 group-hover:rotate-90 transition-transform duration-300"/>
+                                <div className="text-left">
+                                    <div className="text-sm font-bold text-white">CREATE NEW LINEUP</div>
+                                    <div className="text-[10px] text-indigo-400/70 font-medium tracking-wider">
+                                        {isAuthenticated ? "START A NEW SESSION" : "LOGIN REQUIRED"}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </button>
+                        </button>
+
+                        <button
+                            onClick={scrollToSessions}
+                            className="px-8 py-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm font-bold transition-all duration-300 hover:-translate-y-0.5 flex items-center gap-2"
+                        >
+                            <ChevronDown size={16} className="text-slate-400" />
+                            VIEW SESSIONS
+                        </button>
+                    </div>
                 </div>
 
-                <div className="w-full max-w-5xl">
-                    <div className="flex items-center gap-3 mb-8">
-                        <div className="w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
-                        <h2 className="text-xl font-bold text-white tracking-widest uppercase">Live Sessions</h2>
-                        <button onClick={fetchSessions} className="ml-auto text-slate-500 hover:text-white"><RefreshCw size={16}/></button>
-                    </div>
+                {/* Scroll indicator */}
+                <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce text-slate-600">
+                    <ChevronDown size={24} />
+                </div>
+            </section>
 
-                    {error && <div className="text-center text-red-500 mb-4 bg-red-900/20 p-2 rounded">{error}</div>}
+            {/* --- FEATURES SECTION --- */}
+            <section className="relative z-10 max-w-5xl mx-auto px-6 py-24">
+                <div className="text-center mb-16 animate-fade-in-up">
+                    <p className="text-xs uppercase tracking-[0.3em] text-indigo-400 font-bold mb-3">Race-Winning Tools</p>
+                    <h2 className="text-3xl md:text-4xl font-black italic text-white mb-4">
+                        Everything You Need at the Pit Wall
+                    </h2>
+                    <div className="w-16 h-px bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent mx-auto"></div>
+                </div>
 
-                    {loading ? (
-                        <div className="text-center text-slate-500 animate-pulse">Scanning network...</div>
-                    ) : linesups.length === 0 ? (
-                        <div className="text-center py-12 bg-white/5 rounded-2xl border border-white/10 border-dashed">
-                            <div className="text-slate-500 font-bold">NO SESSIONS FOUND ON VPS</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {FEATURES.map((feat, i) => (
+                        <div
+                            key={feat.title}
+                            className="bg-slate-900/40 border border-white/5 rounded-xl p-6 hover:border-indigo-500/30 transition-all duration-300 group"
+                            style={{ animationDelay: `${i * 0.08}s` }}
+                        >
+                            <div className="w-11 h-11 rounded-lg bg-indigo-600/10 flex items-center justify-center mb-4 group-hover:bg-indigo-600/20 transition-colors">
+                                <feat.icon size={20} className="text-indigo-400 group-hover:text-indigo-300 transition-colors" />
+                            </div>
+                            <h3 className="text-base font-bold text-white mb-2">{feat.title}</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed">{feat.desc}</p>
                         </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {linesups.map((team) => {
-                                const bgImage = getCategoryBg(team.carCategory || "");
+                    ))}
+                </div>
+            </section>
 
-                                return (
-                                    <div key={team.id} onClick={() => handleJoinTeam(team.id)} className="group bg-slate-900/80 border border-white/10 hover:border-indigo-500/50 rounded-xl p-5 cursor-pointer transition-all duration-300 hover:shadow-2xl relative overflow-hidden">
+            {/* --- SESSIONS SECTION --- */}
+            <section id="sessions" className="relative z-10 max-w-6xl mx-auto px-6 py-24">
+                <div className="flex items-center gap-3 mb-8">
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
+                    <h2 className="text-xl font-bold text-white tracking-widest uppercase">Live Sessions</h2>
+                    {!loading && linesups.length > 0 && (
+                        <span className="bg-white/5 text-xs px-2.5 py-0.5 rounded-full text-slate-400 font-mono">{linesups.length}</span>
+                    )}
+                    <button onClick={fetchSessions} className="ml-auto text-slate-500 hover:text-white transition-colors"><RefreshCw size={16}/></button>
+                </div>
 
-                                        {/* --- IMAGE DE FOND --- */}
-                                        {bgImage && (
-                                            <>
-                                                <div
-                                                    className="absolute inset-0 bg-cover bg-center opacity-30 group-hover:opacity-50 transition-all duration-700 transform group-hover:scale-110"
-                                                    style={{ backgroundImage: `url(${bgImage})` }}
-                                                />
-                                                <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f19] via-[#0b0f19]/90 to-transparent z-0" />
-                                            </>
-                                        )}
+                {error && <div className="text-center text-red-500 mb-4 bg-red-900/20 p-3 rounded-xl border border-red-500/20">{error}</div>}
 
-                                        {/* --- ACTIONS (SI CONNECTÉ) --- */}
-                                        {isAuthenticated && (
-                                            <div className="absolute top-3 right-3 z-30 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setEditingTeam(team);
-                                                    }}
-                                                    className="p-2 rounded-lg bg-slate-900/90 text-indigo-400 hover:bg-indigo-600 hover:text-white border border-white/20 transition-colors shadow-lg backdrop-blur-sm"
-                                                    title="Edit Drivers"
-                                                >
-                                                    <Palette size={16} />
-                                                </button>
+                {loading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {[1,2,3].map(i => (
+                            <div key={i} className="bg-slate-900/40 rounded-2xl h-52 animate-pulse border border-white/5"></div>
+                        ))}
+                    </div>
+                ) : linesups.length === 0 ? (
+                    <div className="text-center py-20 bg-slate-900/30 rounded-2xl border border-dashed border-white/10">
+                        <Radio size={40} className="text-slate-700 mx-auto mb-4" />
+                        <div className="text-lg font-bold text-slate-500 mb-2">No Active Sessions</div>
+                        <p className="text-sm text-slate-600 mb-6">Create a new lineup to get started</p>
+                        <button
+                            onClick={() => {
+                                if (isAuthenticated) setShowCreateModal(true);
+                                else setShowAuthModal(true);
+                            }}
+                            className="text-indigo-400 text-sm font-bold hover:text-indigo-300 transition-colors inline-flex items-center gap-2"
+                        >
+                            <Plus size={14} /> Create Lineup
+                        </button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {linesups.map((team) => {
+                            const bgImage = getCategoryBg(team.carCategory || "");
 
-                                                <button
-                                                    onClick={(e) => handleDeleteTeam(e, team.id)}
-                                                    className="p-2 rounded-lg bg-slate-900/90 text-slate-500 hover:bg-red-500/20 hover:text-red-500 border border-white/20 transition-colors shadow-lg backdrop-blur-sm"
-                                                    title="Delete Line Up"
-                                                >
-                                                    <Trash2 size={16}/>
-                                                </button>
+                            return (
+                                <div
+                                    key={team.id}
+                                    onClick={() => handleJoinTeam(team.id)}
+                                    className={`group bg-slate-900/80 border border-white/10 border-b-2 ${getCategoryBorderColor(team.carCategory || '')} hover:border-indigo-500/50 rounded-2xl p-5 cursor-pointer transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 relative overflow-hidden`}
+                                >
+                                    {/* --- IMAGE DE FOND --- */}
+                                    {bgImage && (
+                                        <>
+                                            <div
+                                                className="absolute inset-0 bg-cover bg-center opacity-25 group-hover:opacity-40 transition-all duration-700 transform group-hover:scale-110"
+                                                style={{ backgroundImage: `url(${bgImage})` }}
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f19] via-[#0b0f19]/90 to-transparent z-0" />
+                                        </>
+                                    )}
+
+                                    {/* --- ACTIONS (SI CONNECTÉ) --- */}
+                                    {isAuthenticated && (
+                                        <div className="absolute top-3 right-3 z-30 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setEditingTeam(team);
+                                                }}
+                                                className="p-2 rounded-lg bg-slate-900/90 text-indigo-400 hover:bg-indigo-600 hover:text-white border border-white/20 transition-colors shadow-lg backdrop-blur-sm"
+                                                title="Edit Drivers"
+                                            >
+                                                <Palette size={16} />
+                                            </button>
+
+                                            <button
+                                                onClick={(e) => handleDeleteTeam(e, team.id)}
+                                                className="p-2 rounded-lg bg-slate-900/90 text-slate-500 hover:bg-red-500/20 hover:text-red-500 border border-white/20 transition-colors shadow-lg backdrop-blur-sm"
+                                                title="Delete Line Up"
+                                            >
+                                                <Trash2 size={16}/>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="relative z-10 space-y-4">
+                                        <div>
+                                            <div className="text-2xl font-black text-white italic tracking-tight group-hover:text-indigo-400 truncate pr-16 drop-shadow-md transition-colors">
+                                                {team.id.toUpperCase()}
                                             </div>
-                                        )}
+                                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md border mt-2 inline-block shadow-sm ${getCategoryColor(team.carCategory || '')}`}>
+                                                {team.carCategory || "Unknown"}
+                                            </span>
+                                        </div>
 
-                                        <div className="relative z-10 space-y-4">
-                                            <div>
-                                                <div className="text-2xl font-black text-white italic tracking-tight group-hover:text-indigo-400 truncate pr-16 drop-shadow-md">
-                                                    {team.id.toUpperCase()}
-                                                </div>
-                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border mt-2 inline-block shadow-sm ${getCategoryColor(team.carCategory || '')}`}>
-                                                    {team.carCategory || "Unknown"}
-                                                </span>
+                                        <div className="bg-black/40 rounded-lg p-3 border border-white/10 backdrop-blur-sm">
+                                            <div className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
+                                                <Users size={10}/> Drivers
                                             </div>
+                                            <div className="mt-1 flex flex-col gap-1">
+                                                {(() => {
+                                                    const driversList = team.drivers
+                                                        ? (Array.isArray(team.drivers) ? team.drivers : Object.values(team.drivers))
+                                                        : [];
 
-                                            <div className="bg-black/60 rounded-lg p-3 border border-white/10 backdrop-blur-sm">
-                                                <div className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
-                                                    <Users size={10}/> Drivers
-                                                </div>
-                                                <div className="mt-1 flex flex-col gap-1">
-                                                    {(() => {
-                                                        const driversList = team.drivers
-                                                            ? (Array.isArray(team.drivers) ? team.drivers : Object.values(team.drivers))
-                                                            : [];
-
-                                                        return driversList.length > 0 ? (
-                                                            driversList.map((d, idx) => (
-                                                                <div
-                                                                    key={d.id || idx}
-                                                                    className="text-sm font-medium flex items-center gap-2"
-                                                                >
-                                                                    <div className="w-2 h-2 rounded-full shadow-[0_0_5px_currentColor]" style={{backgroundColor: d.color || '#3b82f6', color: d.color || '#3b82f6'}}></div>
-                                                                    <span className="text-slate-200">{d?.name || 'Unnamed'}</span>
-                                                                </div>
-                                                            ))
-                                                        ) : (
-                                                            <div className="text-sm text-slate-500">
-                                                                {team.driverName || "Waiting..."}
+                                                    return driversList.length > 0 ? (
+                                                        driversList.map((d, idx) => (
+                                                            <div
+                                                                key={d.id || idx}
+                                                                className="text-sm font-medium flex items-center gap-2"
+                                                            >
+                                                                <div className="w-2 h-2 rounded-full shadow-[0_0_5px_currentColor]" style={{backgroundColor: d.color || '#3b82f6', color: d.color || '#3b82f6'}}></div>
+                                                                <span className="text-slate-200">{d?.name || 'Unnamed'}</span>
                                                             </div>
-                                                        );
-                                                    })()}
-                                                </div>
+                                                        ))
+                                                    ) : (
+                                                        <div className="text-sm text-slate-500">
+                                                            {team.driverName || "Waiting..."}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                     </div>
-                                );
-                            })}
-                        </div>
-                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </section>
+
+            {/* --- FOOTER --- */}
+            <footer className="relative z-10 border-t border-white/5 py-8 mt-8">
+                <div className="text-center">
+                    <p className="text-xs text-slate-500">
+                        Built by <span className="font-bold text-indigo-400">Antoine</span>
+                    </p>
+                    <p className="text-[10px] text-slate-600 mt-1">
+                        French Baguette Team &mdash; {new Date().getFullYear()}
+                    </p>
                 </div>
-            </div>
+            </footer>
 
             {showCreateModal && <CreateTeamModal onClose={() => setShowCreateModal(false)} onCreate={handleCreateSession} />}
             {editingTeam && <EditTeamModal team={editingTeam} onClose={() => setEditingTeam(null)} onSave={handleSaveSessionData} />}
@@ -603,13 +732,6 @@ const LandingPage = () => {
                     onConfirm={(pwd) => handleJoinTeam(joinPasswordTarget, pwd)}
                 />
             )}
-
-            <div className="absolute bottom-4 right-6 z-50 text-xs text-slate-500
-                            transition-all duration-300 ease-in-out
-                            hover:scale-[1.10] hover:text-white hover:drop-shadow-[0_0_10px_rgba(99,102,241,0.5)]
-                            cursor-pointer">
-                Développé par <span className="font-bold text-indigo-400">Antoine</span>
-            </div>
         </div>
     );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { RawVehicle, TelemetryData } from '../../types';
 import { CLASS_BORDER_STYLES, getClassKey } from '../../utils/carClasses';
 import { formatLapTimeForTable } from '../../utils/helpers';
@@ -13,8 +13,11 @@ interface LiveTimingViewProps {
 const LiveTimingView: React.FC<LiveTimingViewProps> = ({ vehicles = [] }) => {
     const [filterClass, setFilterClass] = useState<string>('ALL');
 
-    // Tri par position
-    const sortedVehicles = [...vehicles].sort((a, b) => (a.position || 999) - (b.position || 999));
+    // Tri par position (memoized)
+    const sortedVehicles = useMemo(() =>
+        [...vehicles].sort((a, b) => (a.position || 999) - (b.position || 999)),
+        [vehicles]
+    );
 
     // Filtrage CORRIGÉ
     const filteredVehicles = sortedVehicles.filter(v => {

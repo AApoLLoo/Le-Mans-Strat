@@ -63,7 +63,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
         const text = overrideText || chatInput;
         if (!text.trim()) return;
         const newMessage = {
-            id: Date.now(),
+            id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
             user: username,
             team: teamName,
             teamColor: teamColor,
@@ -81,7 +81,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
         const text = prompt("Incident details:");
         if (text) {
             const newIncident = {
-                id: Date.now(),
+                id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
                 time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
                 lap: gameState.telemetry.laps,
                 text
@@ -279,6 +279,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                                     vehicles={gameState.allVehicles}
                                     myCarId={gameState.telemetry.position}
                                     savedMap={gameState.trackMap}
+                                    trackName={gameState.trackName}
                                     onSaveMap={saveTrackMap}
                                 />
                             </ErrorBoundary>
@@ -312,6 +313,7 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                     onClose={() => setShowSettings(false)}
                     isHypercar={isHypercar}
                     isLMGT3={isLMGT3}
+                    canManageLineup={canManageLineup}
                     onAddDriver={addDriver}
                     onRemoveDriver={removeDriver}
                     onUpdateDriver={updateDriverInfo}
