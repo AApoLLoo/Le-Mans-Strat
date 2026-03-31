@@ -71,6 +71,8 @@ export interface TelemetryData {
     pitLimiter: boolean;
     damageIndex: number;
     isOverheating: boolean;
+    lmu_electronics?: LmuElectronics;
+    lmu_wheels_extra?: LmuWheelsExtraData;
 }
 
 export interface TireTempDetails {
@@ -153,7 +155,41 @@ export interface RawVehicle {
     last_pit_lap?: number;
     predicted_pit_lap?: number;
 }
+export interface LmuElectronics {
+    tc: number;
+    tc_max: number;
+    tc_slip: number;
+    tc_slip_max: number;
+    tc_cut: number;
+    tc_cut_max: number;
+    abs: number;
+    abs_max: number;
+    brake_migration: number;
+    brake_migration_max: number;
+    motor_map: number;
+    motor_map_max: number;
+    anti_sway_front: number;
+    anti_sway_front_max: number;
+    anti_sway_rear: number;
+    anti_sway_rear_max: number;
+    tc_active: boolean;
+    abs_active: boolean;
+    speed_limiter_active: boolean;
+    wiper_state: number;
+}
+export interface LmuWheelExtra {
+    toe: number;
+    optimal_temp: number;
+    compound_index: number;
+    compound_type: number;
+}
 
+export interface LmuWheelsExtraData {
+    fl: LmuWheelExtra;
+    fr: LmuWheelExtra;
+    rl: LmuWheelExtra;
+    rr: LmuWheelExtra;
+}
 export interface LapData {
     lapNumber: number;
     lapTime: number;
@@ -254,6 +290,8 @@ export interface RawTelemetry {
         rr: TireTempDetails;
     };
     virtual_energy?: number;
+    lmu_electronics?: Partial<LmuElectronics>;
+    lmu_wheels_extra? : Partial<LmuWheelExtra>;
 }
 
 export interface RawScoring {
