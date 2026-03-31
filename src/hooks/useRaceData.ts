@@ -2,12 +2,11 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type {
     GameState, StrategyData, TelemetryData, LapData, MapPoint,
-    RawTelemetry, RawScoring, RawPit, RawWeather, RawRules, RawExtended, ChatMessage
+    RawTelemetry, RawScoring, RawPit, RawWeather, RawRules, ChatMessage
 } from '../types';
-import { getSafeDriver } from '../utils/helpers';
 import { calculateStrategy } from '../engine/strategyEngine';
 
-import { API_BASE_URL, PIT_LANE_LOSS, DEFAULT_STATIONARY_TIME, DEFAULT_LAP_TIME, MAX_STINTS_LOOKAHEAD } from '../constants';
+import { API_BASE_URL} from '../constants';
 
 export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId;
@@ -55,18 +54,25 @@ export const useRaceData = (teamId: string) => {
             laps: 0, curLap: 0, lastLap: 0, bestLap: 0, position: 0, speed: 0, rpm: 0, maxRpm: 8000, gear: 0,
             carCategory: "Unknown",
             throttle: 0, brake: 0, clutch: 0, steering: 0, waterTemp: 0, oilTemp: 0,
-            fuel: { current: 0, max: 100, lastLapCons: 0, averageCons: 0 },
-            VE: { VEcurrent: 100, VElastLapCons: 0, VEaverageCons: 0 },
+            fuel: {current: 0, max: 100, lastLapCons: 0, averageCons: 0},
+            VE: {VEcurrent: 100, VElastLapCons: 0, VEaverageCons: 0},
             batterySoc: 0,
-            electric: { charge: 0, torque: 0, rpm: 0, motorTemp: 0, waterTemp: 0, state: 0 },
-            tires: { fl: 100, fr: 100, rl: 100, rr: 100 },
-            tirePressures: { fl: 0, fr: 0, rl: 0, rr: 0 },
-            tireTemps: { fl: [], fr: [], rl: [], rr: [] },
-            brakeTemps: { flc: 0, frc: 0, rlc: 0, rrc: 0 },
-            tireCompounds: { fl: "---", fr: "---", rl: "---", rr: "---" },
+            electric: {charge: 0, torque: 0, rpm: 0, motorTemp: 0, waterTemp: 0, state: 0},
+            tires: {fl: 100, fr: 100, rl: 100, rr: 100},
+            tirePressures: {fl: 0, fr: 0, rl: 0, rr: 0},
+            tireTemps: {fl: [], fr: [], rl: [], rr: []},
+            brakeTemps: {flc: 0, frc: 0, rlc: 0, rrc: 0},
+            tireCompounds: {fl: "---", fr: "---", rl: "---", rr: "---"},
             leaderLaps: 0, leaderAvgLapTime: 0,
             strategyEstPitTime: 0, strategyPitFuel: 0, strategyPitLaps: 0,
-            inPitLane: false, inGarage: true, pitLimiter: false, damageIndex: 0, isOverheating: false
+            inPitLane: false, inGarage: true, pitLimiter: false, damageIndex: 0, isOverheating: false,
+            brakeWear: {
+                fl: 0,
+                fr: 0,
+                rl: 0,
+                rr: 0
+            },
+            windSpeed: 0
         },
         userGlobalRole: 'DRIVER',
         userTeamRole: 'MEMBER'
@@ -75,7 +81,6 @@ export const useRaceData = (teamId: string) => {
     const [status, setStatus] = useState("CONNECTING...");
     const [localRaceTime, setLocalRaceTime] = useState(0);
     const [localStintTime, setLocalStintTime] = useState(0);
-    const lastProcessedLapRef = useRef<number>(-1);
     const socketRef = useRef<Socket | null>(null);
     const currentTrackLoadedRef = useRef<string>("");
     const isRaceRunningRef = useRef(false);
@@ -95,7 +100,6 @@ export const useRaceData = (teamId: string) => {
         const pit = (docData.pit || {}) as RawPit;
         const weather = (docData.weather_det || {}) as RawWeather;
         const rules = (docData.rules || {}) as RawRules;
-        const extended = (docData.extended || {}) as RawExtended;
 
         let sessionTimeRem = Number(docData.sessionTimeRemainingSeconds);
         if ((sessionTimeRem === undefined || isNaN(sessionTimeRem)) && scoring.time) {
@@ -127,8 +131,8 @@ export const useRaceData = (teamId: string) => {
 
         let myPosition = Number(prev.telemetry.position);
         const vData = scoring.vehicle_data || {};
-        if (vData.classPosition && vData.classPosition > 0) myPosition = vData.classPosition;
-        else if (vData.position && vData.position > 0) myPosition = vData.position;
+        if (vData?.classPosition && vData?.classPosition > 0) myPosition = vData?.classPosition;
+        else if (vData?.position && vData?.position > 0) myPosition = vData?.position;
 
         let calculatedAvg = prev.avgLapTimeSeconds;
         if (calculatedAvg === 0 || isNaN(calculatedAvg)) {
@@ -149,9 +153,11 @@ export const useRaceData = (teamId: string) => {
 
             speed: tele.speed !== undefined ? Number(tele.speed) : prev.telemetry.speed,
             rpm: tele.rpm !== undefined ? Number(tele.rpm) : prev.telemetry.rpm,
-            maxRpm: 8000,
+            maxRpm: tele.maxRpm || prev.telemetry.maxRpm || 8000,
             gear: tele.gear !== undefined ? Number(tele.gear) : prev.telemetry.gear,
-            carCategory: (Array.isArray(scoring.vehicles) ? scoring.vehicles[0]?.class : undefined) || prev.telemetry.carCategory,
+            carCategory: scoring.vehicle_data?.class
+                || (Array.isArray(scoring.vehicles) ? scoring.vehicles.find(v => v.is_player === 1)?.class : undefined)
+                || prev.telemetry.carCategory,
 
             throttle: tele.inputs?.thr !== undefined ? Number(tele.inputs.thr) : prev.telemetry.throttle,
             brake: tele.inputs?.brk !== undefined ? Number(tele.inputs.brk) : prev.telemetry.brake,
@@ -205,12 +211,20 @@ export const useRaceData = (teamId: string) => {
                 rrc: tele.tires?.brake_temp?.[3] ?? prev.telemetry.brakeTemps.rrc
             },
             tireCompounds: tele.tires?.compounds || prev.telemetry.tireCompounds,
-            leaderLaps: prev.telemetry.leaderLaps,
-            leaderAvgLapTime: prev.telemetry.leaderAvgLapTime,
+            leaderLaps: tele.leaderLaps ?? prev.telemetry.leaderLaps,
+            leaderAvgLapTime: tele.leaderAvgLapTime ?? prev.telemetry.leaderAvgLapTime,
+            windSpeed: scoring.weather?.wind_speed ?? prev.telemetry.windSpeed,
+            brakeWear: {
+                    fl: tele.tires?.brake_wear?.[0] ?? prev.telemetry.brakeWear.fl,
+                        fr: tele.tires?.brake_wear?.[1] ?? prev.telemetry.brakeWear.fr,
+                       rl: tele.tires?.brake_wear?.[2] ?? prev.telemetry.brakeWear.rl,
+                            rr: tele.tires?.brake_wear?.[3] ?? prev.telemetry.brakeWear.rr,
+             },
             strategyEstPitTime: Number(pit.strategy?.time_min || prev.telemetry.strategyEstPitTime),
             inPitLane: Boolean(scoring.vehicle_data?.in_pits ?? prev.telemetry.inPitLane),
             inGarage: (rules.my_status?.pits_open === false),
-            pitLimiter: (extended.pit_limit ?? 0) > 0,
+            // V4 hardcodes pit_limit=60.0 → use in_pits proxy
+            pitLimiter: Boolean(scoring.vehicle_data?.in_pits ?? prev.telemetry.pitLimiter),
             damageIndex: prev.telemetry.damageIndex,
             isOverheating: prev.telemetry.isOverheating
         };

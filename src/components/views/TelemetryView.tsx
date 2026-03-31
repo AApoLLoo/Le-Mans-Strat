@@ -351,6 +351,10 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">TC CUT</span>
                                     <span className="font-mono text-sm text-amber-400 font-black">{Number(lmu_electronics.tc_cut) || 0}</span>
                                 </div>
+                                <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
+                                    <span className="text-[8px] text-slate-400 font-bold tracking-wider">TC SLIP</span>
+                                    <span className="font-mono text-sm text-amber-400 font-black">{Number(lmu_electronics.tc_slip) || 0}</span>
+                                </div>
                                 <div className={`flex flex-col items-center justify-center p-1.5 rounded-lg border transition-colors ${lmu_electronics.abs_active ? 'bg-red-500/20 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-black/40 border-slate-700/50'}`}>
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">ABS</span>
                                     <span className="font-mono text-sm text-white font-black">{Number(lmu_electronics.abs) || 0}</span>

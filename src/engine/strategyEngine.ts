@@ -42,7 +42,35 @@ export interface StrategyInput {
     allVehicles: RawVehicle[];
 }
 
-export function calculateStrategy(input: StrategyInput): StrategyData {
+export function calculateStrategy(input: {
+    currentLap: number;
+    carCategory: string;
+    fuelCurrent: number;
+    fuelMax: number;
+    fuelAvgCons: number;
+    veAvgCons: number;
+    veLastLapCons: number;
+    strategyEstPitTime: number;
+    telemetryPosition: number;
+    currentStint: number;
+    raceTimeRemaining: number;
+    avgLapTimeSeconds: number;
+    leaderLaps: number;
+    leaderAvgLapTime: number;
+    activeDriverId: number | string;
+    drivers: Driver[];
+    stintConfig: Record<string, StintConfig>;
+    stintAssignments: Record<string, number | string>;
+    stintNotes: Record<string, string | number>;
+    fuelCons: number;
+    veCons: number;
+    tankCapacity: number;
+    manualFuelTarget: number | null;
+    manualVETarget: number | null;
+    isHypercar: boolean;
+    isLMGT3: boolean;
+    allVehicles: RawVehicle[]
+}): StrategyData {
     const {
         currentLap, carCategory, fuelCurrent, fuelMax, fuelAvgCons, veAvgCons, veLastLapCons,
         strategyEstPitTime, telemetryPosition,
