@@ -60,9 +60,11 @@ export interface TelemetryData {
     tirePressures: { fl: number; fr: number; rl: number; rr: number };
     tireTemps: { fl: number[]; fr: number[]; rl: number[]; rr: number[] };
     brakeTemps: { flc: number; frc: number; rlc: number; rrc: number };
+    brakeWear: { fl: number; fr: number; rl: number; rr: number };
     tireCompounds: { fl: string; fr: string; rl: string; rr: string };
     leaderLaps?: number;
-    leaderAvgLapTime?: number;
+    leaderAvgLapTime?: number
+    windSpeed: number;
     strategyEstPitTime: number;
     strategyPitFuel?: number;
     strategyPitLaps?: number;
@@ -154,6 +156,11 @@ export interface RawVehicle {
     stint_laps?: number;
     last_pit_lap?: number;
     predicted_pit_lap?: number;
+    drs?: boolean;
+    attack_mode?: number;
+    fuel_fraction?: number;
+
+
 }
 export interface LmuElectronics {
     tc: number;
@@ -266,6 +273,7 @@ export interface ChatMessage {
 
 // Types Raw (Supabase/Bridge)
 export interface RawTelemetry {
+    maxRpm: number;
     laps?: number;
     times?: { current?: number };
     speed?: number;
@@ -281,6 +289,7 @@ export interface RawTelemetry {
         press?: number[];
         temp?: Record<string, number[]>;
         brake_temp?: number[];
+        brake_wear?: number[];
         compounds?: { fl: string; fr: string; rl: string; rr: string };
     };
     tire_temps_detailed?: {
@@ -290,6 +299,10 @@ export interface RawTelemetry {
         rr: TireTempDetails;
     };
     virtual_energy?: number;
+    max_virtual_energy?: number;
+    leaderLaps?: number;
+    leaderAvgLapTime?: number;
+    lastLap?: number;
     lmu_electronics?: Partial<LmuElectronics>;
     lmu_wheels_extra? : Partial<LmuWheelExtra>;
 }
@@ -298,10 +311,14 @@ export interface RawScoring {
     time?: { end?: number; current?: number; session?: string };
     flags?: { yellow_global?: number };
     vehicles?: RawVehicle[];
-    vehicle_data?: { in_pits?: boolean; last_lap?: number; best_lap?: number; position?: number; classPosition?: number };
+    vehicle_data?: {
+        laps: number | undefined;
+        class: string | undefined;
+        in_pits?: boolean; last_lap?: number; best_lap?: number; position?: number; classPosition?: number };
     track?: string;
     length?: number;
     weather?: {
+        wind_speed: number;
         wetness_path?: number[];
         track_temp?: number;
     };
