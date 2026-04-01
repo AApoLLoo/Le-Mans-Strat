@@ -394,9 +394,9 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                 </div>
 
                 {/* DATA (Droite) */}
-                <div className="col-span-3 flex flex-col gap-3">
-                    {/* WIDGET CONSO */}
-                    <div className="flex flex-col gap-2 flex-1">
+                <div className="col-span-3 min-h-0 flex flex-col gap-3">
+                    {/* WIDGET CONSO (zone prioritaire toujours visible) */}
+                    <div className="flex flex-col gap-2 shrink-0">
                         <ConsumptionWidget
                             label="FUEL LEVEL" icon={<Fuel size={12} className="text-blue-400"/>} barColor="bg-blue-500"
                             current={Number(fuel?.current) || 0} max={Number(fuel?.max) || 100} lastLap={Number(fuel?.lastLapCons) || 0} avg={Number(fuel?.averageCons) || 0} target={targetFuelCons} unit="L" threshold={0.1} step={0.1} onAdjust={(d) => onSetFuelTarget && onSetFuelTarget(Number(((targetFuelCons || Number(fuel?.averageCons) || 0) + d).toFixed(2)))} onReset={() => onSetFuelTarget && onSetFuelTarget(null)}
@@ -405,67 +405,70 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                             <ConsumptionWidget
                                 label="VIRTUAL ENERGY" icon={<Zap size={12} className="text-cyan-300"/>} barColor="bg-cyan-500"
                                 current={Number(VE?.VEcurrent) || 0} max={100} lastLap={Number(VE?.VElastLapCons) || 0} avg={Number(VE?.VEaverageCons) || 0} target={targetVECons} unit="%" threshold={0.5} step={0.5} onAdjust={(d) => onSetVETarget && onSetVETarget(Number(((targetVECons || Number(VE?.VEaverageCons) || 0) + d).toFixed(2)))} onReset={() => onSetVETarget && onSetVETarget(null)}
-                            />
+                        />
                         )}
                     </div>
 
-                    {/* WIDGET HYBRIDE */}
-                    {isCategoryHypercar && (
-                        <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
-                            <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Zap size={12}/> Hybrid System</span>
-                            <div className="mb-3">
-                                <div className="flex justify-between items-center text-sm mb-1">
-                                    <span className="text-slate-300">SoC</span>
-                                    <span className="font-bold text-emerald-400">{Math.round(Number(batterySoc))}%</span>
-                                </div>
-                                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-emerald-400" style={{width: `${Math.min(100, Math.max(0, Number(batterySoc)))}%`}}></div>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-sm mt-1">
-                                <div><span className="text-slate-500 text-[10px] block">TEMP MOTEUR</span><span className={`font-bold ${Number(electric?.motorTemp) > 100 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{Math.round(Number(electric?.motorTemp || 0))}°C</span></div>
-                                <div className="text-right"><span className="text-slate-500 text-[10px] block">COUPLE</span><span className="font-bold text-cyan-300">{Math.round(Number(electric?.torque || 0))} Nm</span></div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* TEMPÉRATURES MOTEUR */}
-                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
-                        <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Thermometer size={12}/> Engine</span>
-                        <div className="grid grid-cols-2 gap-2 text-center">
-                            <div className="bg-black/30 p-1 rounded"><div className="text-[9px] text-slate-500">OIL</div><div className="font-mono font-bold text-amber-500">{Math.round(Number(oilTemp))}°</div></div>
-                            <div className="bg-black/30 p-1 rounded"><div className="text-[9px] text-slate-500">WATER</div><div className="font-mono font-bold text-blue-400">{Math.round(Number(waterTemp))}°</div></div>
-                        </div>
-                    </div>
-
-                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
-                        <span className="text-xs font-bold text-slate-400 uppercase mb-2 block">Wheel Damage</span>
-                        <div className="grid grid-cols-2 gap-2 text-[10px]">
-                            {(['fl', 'fr', 'rl', 'rr'] as const).map((wheel, idx) => {
-                                const wheelHealth = vehicleHealth?.by_wheel?.[wheel];
-                                const flat = Boolean(wheelHealth?.flat);
-                                const detached = Boolean(wheelHealth?.detached);
-                                const susp = Number(restapiSuspensionDamage?.[idx] ?? 0);
-                                return (
-                                    <div key={wheel} className="bg-black/30 rounded p-2 border border-white/5">
-                                        <div className="flex items-center justify-between">
-                                            <span className="uppercase text-slate-400 font-bold">{wheel}</span>
-                                            <span className={`px-1 rounded font-bold ${detached ? 'text-red-300 bg-red-900/30' : flat ? 'text-amber-300 bg-amber-900/30' : 'text-emerald-300 bg-emerald-900/30'}`}>
-                                                {detached ? 'DET' : flat ? 'FLAT' : 'OK'}
-                                            </span>
-                                        </div>
-                                        <div className="mt-1 text-slate-300">Susp: <span className="font-mono text-cyan-300">{susp.toFixed(2)}</span></div>
+                    {/* Zone scrollable pour éviter la coupe quand le widget Hypercar est présent */}
+                    <div className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-3">
+                        {/* WIDGET HYBRIDE */}
+                        {isCategoryHypercar && (
+                            <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
+                                <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Zap size={12}/> Hybrid System</span>
+                                <div className="mb-3">
+                                    <div className="flex justify-between items-center text-sm mb-1">
+                                        <span className="text-slate-300">SoC</span>
+                                        <span className="font-bold text-emerald-400">{Math.round(Number(batterySoc))}%</span>
                                     </div>
-                                );
-                            })}
-                        </div>
-                        <div className="mt-2 text-[10px] text-slate-500">
-                            Flats: {Number(vehicleHealth?.tire_flat_count || 0)} | Detached: {Number(vehicleHealth?.wheel_detached_count || 0)} | Next pit laps: {Number(strategyPitLaps || 0)}
-                        </div>
-                    </div>
+                                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="h-full bg-emerald-400" style={{width: `${Math.min(100, Math.max(0, Number(batterySoc)))}%`}}></div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-sm mt-1">
+                                    <div><span className="text-slate-500 text-[10px] block">TEMP MOTEUR</span><span className={`font-bold ${Number(electric?.motorTemp) > 100 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{Math.round(Number(electric?.motorTemp || 0))}°C</span></div>
+                                    <div className="text-right"><span className="text-slate-500 text-[10px] block">COUPLE</span><span className="font-bold text-cyan-300">{Math.round(Number(electric?.torque || 0))} Nm</span></div>
+                                </div>
+                            </div>
+                        )}
 
-                    {/* WIDGET MÉTÉO */}
-                    <WeatherWidget forecast={weatherForecast || []} />
+                        {/* TEMPÉRATURES MOTEUR */}
+                        <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
+                            <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-2"><Thermometer size={12}/> Engine</span>
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className="bg-black/30 p-1 rounded"><div className="text-[9px] text-slate-500">OIL</div><div className="font-mono font-bold text-amber-500">{Math.round(Number(oilTemp))}°</div></div>
+                                <div className="bg-black/30 p-1 rounded"><div className="text-[9px] text-slate-500">WATER</div><div className="font-mono font-bold text-blue-400">{Math.round(Number(waterTemp))}°</div></div>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
+                            <span className="text-xs font-bold text-slate-400 uppercase mb-2 block">Wheel Damage</span>
+                            <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                {(['fl', 'fr', 'rl', 'rr'] as const).map((wheel, idx) => {
+                                    const wheelHealth = vehicleHealth?.by_wheel?.[wheel];
+                                    const flat = Boolean(wheelHealth?.flat);
+                                    const detached = Boolean(wheelHealth?.detached);
+                                    const susp = Number(restapiSuspensionDamage?.[idx] ?? 0);
+                                    return (
+                                        <div key={wheel} className="bg-black/30 rounded p-2 border border-white/5">
+                                            <div className="flex items-center justify-between">
+                                                <span className="uppercase text-slate-400 font-bold">{wheel}</span>
+                                                <span className={`px-1 rounded font-bold ${detached ? 'text-red-300 bg-red-900/30' : flat ? 'text-amber-300 bg-amber-900/30' : 'text-emerald-300 bg-emerald-900/30'}`}>
+                                                    {detached ? 'DET' : flat ? 'FLAT' : 'OK'}
+                                                </span>
+                                            </div>
+                                            <div className="mt-1 text-slate-300">Susp: <span className="font-mono text-cyan-300">{susp.toFixed(2)}</span></div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="mt-2 text-[10px] text-slate-500">
+                                Flats: {Number(vehicleHealth?.tire_flat_count || 0)} | Detached: {Number(vehicleHealth?.wheel_detached_count || 0)} | Next pit laps: {Number(strategyPitLaps || 0)}
+                            </div>
+                        </div>
+
+                        {/* WIDGET MÉTÉO */}
+                        <WeatherWidget forecast={weatherForecast || []} />
+                    </div>
                 </div>
             </div>
         </div>
@@ -473,3 +476,4 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
 };
 
 export default TelemetryView;
+
