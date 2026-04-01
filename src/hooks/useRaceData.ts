@@ -208,9 +208,9 @@ const normalizeSetupList = (raw: unknown): SetupSummary[] => {
 
 const compoundLabelFromCode = (code: number): string => {
     switch (code) {
-        case 0: return 'HARD';
+        case 0: return 'SOFT';
         case 1: return 'MEDIUM';
-        case 2: return 'SOFT';
+        case 2: return 'HARD';
         case 3: return 'WET';
         default: return '---';
     }
