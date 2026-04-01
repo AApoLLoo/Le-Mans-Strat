@@ -2,11 +2,305 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type {
     GameState, StrategyData, TelemetryData, LapData, MapPoint,
-    RawTelemetry, RawScoring, RawPit, RawWeather, RawRules, ChatMessage
+    RawTelemetry, RawScoring, RawPit, RawWeather, RawRules, ChatMessage, LmuElectronics, RestApiData, Vec3
 } from '../types';
 import { calculateStrategy } from '../engine/strategyEngine';
+import { normalizeSessionMode } from '../utils/helpers';
 
-import { API_BASE_URL} from '../constants';
+import { API_BASE_URL } from '../constants';
+
+interface SetupSummary {
+    id: string;
+    name: string;
+    car?: string;
+    updatedAt?: string;
+}
+
+const LMU_API_BASE_URL = 'http://localhost:6397';
+const VPS_BRIDGE_SETUPS_LIST = '/api/bridge/setups/list';
+const VPS_BRIDGE_SETUPS_APPLY = '/api/bridge/setups/apply';
+const SETUPS_LIST_ENDPOINTS = [
+    '/rest/garage/setups',
+    '/api/setups',
+    '/api/setup-bridge/setups',
+    '/api/garage/setups',
+    '/setups'
+];
+const SETUPS_LOAD_ENDPOINTS = [
+    '/rest/garage/setups/apply',
+    '/api/setups/load',
+    '/api/setup-bridge/load',
+    '/api/setups/apply',
+    '/rest/garage/setups/load'
+];
+
+type WheelKey = 'fl' | 'fr' | 'rl' | 'rr';
+
+const WHEEL_KEYS: WheelKey[] = ['fl', 'fr', 'rl', 'rr'];
+const DEFAULT_COMPOUNDS = { fl: '---', fr: '---', rl: '---', rr: '---' };
+
+const getWheelAlias = (key: string): WheelKey | null => {
+    const normalized = String(key || '').trim().toLowerCase();
+    if (normalized === 'fl' || normalized === 'front_left') return 'fl';
+    if (normalized === 'fr' || normalized === 'front_right') return 'fr';
+    if (normalized === 'rl' || normalized === 'rear_left') return 'rl';
+    if (normalized === 'rr' || normalized === 'rear_right') return 'rr';
+    return null;
+};
+
+const parseCompoundLabel = (value: unknown): string => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return compoundLabelFromCode(value);
+    }
+
+    if (typeof value !== 'string') return '---';
+
+    const v = value.trim().toUpperCase();
+    if (!v) return '---';
+    if (v === 'M') return 'MEDIUM';
+    if (v === 'S') return 'SOFT';
+    if (v === 'H') return 'HARD';
+    if (v === 'I') return 'INTER';
+    if (v === 'W') return 'WET';
+
+    return v;
+};
+
+const pickFirstObject = (...candidates: unknown[]): Record<string, unknown> | undefined => {
+    return candidates.find((candidate) => !!candidate && typeof candidate === 'object' && !Array.isArray(candidate)) as Record<string, unknown> | undefined;
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+};
+
+const toPathCandidate = (root: any, path: string): unknown => {
+    return path.split('.').reduce((acc: any, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), root);
+};
+
+const pickFromPaths = (root: any, paths: string[]) => {
+    for (const path of paths) {
+        const candidate = toPathCandidate(root, path);
+        if (isPlainObject(candidate) && Object.keys(candidate).length > 0) {
+            return { data: candidate, source: path };
+        }
+    }
+    return { data: undefined, source: undefined as string | undefined };
+};
+
+const DEFAULT_ELECTRONICS: LmuElectronics = {
+    tc: 0,
+    tc_max: 0,
+    tc_slip: 0,
+    tc_slip_max: 0,
+    tc_cut: 0,
+    tc_cut_max: 0,
+    abs: 0,
+    abs_max: 0,
+    brake_migration: 0,
+    ...( { brake_bias: 0, brakeBias: 0 } as Partial<LmuElectronics>),
+    brake_migration_max: 0,
+    motor_map: 0,
+    motor_map_max: 0,
+    anti_sway_front: 0,
+    anti_sway_front_max: 0,
+    anti_sway_rear: 0,
+    anti_sway_rear_max: 0,
+    tc_active: false,
+    abs_active: false,
+    speed_limiter_active: false,
+    wiper_state: 0
+};
+
+const DEFAULT_VEC3: Vec3 = { x: 0, y: 0, z: 0 };
+
+const DEFAULT_RESTAPI: RestApiData = {
+    time_scale: 1,
+    track_clock_time: -1,
+    private_qualifying: 0,
+    steering_wheel_range: 0,
+    current_virtual_energy: 0,
+    max_virtual_energy: 0,
+    expected_fuel_consumption: 0,
+    expected_virtual_energy_consumption: 0,
+    aero_damage: -1,
+    penalty_time: 0,
+    suspension_damage: [0, 0, 0, 0],
+    stint_usage: {},
+    pit_stop_estimate: [0, 0, 0, 0, 0]
+};
+
+const toNumberSafe = (value: unknown, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
+
+const toBoolSafe = (value: unknown, fallback = false) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value > 0;
+    return fallback;
+};
+
+const normalizeElectronics = (incoming: Record<string, unknown> | undefined, prev?: LmuElectronics): LmuElectronics | undefined => {
+    if (!incoming && !prev) return undefined;
+    const base = prev || DEFAULT_ELECTRONICS;
+    const src = incoming || {};
+
+    return {
+        tc: toNumberSafe(src.tc, base.tc),
+        tc_max: toNumberSafe(src.tc_max, base.tc_max),
+        tc_slip: toNumberSafe(src.tc_slip, base.tc_slip),
+        tc_slip_max: toNumberSafe(src.tc_slip_max, base.tc_slip_max),
+        tc_cut: toNumberSafe(src.tc_cut, base.tc_cut),
+        tc_cut_max: toNumberSafe(src.tc_cut_max, base.tc_cut_max),
+        abs: toNumberSafe(src.abs, base.abs),
+        abs_max: toNumberSafe(src.abs_max, base.abs_max),
+        brake_migration: toNumberSafe(src.brake_migration, base.brake_migration),
+        ...( {
+            brake_bias: toNumberSafe(src.brake_bias ?? src.brakeBias, toNumberSafe((base as any).brake_bias, (base as any).brakeBias))
+        } as Partial<LmuElectronics>),
+        brake_migration_max: toNumberSafe(src.brake_migration_max, base.brake_migration_max),
+        motor_map: toNumberSafe(src.motor_map, base.motor_map),
+        motor_map_max: toNumberSafe(src.motor_map_max, base.motor_map_max),
+        anti_sway_front: toNumberSafe(src.anti_sway_front, base.anti_sway_front),
+        anti_sway_front_max: toNumberSafe(src.anti_sway_front_max, base.anti_sway_front_max),
+        anti_sway_rear: toNumberSafe(src.anti_sway_rear, base.anti_sway_rear),
+        anti_sway_rear_max: toNumberSafe(src.anti_sway_rear_max, base.anti_sway_rear_max),
+        tc_active: toBoolSafe(src.tc_active, base.tc_active),
+        abs_active: toBoolSafe(src.abs_active, base.abs_active),
+        speed_limiter_active: toBoolSafe(src.speed_limiter_active, base.speed_limiter_active),
+        wiper_state: toNumberSafe(src.wiper_state, base.wiper_state)
+    };
+};
+
+const readBrakeBias = (...candidates: unknown[]): number | undefined => {
+    for (const candidate of candidates) {
+        const val = Number(candidate);
+        if (Number.isFinite(val) && val > 0) return 100-(val*100);
+    }
+    return undefined;
+};
+
+const normalizeSetupList = (raw: unknown): SetupSummary[] => {
+    const source = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object' && Array.isArray((raw as any).setups) ? (raw as any).setups : []);
+
+    return source
+        .map((entry: any, idx: number) => {
+            if (typeof entry === 'string') {
+                return { id: entry, name: entry } as SetupSummary;
+            }
+
+            if (!entry || typeof entry !== 'object') return null;
+
+            const id = String(entry.id ?? entry.setupId ?? entry.name ?? `setup-${idx}`);
+            const name = String(entry.name ?? entry.label ?? entry.setupName ?? id);
+            return {
+                id,
+                name,
+                car: entry.car ? String(entry.car) : undefined,
+                updatedAt: entry.updatedAt ? String(entry.updatedAt) : undefined
+            } as SetupSummary;
+        })
+        .filter(Boolean) as SetupSummary[];
+};
+
+const compoundLabelFromCode = (code: number): string => {
+    switch (code) {
+        case 0: return 'HARD';
+        case 1: return 'MEDIUM';
+        case 2: return 'SOFT';
+        case 3: return 'WET';
+        default: return '---';
+    }
+};
+
+const getCompoundFromWheelExtra = (wheelExtra: any): string => {
+    if (!wheelExtra || typeof wheelExtra !== 'object') return '---';
+
+    const typeCode = Number(wheelExtra.compound_type ?? wheelExtra.compoundType ?? wheelExtra.compound);
+    if (!Number.isNaN(typeCode) && typeCode > 0) {
+        return compoundLabelFromCode(typeCode);
+    }
+
+    const indexCode = Number(wheelExtra.compound_index ?? wheelExtra.compoundIndex);
+    if (!Number.isNaN(indexCode) && indexCode > 0) {
+        return compoundLabelFromCode(indexCode);
+    }
+
+    return '---';
+};
+
+const normalizeWheelsExtra = (rawExtra: any, prevExtra: any) => {
+    const prevSafe = prevExtra || {};
+
+    if (!rawExtra || typeof rawExtra !== 'object') {
+        return prevSafe;
+    }
+
+    // Some providers send { fl,fr,rl,rr }, others arrays or aliased keys.
+    const next: any = { ...prevSafe };
+    let hasAnyWheel = false;
+
+    if (Array.isArray(rawExtra)) {
+        WHEEL_KEYS.forEach((wheel, idx) => {
+            const incoming = rawExtra[idx];
+            if (incoming && typeof incoming === 'object') {
+                next[wheel] = { ...(prevSafe[wheel] || {}), ...incoming };
+                hasAnyWheel = true;
+            }
+        });
+        return hasAnyWheel ? next : prevSafe;
+    }
+
+    Object.keys(rawExtra).forEach((rawKey) => {
+        const wheel = getWheelAlias(rawKey);
+        if (!wheel) return;
+
+        const incoming = rawExtra[rawKey];
+        if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
+            next[wheel] = { ...(prevSafe[wheel] || {}), ...incoming };
+            hasAnyWheel = true;
+        }
+    });
+
+    return hasAnyWheel ? next : prevSafe;
+};
+
+const normalizeTireCompounds = (rawCompounds: any, prevCompounds: typeof DEFAULT_COMPOUNDS, wheelExtra: any) => {
+    const prevSafe = prevCompounds || DEFAULT_COMPOUNDS;
+    const next = { ...prevSafe };
+
+    if (Array.isArray(rawCompounds)) {
+        WHEEL_KEYS.forEach((wheel, idx) => {
+            const value = parseCompoundLabel(rawCompounds[idx]);
+            if (value !== '---') {
+                next[wheel] = value;
+            }
+        });
+    } else if (rawCompounds && typeof rawCompounds === 'object') {
+        Object.keys(rawCompounds).forEach((rawKey) => {
+            const wheel = getWheelAlias(rawKey);
+            if (!wheel) return;
+
+            const value = parseCompoundLabel(rawCompounds[rawKey]);
+            if (value !== '---') {
+                next[wheel] = value;
+            }
+        });
+    }
+
+    // LMU extra is more reliable wheel-by-wheel, so it overrides generic compounds.
+    WHEEL_KEYS.forEach((wheel) => {
+        const inferred = getCompoundFromWheelExtra(wheelExtra?.[wheel]);
+        if (inferred !== '---') {
+            next[wheel] = inferred;
+        }
+    });
+
+    return next;
+};
 
 export const useRaceData = (teamId: string) => {
     const SESSION_ID = teamId;
@@ -14,6 +308,12 @@ export const useRaceData = (teamId: string) => {
 
     const [manualFuelTarget, setManualFuelTarget] = useState<number | null>(null);
     const [manualVETarget, setManualVETarget] = useState<number | null>(null);
+    const [setups, setSetups] = useState<SetupSummary[]>([]);
+    const [setupsLoading, setSetupsLoading] = useState(false);
+    const [setupsError, setSetupsError] = useState<string | null>(null);
+    const [setupApplyStatus, setSetupApplyStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [applyingSetupId, setApplyingSetupId] = useState<string | null>(null);
+    const [lastTestedEndpoints, setLastTestedEndpoints] = useState<{ list: string; load: string }>({ list: '', load: '' });
 
     // --- ÉTAT INITIAL ---
     const [gameState, setGameState] = useState<GameState>({
@@ -37,6 +337,7 @@ export const useRaceData = (teamId: string) => {
         airTemp: 25,
         trackTemp: 25,
         trackWetness: 0,
+        trackGripLevel: '-',
         rainIntensity: 0,
         fuelCons: 3.65,
         veCons: 2.5,
@@ -72,8 +373,38 @@ export const useRaceData = (teamId: string) => {
                 rl: 0,
                 rr: 0
             },
-            windSpeed: 0
+            windSpeed: 0,
+            brakeBias: 0,
+            turboPressure: 0,
+            engineTorque: 0,
+            steeringShaftTorque: 0,
+            localVelocity: { ...DEFAULT_VEC3 },
+            localAcceleration: { ...DEFAULT_VEC3 },
+            localRotAcceleration: { ...DEFAULT_VEC3 },
+            carState: { speed_limiter: false, headlights: false, ignition: 0, drs: false, attack_mode: 0 },
+            vehicleHealth: {
+                overheating: false,
+                tire_flat_count: 0,
+                wheel_detached_count: 0,
+                dents_max: 0,
+                by_wheel: {
+                    fl: { flat: false, detached: false },
+                    fr: { flat: false, detached: false },
+                    rl: { flat: false, detached: false },
+                    rr: { flat: false, detached: false }
+                }
+            },
+            virtualEnergyMax: 100,
+            restapiExpectedFuelConsumption: 0,
+            restapiExpectedVEConsumption: 0,
+            restapiAeroDamage: -1,
+            restapiSuspensionDamage: [0, 0, 0, 0],
+            restapiPenaltyTime: 0,
+            lmu_extra: {},
+            lmu_extra_wheels: {}
         },
+        restapi: { ...DEFAULT_RESTAPI },
+        extendedPitLimit: 0,
         userGlobalRole: 'DRIVER',
         userTeamRole: 'MEMBER'
     });
@@ -86,12 +417,14 @@ export const useRaceData = (teamId: string) => {
     const isRaceRunningRef = useRef(false);
     const activeDriverIdRef = useRef<number | string>(1);
     const pitCooldownRef = useRef(false);
+    const electronicsDebugCountRef = useRef(0);
 
     const tId = teamId.toLowerCase();
     const isHypercar = tId.includes('hyper');
     const isLMGT3 = tId.includes('gt3');
     const isLMP3 = tId.includes('lmp3');
     const isLMP2ELMS = tId.includes('elms');
+    const sessionMode = normalizeSessionMode(gameState.sessionType);
 
     // --- LOGIQUE DE TRAITEMENT DES DONNÉES ---
     const processGameUpdate = useCallback((prev: GameState, docData: Partial<GameState> & Record<string, unknown>): GameState => {
@@ -100,6 +433,18 @@ export const useRaceData = (teamId: string) => {
         const pit = (docData.pit || {}) as RawPit;
         const weather = (docData.weather_det || {}) as RawWeather;
         const rules = (docData.rules || {}) as RawRules;
+        const restapi = ((docData as any).restapi || {}) as Partial<RestApiData>;
+        const extended = ((docData as any).extended || {}) as { pit_limit?: number };
+
+        const resolveVec3 = (value: unknown, fallback: Vec3): Vec3 => {
+            if (!value || typeof value !== 'object') return fallback;
+            const src = value as Record<string, unknown>;
+            return {
+                x: toNumberSafe(src.x, fallback.x),
+                y: toNumberSafe(src.y, fallback.y),
+                z: toNumberSafe(src.z, fallback.z)
+            };
+        };
 
         let sessionTimeRem = Number(docData.sessionTimeRemainingSeconds);
         if ((sessionTimeRem === undefined || isNaN(sessionTimeRem)) && scoring.time) {
@@ -116,7 +461,7 @@ export const useRaceData = (teamId: string) => {
         }
 
         let isRain = prev.isRain;
-        let weatherStatus = prev.weather;
+        let weatherStatus: string;
         const trackWetnessVal = scoring.weather?.wetness_path?.[1] ?? 0;
 
         if (weather.rain_intensity !== undefined && weather.rain_intensity > 0) {
@@ -130,9 +475,11 @@ export const useRaceData = (teamId: string) => {
         else weatherStatus = "SUNNY";
 
         let myPosition = Number(prev.telemetry.position);
-        const vData = scoring.vehicle_data || {};
-        if (vData?.classPosition && vData?.classPosition > 0) myPosition = vData?.classPosition;
-        else if (vData?.position && vData?.position > 0) myPosition = vData?.position;
+        const vData: RawScoring['vehicle_data'] | undefined = scoring.vehicle_data;
+        const classPos = Number(vData?.classPosition ?? 0);
+        const overallPos = Number(vData?.position ?? 0);
+        if (classPos > 0) myPosition = classPos;
+        else if (overallPos > 0) myPosition = overallPos;
 
         let calculatedAvg = prev.avgLapTimeSeconds;
         if (calculatedAvg === 0 || isNaN(calculatedAvg)) {
@@ -142,6 +489,83 @@ export const useRaceData = (teamId: string) => {
 
         const prevVE = prev.telemetry.VE || { VEcurrent: 100, VElastLapCons: 0, VEaverageCons: 0 };
         const prevFuel = prev.telemetry.fuel || { current: 0, max: 100, lastLapCons: 0, averageCons: 0 };
+        const playerVehicle = Array.isArray(scoring.vehicles) ? scoring.vehicles.find((v: any) => v?.is_player === 1) : undefined;
+
+        const wheelsExtraCandidate = pickFirstObject(
+            tele.lmu_wheels_extra,
+            (tele as any).wheels_extra,
+            (tele as any).lmuWheelsExtra,
+            (tele.tires as any)?.wheels_extra,
+            (docData as any).lmu_wheels_extra,
+            (docData as any).wheels_extra,
+            (playerVehicle as any)?.lmu_wheels_extra,
+            (playerVehicle as any)?.wheels_extra
+        );
+        const normalizedWheelsExtra = normalizeWheelsExtra(wheelsExtraCandidate, prev.telemetry.lmu_wheels_extra);
+
+        const compoundsCandidate =
+            tele.tires?.compounds
+            ?? (tele as any).tire_compounds
+            ?? (tele as any).tireCompounds
+            ?? (docData as any).tireCompounds
+            ?? (playerVehicle as any)?.tires?.compounds
+            ?? (playerVehicle as any)?.tireCompounds;
+        const normalizedCompounds = normalizeTireCompounds(compoundsCandidate, prev.telemetry.tireCompounds || DEFAULT_COMPOUNDS, normalizedWheelsExtra);
+
+        const electronicsPathCandidates = [
+            'telemetry.lmu_electronics',
+            'telemetry.lmuElectronics',
+            'telemetry.electronics',
+            'telemetry.car_state',
+            'lmu_electronics',
+            'electronics',
+            'lmu.electronics',
+            'car_state',
+            'scoring.vehicle_data.lmu_electronics',
+            'scoring.vehicle_data.electronics'
+        ];
+        const electronicsFromDoc = pickFromPaths(docData, electronicsPathCandidates);
+        const electronicsCandidate = pickFirstObject(
+            tele.lmu_electronics,
+            (tele as any).lmuElectronics,
+            (tele as any).electronics,
+            (tele as any).car_state,
+            electronicsFromDoc.data,
+            (playerVehicle as any)?.lmu_electronics,
+            (playerVehicle as any)?.electronics
+        );
+
+        const brakeBiasCandidate = readBrakeBias(
+            (tele as any).brake_bias,
+            (tele as any).brakeBias,
+            (tele as any).car_state?.brake_bias,
+            (tele as any).car_state?.brakeBias,
+            (docData as any).brake_bias,
+            (docData as any).brakeBias,
+            (docData as any).telemetry?.brake_bias,
+            (docData as any).telemetry?.brakeBias,
+            (docData as any).car_state?.brake_bias,
+            (playerVehicle as any)?.brake_bias
+        );
+
+        const mergedElectronicsCandidate =
+            brakeBiasCandidate !== undefined
+                ? { ...(electronicsCandidate || {}), brake_bias: brakeBiasCandidate }
+                : electronicsCandidate;
+
+        if (!electronicsCandidate && electronicsDebugCountRef.current < 8) {
+            electronicsDebugCountRef.current += 1;
+            console.log('[LMU DEBUG] electronics missing', {
+                count: electronicsDebugCountRef.current,
+                telemetryKeys: Object.keys((docData as any).telemetry || {}),
+                scoringVehicleDataKeys: Object.keys((docData as any).scoring?.vehicle_data || {}),
+                playerVehicleKeys: Object.keys(playerVehicle || {}),
+                hasWheelsExtra: Boolean(wheelsExtraCandidate),
+                hasCompounds: Boolean(compoundsCandidate),
+                sourceTried: electronicsPathCandidates,
+                fromDocSource: electronicsFromDoc.source
+            });
+        }
 
         const newTelemetry: TelemetryData = {
             ...prev.telemetry,
@@ -155,6 +579,45 @@ export const useRaceData = (teamId: string) => {
             rpm: tele.rpm !== undefined ? Number(tele.rpm) : prev.telemetry.rpm,
             maxRpm: tele.maxRpm || prev.telemetry.maxRpm || 8000,
             gear: tele.gear !== undefined ? Number(tele.gear) : prev.telemetry.gear,
+            brakeBias: brakeBiasCandidate ?? prev.telemetry.brakeBias,
+            turboPressure: toNumberSafe((tele as any).turbo_pressure, prev.telemetry.turboPressure || 0),
+            engineTorque: toNumberSafe((tele as any).engine_torque, prev.telemetry.engineTorque || 0),
+            steeringShaftTorque: toNumberSafe((tele as any).steering_shaft_torque, prev.telemetry.steeringShaftTorque || 0),
+            localVelocity: resolveVec3((tele as any).local_velocity, prev.telemetry.localVelocity || DEFAULT_VEC3),
+            localAcceleration: resolveVec3((tele as any).local_acceleration, prev.telemetry.localAcceleration || DEFAULT_VEC3),
+            localRotAcceleration: resolveVec3((tele as any).local_rot_acceleration, prev.telemetry.localRotAcceleration || DEFAULT_VEC3),
+            carState: {
+                speed_limiter: toBoolSafe((tele as any).car_state?.speed_limiter, prev.telemetry.carState?.speed_limiter || false),
+                headlights: toBoolSafe((tele as any).car_state?.headlights, prev.telemetry.carState?.headlights || false),
+                ignition: toNumberSafe((tele as any).car_state?.ignition, prev.telemetry.carState?.ignition || 0),
+                drs: toBoolSafe((tele as any).car_state?.drs, prev.telemetry.carState?.drs || false),
+                attack_mode: toNumberSafe((tele as any).car_state?.attack_mode, prev.telemetry.carState?.attack_mode || 0)
+            },
+            vehicleHealth: {
+                overheating: toBoolSafe((tele as any).vehicle_health?.overheating, prev.telemetry.vehicleHealth?.overheating || false),
+                tire_flat_count: toNumberSafe((tele as any).vehicle_health?.tire_flat_count, prev.telemetry.vehicleHealth?.tire_flat_count || 0),
+                wheel_detached_count: toNumberSafe((tele as any).vehicle_health?.wheel_detached_count, prev.telemetry.vehicleHealth?.wheel_detached_count || 0),
+                dents_max: toNumberSafe((tele as any).vehicle_health?.dents_max, prev.telemetry.vehicleHealth?.dents_max || 0),
+                by_wheel: {
+                    fl: {
+                        flat: toBoolSafe((tele as any).vehicle_health?.by_wheel?.fl?.flat, prev.telemetry.vehicleHealth?.by_wheel?.fl?.flat || false),
+                        detached: toBoolSafe((tele as any).vehicle_health?.by_wheel?.fl?.detached, prev.telemetry.vehicleHealth?.by_wheel?.fl?.detached || false)
+                    },
+                    fr: {
+                        flat: toBoolSafe((tele as any).vehicle_health?.by_wheel?.fr?.flat, prev.telemetry.vehicleHealth?.by_wheel?.fr?.flat || false),
+                        detached: toBoolSafe((tele as any).vehicle_health?.by_wheel?.fr?.detached, prev.telemetry.vehicleHealth?.by_wheel?.fr?.detached || false)
+                    },
+                    rl: {
+                        flat: toBoolSafe((tele as any).vehicle_health?.by_wheel?.rl?.flat, prev.telemetry.vehicleHealth?.by_wheel?.rl?.flat || false),
+                        detached: toBoolSafe((tele as any).vehicle_health?.by_wheel?.rl?.detached, prev.telemetry.vehicleHealth?.by_wheel?.rl?.detached || false)
+                    },
+                    rr: {
+                        flat: toBoolSafe((tele as any).vehicle_health?.by_wheel?.rr?.flat, prev.telemetry.vehicleHealth?.by_wheel?.rr?.flat || false),
+                        detached: toBoolSafe((tele as any).vehicle_health?.by_wheel?.rr?.detached, prev.telemetry.vehicleHealth?.by_wheel?.rr?.detached || false)
+                    }
+                }
+            },
+            virtualEnergyMax: toNumberSafe(tele.max_virtual_energy, prev.telemetry.virtualEnergyMax || 100),
             carCategory: scoring.vehicle_data?.class
                 || (Array.isArray(scoring.vehicles) ? scoring.vehicles.find(v => v.is_player === 1)?.class : undefined)
                 || prev.telemetry.carCategory,
@@ -210,7 +673,7 @@ export const useRaceData = (teamId: string) => {
                 rlc: tele.tires?.brake_temp?.[2] ?? prev.telemetry.brakeTemps.rlc,
                 rrc: tele.tires?.brake_temp?.[3] ?? prev.telemetry.brakeTemps.rrc
             },
-            tireCompounds: tele.tires?.compounds || prev.telemetry.tireCompounds,
+            tireCompounds: normalizedCompounds,
             leaderLaps: tele.leaderLaps ?? prev.telemetry.leaderLaps,
             leaderAvgLapTime: tele.leaderAvgLapTime ?? prev.telemetry.leaderAvgLapTime,
             windSpeed: scoring.weather?.wind_speed ?? prev.telemetry.windSpeed,
@@ -221,12 +684,23 @@ export const useRaceData = (teamId: string) => {
                             rr: tele.tires?.brake_wear?.[3] ?? prev.telemetry.brakeWear.rr,
              },
             strategyEstPitTime: Number(pit.strategy?.time_min || prev.telemetry.strategyEstPitTime),
+            strategyPitFuel: toNumberSafe(pit.strategy?.fuel_to_add, prev.telemetry.strategyPitFuel || 0),
+            strategyPitLaps: toNumberSafe(pit.strategy?.laps_to_add, prev.telemetry.strategyPitLaps || 0),
             inPitLane: Boolean(scoring.vehicle_data?.in_pits ?? prev.telemetry.inPitLane),
             inGarage: (rules.my_status?.pits_open === false),
             // V4 hardcodes pit_limit=60.0 → use in_pits proxy
             pitLimiter: Boolean(scoring.vehicle_data?.in_pits ?? prev.telemetry.pitLimiter),
             damageIndex: prev.telemetry.damageIndex,
-            isOverheating: prev.telemetry.isOverheating
+            isOverheating: prev.telemetry.isOverheating,
+            lmu_electronics: normalizeElectronics(mergedElectronicsCandidate, prev.telemetry.lmu_electronics),
+            lmu_wheels_extra: normalizedWheelsExtra,
+            lmu_extra: isPlainObject((tele as any).lmu_extra) ? ((tele as any).lmu_extra as Record<string, unknown>) : (prev.telemetry.lmu_extra || {}),
+            lmu_extra_wheels: isPlainObject((tele as any).lmu_wheels_extra) ? ((tele as any).lmu_wheels_extra as Record<string, unknown>) : (prev.telemetry.lmu_extra_wheels || {}),
+            restapiExpectedFuelConsumption: toNumberSafe(restapi.expected_fuel_consumption, prev.telemetry.restapiExpectedFuelConsumption || 0),
+            restapiExpectedVEConsumption: toNumberSafe(restapi.expected_virtual_energy_consumption, prev.telemetry.restapiExpectedVEConsumption || 0),
+            restapiAeroDamage: toNumberSafe(restapi.aero_damage, prev.telemetry.restapiAeroDamage || -1),
+            restapiSuspensionDamage: Array.isArray(restapi.suspension_damage) ? restapi.suspension_damage.map(v => toNumberSafe(v, 0)) : (prev.telemetry.restapiSuspensionDamage || [0, 0, 0, 0]),
+            restapiPenaltyTime: toNumberSafe(restapi.penalty_time, prev.telemetry.restapiPenaltyTime || 0)
         };
 
         const scActive = Boolean(rules.sc?.active);
@@ -250,9 +724,9 @@ export const useRaceData = (teamId: string) => {
 
             // Array/object merges with fallback
             weatherForecast: (docData.weatherForecast as any[]) || prev.weatherForecast || [],
-            allVehicles: (scoring.vehicles as import('../types').RawVehicle[]) || prev.allVehicles || [],
+            allVehicles: (scoring.vehicles as import('../types/index').RawVehicle[]) || prev.allVehicles || [],
             lapHistory: (docData.lapHistory as LapData[]) || prev.lapHistory || [],
-            stintConfig: (docData.stintConfig as Record<string, import('../types').StintConfig>) || prev.stintConfig || {},
+            stintConfig: (docData.stintConfig as Record<string, import('../types/index').StintConfig>) || prev.stintConfig || {},
             stintNotes: (docData.stintNotes as Record<string, string>) || prev.stintNotes || {},
             trackMap: (docData.trackMap as MapPoint[]) || prev.trackMap || [],
             chatMessages: (docData.chatMessages as ChatMessage[]) || prev.chatMessages || [],
@@ -270,10 +744,27 @@ export const useRaceData = (teamId: string) => {
             airTemp: safeAirTemp,
             trackTemp: (scoring.weather?.track_temp ?? prev.trackTemp),
             trackWetness: trackWetnessVal * 100,
+            trackGripLevel: (scoring.weather?.track_grip_level ?? prev.trackGripLevel),
             rainIntensity: (weather.rain_intensity ?? prev.rainIntensity),
             telemetry: newTelemetry,
             avgLapTimeSeconds: calculatedAvg,
-            position: myPosition
+            position: myPosition,
+            restapi: {
+                time_scale: toNumberSafe(restapi.time_scale, prev.restapi?.time_scale ?? DEFAULT_RESTAPI.time_scale),
+                track_clock_time: toNumberSafe(restapi.track_clock_time, prev.restapi?.track_clock_time ?? DEFAULT_RESTAPI.track_clock_time),
+                private_qualifying: toNumberSafe(restapi.private_qualifying, prev.restapi?.private_qualifying ?? DEFAULT_RESTAPI.private_qualifying),
+                steering_wheel_range: toNumberSafe(restapi.steering_wheel_range, prev.restapi?.steering_wheel_range ?? DEFAULT_RESTAPI.steering_wheel_range),
+                current_virtual_energy: toNumberSafe(restapi.current_virtual_energy, prev.restapi?.current_virtual_energy ?? DEFAULT_RESTAPI.current_virtual_energy),
+                max_virtual_energy: toNumberSafe(restapi.max_virtual_energy, prev.restapi?.max_virtual_energy ?? DEFAULT_RESTAPI.max_virtual_energy),
+                expected_fuel_consumption: toNumberSafe(restapi.expected_fuel_consumption, prev.restapi?.expected_fuel_consumption ?? DEFAULT_RESTAPI.expected_fuel_consumption),
+                expected_virtual_energy_consumption: toNumberSafe(restapi.expected_virtual_energy_consumption, prev.restapi?.expected_virtual_energy_consumption ?? DEFAULT_RESTAPI.expected_virtual_energy_consumption),
+                aero_damage: toNumberSafe(restapi.aero_damage, prev.restapi?.aero_damage ?? DEFAULT_RESTAPI.aero_damage),
+                penalty_time: toNumberSafe(restapi.penalty_time, prev.restapi?.penalty_time ?? DEFAULT_RESTAPI.penalty_time),
+                suspension_damage: Array.isArray(restapi.suspension_damage) ? restapi.suspension_damage.map(v => toNumberSafe(v, 0)) : (prev.restapi?.suspension_damage ?? DEFAULT_RESTAPI.suspension_damage),
+                stint_usage: isPlainObject(restapi.stint_usage) ? restapi.stint_usage : (prev.restapi?.stint_usage ?? DEFAULT_RESTAPI.stint_usage),
+                pit_stop_estimate: Array.isArray(restapi.pit_stop_estimate) ? restapi.pit_stop_estimate : (prev.restapi?.pit_stop_estimate ?? DEFAULT_RESTAPI.pit_stop_estimate)
+            },
+            extendedPitLimit: toNumberSafe(extended.pit_limit, prev.extendedPitLimit)
         };
     }, []);
 
@@ -353,8 +844,26 @@ export const useRaceData = (teamId: string) => {
             raceDurationHours: gameState.raceDurationHours, trackName: gameState.trackName,
             _ts: Date.now()
         };
-        try { localStorage.setItem(cacheKey, JSON.stringify(toCache)); } catch {}
-    }, [gameState.currentStint, gameState.drivers, gameState.stintConfig, gameState.stintAssignments, cacheKey]);
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify(toCache));
+        } catch {
+            // Ignore storage quota/private mode errors.
+        }
+    }, [
+        gameState.currentStint,
+        gameState.activeDriverId,
+        gameState.drivers,
+        gameState.stintConfig,
+        gameState.stintAssignments,
+        gameState.stintNotes,
+        gameState.fuelCons,
+        gameState.veCons,
+        gameState.tankCapacity,
+        gameState.raceDurationHours,
+        gameState.trackName,
+        gameState.isRaceRunning,
+        cacheKey
+    ]);
 
     // Restore from cache on mount (before first socket data)
     useEffect(() => {
@@ -377,8 +886,18 @@ export const useRaceData = (teamId: string) => {
                     ...(data.tankCapacity && { tankCapacity: data.tankCapacity }),
                 }));
             }
-        } catch {}
+        } catch {
+            // Ignore invalid cache payloads.
+        }
     }, [cacheKey]);
+
+    // --- SYNC ---
+    const syncUpdate = useCallback((changes: Partial<GameState>) => {
+        setGameState(prev => ({ ...prev, ...changes }));
+        if (socketRef.current && socketRef.current.connected) {
+            socketRef.current.emit('update_strategy', { teamId: SESSION_ID, changes });
+        }
+    }, [SESSION_ID]);
 
     // --- MAP AUTO-LOAD ---
     useEffect(() => {
@@ -389,23 +908,21 @@ export const useRaceData = (teamId: string) => {
         if (uniqueMapId && uniqueMapId !== "WAITING..." && uniqueMapId !== "Unknown" && currentTrackLoadedRef.current !== uniqueMapId) {
             fetch(`${API_BASE_URL}/api/tracks/${encodeURIComponent(uniqueMapId)}`)
                 .then(res => res.ok ? res.json() : [])
-                .then(points => { if(points.length > 0) syncUpdate({ trackMap: points }); })
-                .catch(() => {});
+                .then(points => { if (points.length > 0) syncUpdate({ trackMap: points }); })
+                .catch(() => {
+                    // Ignore track auto-load failures; live data still works.
+                });
             currentTrackLoadedRef.current = uniqueMapId;
         }
-    }, [gameState.trackName, gameState.trackLength]);
+    }, [gameState.trackName, gameState.trackLength, syncUpdate]);
 
     // --- PERMISSIONS ---
     const canEditStrategy = true;
-    const canManageLineup = gameState.userTeamRole === 'LEADER' || gameState.userGlobalRole === 'ADMIN';
-
-    // --- SYNC ---
-    const syncUpdate = useCallback((changes: Partial<GameState>) => {
-        setGameState(prev => ({ ...prev, ...changes }));
-        if (socketRef.current && socketRef.current.connected) {
-            socketRef.current.emit('update_strategy', { teamId: SESSION_ID, changes });
-        }
-    }, [SESSION_ID]);
+    const canManageLineup =
+        gameState.userGlobalRole === 'ADMIN'
+        || gameState.userTeamRole === 'LEADER'
+        || gameState.userTeamRole === 'MEMBER';
+    const canAccessAdmin = gameState.userGlobalRole === 'ADMIN' || gameState.userTeamRole === 'LEADER';
 
     const saveTrackMap = useCallback((points: MapPoint[]) => {
         syncUpdate({ trackMap: points });
@@ -415,7 +932,137 @@ export const useRaceData = (teamId: string) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ trackName: uniqueMapId, points })
         }).catch(console.error);
-    }, [SESSION_ID, gameState.trackName, gameState.trackLength]);
+    }, [gameState.trackName, gameState.trackLength, syncUpdate]);
+
+    const fetchSetups = useCallback(async () => {
+        setSetupsLoading(true);
+        setSetupsError(null);
+        try {
+            let response: Response | null = null;
+            let successUrl = '';
+
+            // Try VPS proxy first (CORS-safe)
+            console.log(`[Setup] Trying VPS proxy GET ${API_BASE_URL}${VPS_BRIDGE_SETUPS_LIST}`);
+            try {
+                const proxyUrl = `${API_BASE_URL}${VPS_BRIDGE_SETUPS_LIST}`;
+                const proxyResp = await fetch(proxyUrl);
+                if (proxyResp.ok) {
+                    const payload = await proxyResp.json();
+                    setSetups(normalizeSetupList(payload));
+                    setLastTestedEndpoints(prev => ({ ...prev, list: `VPS:${VPS_BRIDGE_SETUPS_LIST}` }));
+                    setSetupsLoading(false);
+                    return;
+                }
+            } catch {
+                console.log(`[Setup] VPS proxy failed, trying local endpoints...`);
+            }
+
+            for (const endpoint of SETUPS_LIST_ENDPOINTS) {
+                const url = `${LMU_API_BASE_URL}${endpoint}`;
+                console.log(`[Setup] Trying GET ${url}`);
+                try {
+                    response = await fetch(url);
+                    if (response.ok) {
+                        successUrl = endpoint;
+                        break;
+                    }
+                } catch {
+                    // Continue to next endpoint
+                }
+            }
+
+            if (!response || !response.ok) {
+                setSetupsError(`Tried endpoints: ${SETUPS_LIST_ENDPOINTS.join(', ')} -> all returned 404 or failed`);
+                setSetups([]);
+                return;
+            }
+
+            const payload = await response.json();
+            setSetups(normalizeSetupList(payload));
+            setLastTestedEndpoints(prev => ({ ...prev, list: successUrl }));
+        } catch (error) {
+            setSetupsError(error instanceof Error ? error.message : 'Unable to fetch setups');
+            setSetups([]);
+        } finally {
+            setSetupsLoading(false);
+        }
+    }, []);
+
+    const applySetup = useCallback(async (setupId: string) => {
+        if (!setupId) return;
+
+        setApplyingSetupId(setupId);
+        setSetupApplyStatus(null);
+        try {
+            let response: Response | null = null;
+            let successUrl = '';
+
+            // Try VPS proxy first (CORS-safe)
+            console.log(`[Setup] Trying VPS proxy POST ${API_BASE_URL}${VPS_BRIDGE_SETUPS_APPLY} with setupId=${setupId}`);
+            try {
+                const proxyUrl = `${API_BASE_URL}${VPS_BRIDGE_SETUPS_APPLY}`;
+                const proxyResp = await fetch(proxyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ setupId })
+                });
+
+                if (proxyResp.ok || proxyResp.status === 200 || proxyResp.status === 201) {
+                    const payload = await proxyResp.json().catch(() => ({}));
+                    if (payload?.ok !== false) {
+                        setLastTestedEndpoints(prev => ({ ...prev, load: `VPS:${VPS_BRIDGE_SETUPS_APPLY}` }));
+                        setSetupApplyStatus({ type: 'success', message: payload?.message || `Setup '${setupId}' loaded` });
+                        setApplyingSetupId(null);
+                        return;
+                    }
+                }
+            } catch {
+                console.log(`[Setup] VPS proxy failed, trying local endpoints...`);
+            }
+
+            for (const endpoint of SETUPS_LOAD_ENDPOINTS) {
+                const url = `${LMU_API_BASE_URL}${endpoint}`;
+                console.log(`[Setup] Trying POST ${url} with setupId=${setupId}`);
+                try {
+                    response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ setupId })
+                    });
+                    if (response.ok || response.status === 200 || response.status === 201) {
+                        successUrl = endpoint;
+                        break;
+                    }
+                } catch {
+                    // Continue to next endpoint
+                }
+            }
+
+            if (!response) {
+                setSetupApplyStatus({ type: 'error', message: 'All POST endpoints failed for setup load' });
+                return;
+            }
+
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || payload?.ok === false) {
+                setSetupApplyStatus({
+                    type: 'error',
+                    message: payload?.message || `Endpoint ${successUrl} returned HTTP ${response.status}`
+                });
+                return;
+            }
+
+            setLastTestedEndpoints(prev => ({ ...prev, load: successUrl }));
+            setSetupApplyStatus({ type: 'success', message: payload?.message || `Setup '${setupId}' loaded` });
+        } catch (error) {
+            setSetupApplyStatus({
+                type: 'error',
+                message: error instanceof Error ? error.message : `Failed to load setup '${setupId}'`
+            });
+        } finally {
+            setApplyingSetupId(null);
+        }
+    }, []);
 
     // --- TIMERS ---
     useEffect(() => { isRaceRunningRef.current = gameState.isRaceRunning; }, [gameState.isRaceRunning]);
@@ -453,6 +1100,7 @@ export const useRaceData = (teamId: string) => {
             strategyEstPitTime: gameState.telemetry.strategyEstPitTime,
             telemetryPosition: gameState.telemetry.position,
             currentStint: gameState.currentStint,
+            sessionMode,
             raceTimeRemaining: localRaceTime,
             avgLapTimeSeconds: gameState.avgLapTimeSeconds,
             leaderLaps: gameState.telemetry.leaderLaps || 0,
@@ -478,7 +1126,7 @@ export const useRaceData = (teamId: string) => {
         gameState.currentStint, gameState.stintConfig, gameState.stintAssignments, gameState.stintNotes,
         gameState.drivers, gameState.activeDriverId, gameState.avgLapTimeSeconds,
         gameState.fuelCons, gameState.veCons, gameState.tankCapacity, gameState.allVehicles,
-        localRaceTime, isHypercar, isLMGT3, manualFuelTarget, manualVETarget
+        localRaceTime, isHypercar, isLMGT3, manualFuelTarget, manualVETarget, sessionMode
     ]);
 
     const confirmPitStop = () => {
@@ -486,12 +1134,21 @@ export const useRaceData = (teamId: string) => {
         pitCooldownRef.current = true;
         setTimeout(() => { pitCooldownRef.current = false; }, 2000);
 
-        const nextStint = (gameState.currentStint || 0) + 1;
-        let nextDriverId = gameState.stintAssignments[nextStint];
-        if (!nextDriverId && gameState.drivers.length > 0) {
+        const resolvePlannedDriverId = (stintIdx: number): number | string | undefined => {
+            const configured = gameState.stintConfig?.[stintIdx]?.driverId;
+            if (configured !== undefined && configured !== null && configured !== '') return configured;
+
+            const legacy = gameState.stintAssignments?.[stintIdx as unknown as keyof typeof gameState.stintAssignments];
+            if (legacy !== undefined && legacy !== null && legacy !== '') return legacy;
+
+            if (!gameState.drivers.length) return undefined;
             const currentIdx = gameState.drivers.findIndex(d => d.id === gameState.activeDriverId);
-            nextDriverId = gameState.drivers[(currentIdx + 1) % gameState.drivers.length].id;
-        }
+            if (currentIdx < 0) return gameState.drivers[0]?.id;
+            return gameState.drivers[(currentIdx + 1) % gameState.drivers.length]?.id;
+        };
+
+        const nextStint = (gameState.currentStint || 0) + 1;
+        const nextDriverId = resolvePlannedDriverId(nextStint);
         syncUpdate({ currentStint: nextStint, activeDriverId: nextDriverId, stintDuration: 0 });
         setLocalStintTime(0);
     };
@@ -499,7 +1156,9 @@ export const useRaceData = (teamId: string) => {
     const undoPitStop = () => {
         if(gameState.currentStint > 0) {
             const prevStint = gameState.currentStint - 1;
-            const prevDriverId = gameState.stintAssignments[prevStint] || (gameState.drivers[0]?.id);
+            const prevDriverId = gameState.stintConfig?.[prevStint]?.driverId
+                || gameState.stintAssignments?.[prevStint as unknown as keyof typeof gameState.stintAssignments]
+                || gameState.drivers[0]?.id;
             syncUpdate({ currentStint: prevStint, activeDriverId: prevDriverId });
         }
     };
@@ -521,13 +1180,23 @@ export const useRaceData = (teamId: string) => {
         const newConfig = { ...gameState.stintConfig };
         if (!newConfig[idx]) newConfig[idx] = {};
         newConfig[idx] = { ...newConfig[idx], [k]: v };
+
+        syncUpdate({ stintConfig: newConfig });
+    };
+
+    const updateStintConfigBulk = (idx: number, patch: Record<string, unknown>) => {
+        const newConfig = { ...gameState.stintConfig };
+        if (!newConfig[idx]) newConfig[idx] = {};
+        newConfig[idx] = { ...newConfig[idx], ...patch };
         syncUpdate({ stintConfig: newConfig });
     };
 
     return {
         gameState, syncUpdate, status, localRaceTime, localStintTime, strategyData,
         confirmPitStop, undoPitStop, resetRace, CHAT_ID, isHypercar, isLMGT3, isLMP3, isLMP2ELMS,
-        setManualFuelTarget, setManualVETarget, updateStintConfig, saveTrackMap,
+        sessionMode,
+        setManualFuelTarget, setManualVETarget, updateStintConfig, updateStintConfigBulk, saveTrackMap,
+        setups, setupsLoading, setupsError, setupApplyStatus, applyingSetupId, fetchSetups, applySetup, lastTestedEndpoints,
         sendMessage: (msg: ChatMessage) => {
             setGameState(prev => {
                 const msgs = [...prev.chatMessages, msg];
@@ -537,6 +1206,8 @@ export const useRaceData = (teamId: string) => {
         },
         canEditStrategy,
         canManageLineup,
+        canAccessAdmin,
         userRole: gameState.userTeamRole
     };
 };
+

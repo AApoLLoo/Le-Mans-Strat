@@ -7,6 +7,8 @@ export interface Driver {
     totalDriveTime?: number;
 }
 
+export type SessionMode = 'RACE' | 'QUALIFY' | 'PRACTICE' | 'UNKNOWN';
+
 export interface FuelData {
     current: number;
     max: number;
@@ -27,6 +29,49 @@ export interface ElectricData {
     motorTemp: number;   // <--- CORRIGÉ (était temp_motor)
     waterTemp: number;   // <--- CORRIGÉ (était temp_water)
     state: number;
+}
+
+export interface Vec3 {
+    x: number;
+    y: number;
+    z: number;
+}
+
+export interface CarStateData {
+    speed_limiter: boolean;
+    headlights: boolean;
+    ignition: number;
+    drs: boolean;
+    attack_mode: number;
+}
+
+export interface VehicleHealthData {
+    overheating: boolean;
+    tire_flat_count: number;
+    wheel_detached_count: number;
+    dents_max: number;
+    by_wheel?: {
+        fl?: { flat?: boolean; detached?: boolean };
+        fr?: { flat?: boolean; detached?: boolean };
+        rl?: { flat?: boolean; detached?: boolean };
+        rr?: { flat?: boolean; detached?: boolean };
+    };
+}
+
+export interface RestApiData {
+    time_scale: number;
+    track_clock_time: number;
+    private_qualifying: number;
+    steering_wheel_range: number;
+    current_virtual_energy: number;
+    max_virtual_energy: number;
+    expected_fuel_consumption: number;
+    expected_virtual_energy_consumption: number;
+    aero_damage: number;
+    penalty_time: number;
+    suspension_damage: number[];
+    stint_usage: Record<string, unknown>;
+    pit_stop_estimate: Array<number | string>;
 }
 
 export interface WeatherNode {
@@ -75,6 +120,23 @@ export interface TelemetryData {
     isOverheating: boolean;
     lmu_electronics?: LmuElectronics;
     lmu_wheels_extra?: LmuWheelsExtraData;
+    brakeBias?: number;
+    turboPressure?: number;
+    engineTorque?: number;
+    steeringShaftTorque?: number;
+    localVelocity?: Vec3;
+    localAcceleration?: Vec3;
+    localRotAcceleration?: Vec3;
+    carState?: CarStateData;
+    vehicleHealth?: VehicleHealthData;
+    virtualEnergyMax?: number;
+    restapiExpectedFuelConsumption?: number;
+    restapiExpectedVEConsumption?: number;
+    restapiAeroDamage?: number;
+    restapiSuspensionDamage?: number[];
+    restapiPenaltyTime?: number;
+    lmu_extra?: Record<string, unknown>;
+    lmu_extra_wheels?: Record<string, unknown>;
 }
 
 export interface TireTempDetails {
@@ -103,6 +165,7 @@ export interface Stint {
     tyres?: string;
     driver: Driver;
     driverId: number | string;
+    driverSource?: 'config' | 'legacy' | 'auto';
     isCurrent: boolean;
     isNext: boolean;
     isDone: boolean;
@@ -172,6 +235,7 @@ export interface LmuElectronics {
     abs: number;
     abs_max: number;
     brake_migration: number;
+    brake_bias: number;
     brake_migration_max: number;
     motor_map: number;
     motor_map_max: number;
@@ -231,6 +295,7 @@ export interface GameState {
     airTemp: number;
     trackTemp: number;
     trackWetness: number;
+    trackGripLevel: number | string;
     rainIntensity: number;
     fuelCons: number;
     veCons: number;
@@ -242,10 +307,13 @@ export interface GameState {
     incidents: Incident[];
     chatMessages: ChatMessage[];
     stintNotes: Record<string, string | number>;
+    // Legacy fallback only. Driver planning now lives in stintConfig[stintIdx].driverId.
     stintAssignments: Record<string, number | string>;
     position: number;
     telemetry: TelemetryData;
     lastDriverSwapTime?: number;
+    restapi: RestApiData;
+    extendedPitLimit: number;
 }
 
 export interface MapPoint {
@@ -271,6 +339,23 @@ export interface ChatMessage {
     time: string;
 }
 
+export interface SetupSummary {
+    id: string;
+    name: string;
+    car?: string;
+    updatedAt?: string;
+}
+
+export interface SetupApplyRequest {
+    teamId: string;
+    setupId: string;
+}
+
+export interface SetupApplyResult {
+    ok: boolean;
+    message?: string;
+}
+
 // Types Raw (Supabase/Bridge)
 export interface RawTelemetry {
     maxRpm: number;
@@ -290,7 +375,7 @@ export interface RawTelemetry {
         temp?: Record<string, number[]>;
         brake_temp?: number[];
         brake_wear?: number[];
-        compounds?: { fl: string; fr: string; rl: string; rr: string };
+        compounds?: { fl?: string; fr?: string; rl?: string; rr?: string } | string[];
     };
     tire_temps_detailed?: {
         fl: TireTempDetails;
@@ -304,7 +389,17 @@ export interface RawTelemetry {
     leaderAvgLapTime?: number;
     lastLap?: number;
     lmu_electronics?: Partial<LmuElectronics>;
-    lmu_wheels_extra? : Partial<LmuWheelExtra>;
+    lmu_wheels_extra? : Partial<LmuWheelsExtraData>;
+    brake_bias?: number;
+    turbo_pressure?: number;
+    engine_torque?: number;
+    steering_shaft_torque?: number;
+    local_velocity?: Partial<Vec3>;
+    local_acceleration?: Partial<Vec3>;
+    local_rot_acceleration?: Partial<Vec3>;
+    car_state?: Partial<CarStateData>;
+    vehicle_health?: Partial<VehicleHealthData>;
+    lmu_extra?: Record<string, unknown>;
 }
 
 export interface RawScoring {
@@ -321,6 +416,7 @@ export interface RawScoring {
         wind_speed: number;
         wetness_path?: number[];
         track_temp?: number;
+        track_grip_level?: number | string;
     };
 }
 
@@ -353,6 +449,7 @@ export interface RawDoc extends Partial<Omit<GameState, 'telemetry'>> {
     weatherForecast?: WeatherNode[];
     lapHistory?: LapData[];
     stintConfig?: Record<string, StintConfig>;
+    restapi?: Partial<RestApiData>;
 }
 
 export interface StrategyRow extends RawDoc {

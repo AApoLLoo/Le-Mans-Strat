@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, X, Trash2, Car, RefreshCw, Palette, Save, LogOut, User as UserIcon, Lock, Gauge, Timer, MessageSquare, Map, BarChart3, Fuel, ChevronDown, Radio } from 'lucide-react';
+import { Plus, Users, Trash2, Car, RefreshCw, Palette, Save, LogOut, User as UserIcon, Lock, Gauge, Timer, MessageSquare, Map, BarChart3, Fuel, ChevronDown, Radio } from 'lucide-react';
 import type { Driver } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { AuthModal } from './AuthModal';
+import Button from './ui/Button';
+import Badge from './ui/Badge';
+import ModalShell, { MODAL_FIELD_CLASS } from './ui/ModalShell';
 
 // --- IMPORTS IMAGES ---
 import imgHypercar from '../assets/Hypercar.jpg';
@@ -14,6 +17,8 @@ import imgGt3 from '../assets/LMGT3-MERC.jpg';
 
 import { API_BASE_URL } from '../constants';
 const VPS_API_URL = API_BASE_URL;
+
+/* eslint-disable no-unused-vars, @typescript-eslint/no-unused-vars */
 
 const CATEGORIES = ["Hypercar", "LMP2", "LMP2 (ELMS)", "LMP3", "GT3"];
 
@@ -68,26 +73,32 @@ const landingStyles = `
 const JoinPasswordModal = ({ onClose, onConfirm }: { onClose: () => void, onConfirm: (pwd: string) => void }) => {
     const [pwd, setPwd] = useState("");
     return (
-        <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-[#0f172a] p-6 rounded-xl border border-indigo-500/50 w-full max-w-sm shadow-2xl">
-                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <Lock size={18} className="text-indigo-400"/> Private Lineup
-                </h3>
-                <p className="text-slate-400 text-xs mb-4">Please enter the lineup password to join.</p>
-                <input
-                    type="password"
-                    autoFocus
-                    value={pwd}
-                    onChange={(e) => setPwd(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:border-indigo-500 outline-none mb-4"
-                    placeholder="Lineup Password"
-                />
+        <ModalShell
+            title={<span className="flex items-center gap-2"><Lock size={18} className="text-indigo-400"/> Private Lineup</span>}
+            subtitle="Please enter the lineup password to join."
+            onClose={onClose}
+            ariaLabel="Join private lineup"
+            closeLabel="Close join private lineup"
+            size="sm"
+            tone="brand"
+            layer="top"
+            footer={
                 <div className="flex gap-3">
-                    <button onClick={onClose} className="flex-1 py-2 text-slate-400 hover:text-white text-sm font-bold">Cancel</button>
-                    <button onClick={() => onConfirm(pwd)} className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold">JOIN</button>
+                    <Button onClick={onClose} variant="ghost" block>Cancel</Button>
+                    <Button onClick={() => onConfirm(pwd)} variant="primary" block>JOIN</Button>
                 </div>
-            </div>
-        </div>
+            }
+        >
+            <input
+                type="password"
+                autoFocus
+                aria-label="Lineup password"
+                value={pwd}
+                onChange={(e) => setPwd(e.target.value)}
+                className={MODAL_FIELD_CLASS}
+                placeholder="Lineup Password"
+            />
+        </ModalShell>
     );
 };
 
@@ -112,16 +123,25 @@ const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate:
     };
 
     return (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-[#0f172a] w-full max-w-md rounded-xl border border-indigo-500/30 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                <div className="bg-indigo-600/10 p-4 border-b border-indigo-500/20 flex justify-between items-center">
-                    <h2 className="text-xl font-black italic text-white tracking-wider">NEW LINE UP</h2>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors"><X size={20}/></button>
+        <ModalShell
+            title="NEW LINE UP"
+            onClose={onClose}
+            ariaLabel="Create new lineup"
+            closeLabel="Close create lineup"
+            size="md"
+            tone="brand"
+            layer="modal"
+            footer={
+                <div className="flex gap-3">
+                    <Button onClick={onClose} variant="ghost" block>CANCEL</Button>
+                    <Button onClick={handleSubmit} variant="primary" block>CREATE LINE UP</Button>
                 </div>
-                <div className="p-6 space-y-6">
+            }
+        >
+                <div className="space-y-6">
                     <div className="space-y-2">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Line Up Name</label>
-                        <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="ex: Alpine #35" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:border-indigo-500 outline-none" autoFocus />
+                        <input aria-label="Lineup name" type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="ex: Alpine #35" className={`${MODAL_FIELD_CLASS} font-bold`} autoFocus />
                     </div>
                     <div className="space-y-2">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Car size={12}/> Car Category</label>
@@ -134,13 +154,13 @@ const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate:
                     <div className="space-y-3">
                         <div className="flex justify-between items-end">
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Drivers List</label>
-                            <button onClick={handleAddDriver} className="text-[10px] text-indigo-400 font-bold flex items-center gap-1"><Plus size={12}/> ADD DRIVER</button>
+                            <Button onClick={handleAddDriver} variant="ghost" size="sm" className="text-indigo-300 flex items-center gap-1"><Plus size={12}/> ADD DRIVER</Button>
                         </div>
                         <div className="space-y-2 max-h-[150px] overflow-y-auto custom-scrollbar pr-1">
                             {drivers.map((driver, idx) => (
                                 <div key={driver.id} className="flex gap-2">
                                     <div className="flex items-center justify-center w-8 bg-slate-800 rounded text-xs font-mono text-slate-500 border border-slate-700">{idx + 1}</div>
-                                    <input type="text" value={driver.name} onChange={(e) => handleUpdateDriver(driver.id, e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-indigo-500 outline-none" />
+                                    <input aria-label={`Driver ${idx + 1} name`} type="text" value={driver.name} onChange={(e) => handleUpdateDriver(driver.id, e.target.value)} className={`${MODAL_FIELD_CLASS} flex-1 p-2 text-sm`} />
                                     {drivers.length > 1 && <button onClick={() => handleRemoveDriver(driver.id)} className="p-2 text-slate-600 hover:text-red-500"><Trash2 size={16}/></button>}
                                 </div>
                             ))}
@@ -153,19 +173,15 @@ const CreateTeamModal = ({ onClose, onCreate }: { onClose: () => void, onCreate:
                         </label>
                         <input
                             type="password"
+                            aria-label="Optional lineup password"
                             value={lineupPassword}
                             onChange={(e) => setLineupPassword(e.target.value)}
                             placeholder="Leave empty for public access"
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:border-indigo-500 outline-none text-sm placeholder-slate-600"
+                            className={`${MODAL_FIELD_CLASS} font-bold text-sm placeholder-slate-600`}
                         />
                     </div>
                 </div>
-                <div className="p-4 bg-slate-900/50 border-t border-white/5 flex gap-3">
-                    <button onClick={onClose} className="flex-1 py-3 rounded-lg font-bold text-slate-400 hover:bg-white/5 text-sm">CANCEL</button>
-                    <button onClick={handleSubmit} className="flex-[2] py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg text-sm">CREATE LINE UP</button>
-                </div>
-            </div>
-        </div>
+        </ModalShell>
     );
 };
 
@@ -202,21 +218,33 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
     };
 
     return (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-[#0f172a] w-full max-w-md rounded-xl border border-white/10 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                <div className="bg-slate-800/50 p-4 border-b border-white/5 flex justify-between items-center">
-                    <div>
-                        <h2 className="text-lg font-black italic text-white tracking-wider">EDIT LINE UP</h2>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">{team.id.toUpperCase()}</p>
-                    </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors"><X size={20}/></button>
+        <ModalShell
+            title="EDIT LINE UP"
+            subtitle={team.id.toUpperCase()}
+            onClose={onClose}
+            ariaLabel="Edit lineup"
+            closeLabel="Close edit lineup"
+            size="md"
+            tone="default"
+            layer="modal"
+            footer={
+                <div className="flex gap-3">
+                    <Button onClick={onClose} variant="ghost" block>CANCEL</Button>
+                    <Button onClick={handleSave} variant="primary" block className="flex items-center justify-center gap-2">
+                        <Save size={16}/> SAVE CHANGES
+                    </Button>
                 </div>
-
-                <div className="p-6 space-y-4">
+            }
+        >
+                <div className="space-y-4">
+                    <Badge variant="info">Driver & Category Manager</Badge>
                     <div className="space-y-2">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                             <Car size={12}/> Car Category
                         </label>
+                        <div className="text-[10px] text-amber-300/90 border border-amber-500/30 bg-amber-900/20 rounded px-2 py-1">
+                            La modification de classe depend des droits de votre compte sur le serveur.
+                        </div>
                         <div className="grid grid-cols-3 gap-2">
                             {CATEGORIES.map((cat) => (
                                 <button
@@ -238,9 +266,7 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
 
                     <div className="flex justify-between items-end">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Drivers List</label>
-                        <button onClick={handleAddDriver} className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1 transition-colors">
-                            <Plus size={12}/> ADD DRIVER
-                        </button>
+                        <Button onClick={handleAddDriver} variant="ghost" size="sm" className="text-indigo-300 flex items-center gap-1"><Plus size={12}/> ADD DRIVER</Button>
                     </div>
 
                     <div className="space-y-2 max-h-[250px] overflow-y-auto custom-scrollbar pr-2">
@@ -248,15 +274,17 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
                             <div key={driver.id} className="flex gap-2 items-center bg-slate-900/50 p-2 rounded border border-white/5">
                                 <div className="w-6 text-center text-xs font-mono text-slate-500 font-bold">{idx + 1}</div>
                                 <input
+                                    aria-label={`Driver ${idx + 1} name`}
                                     type="text"
                                     value={driver.name}
                                     onChange={(e) => handleUpdateDriver(driver.id, 'name', e.target.value)}
-                                    className="flex-1 bg-transparent border-b border-transparent focus:border-indigo-500 text-sm text-white outline-none px-1"
+                                    className="flex-1 bg-transparent border-b border-transparent focus:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-400/70 text-sm text-white outline-none px-1 rounded"
                                     placeholder="Driver Name"
                                 />
                                 <div className="relative group cursor-pointer">
                                     <div className="w-6 h-6 rounded border border-white/20 overflow-hidden" style={{backgroundColor: driver.color}}></div>
                                     <input
+                                        aria-label={`Driver ${idx + 1} color`}
                                         type="color"
                                         value={driver.color}
                                         onChange={(e) => handleUpdateDriver(driver.id, 'color', e.target.value)}
@@ -274,15 +302,7 @@ const EditTeamModal = ({ team, onClose, onSave }: { team: Session, onClose: () =
                         ))}
                     </div>
                 </div>
-
-                <div className="p-4 bg-slate-900/50 border-t border-white/5 flex gap-3">
-                    <button onClick={onClose} className="flex-1 py-3 rounded-lg font-bold text-slate-400 hover:bg-white/5 text-sm transition-colors">CANCEL</button>
-                    <button onClick={handleSave} className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold shadow-lg text-sm flex items-center justify-center gap-2 transition-colors">
-                        <Save size={16}/> SAVE CHANGES
-                    </button>
-                </div>
-            </div>
-        </div>
+        </ModalShell>
     );
 };
 
@@ -402,15 +422,70 @@ const LandingPage = () => {
     };
 
     const handleSaveSessionData = async (teamId: string, updatedDrivers: Driver[], updatedCategory: string) => {
+        const normalizedCategory = CATEGORIES.includes(updatedCategory) ? updatedCategory : CATEGORIES[0];
+        const authHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+
+        const tryUpdateCategory = async (): Promise<boolean> => {
+            const attempts = [
+                { url: `${VPS_API_URL}/api/lineups/${teamId}`, method: 'PATCH' },
+                { url: `${VPS_API_URL}/api/lineups/${teamId}`, method: 'PUT' },
+                { url: `${VPS_API_URL}/api/lineups/${teamId}/category`, method: 'PATCH' },
+                { url: `${VPS_API_URL}/api/lineups/${teamId}/category`, method: 'PUT' }
+            ];
+
+            for (const attempt of attempts) {
+                try {
+                    const res = await fetch(attempt.url, {
+                        method: attempt.method,
+                        headers: authHeaders,
+                        body: JSON.stringify({ carCategory: normalizedCategory, category: normalizedCategory })
+                    });
+                    if (res.ok) return true;
+                } catch {
+                    // Try next endpoint/method.
+                }
+            }
+
+            return false;
+        };
+
         try {
-            const res = await fetch(`${VPS_API_URL}/api/lineups/${teamId}/drivers`, {
+            // Preferred endpoint when backend supports combined update.
+            const combinedRes = await fetch(`${VPS_API_URL}/api/lineups/${teamId}/drivers`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ drivers: updatedDrivers, carCategory: updatedCategory })
+                headers: authHeaders,
+                body: JSON.stringify({ drivers: updatedDrivers, carCategory: normalizedCategory })
             });
-            if (res.ok) { setEditingTeam(null); fetchSessions(); }
-            else { alert("Erreur update (Droits insuffisants ?)"); }
-        } catch (e) { alert("Erreur réseau"); }
+
+            if (combinedRes.ok) {
+                setEditingTeam(null);
+                fetchSessions();
+                return;
+            }
+
+            // Fallback: persist drivers first, then try category via dedicated routes.
+            const driversOnlyRes = await fetch(`${VPS_API_URL}/api/lineups/${teamId}/drivers`, {
+                method: 'PUT',
+                headers: authHeaders,
+                body: JSON.stringify({ drivers: updatedDrivers })
+            });
+
+            const driversSaved = driversOnlyRes.ok;
+            const categorySaved = await tryUpdateCategory();
+
+            if (driversSaved || categorySaved) {
+                setEditingTeam(null);
+                fetchSessions();
+                if (!categorySaved) {
+                    alert("Pilotes sauvegardés, mais la classe n'a pas pu être modifiée avec ce compte.");
+                }
+                return;
+            }
+
+            alert("Erreur update (droits insuffisants ou endpoint non supporté).");
+        } catch {
+            alert("Erreur réseau");
+        }
     };
 
     const handleDeleteTeam = async (e: React.MouseEvent, teamId: string) => {
@@ -447,7 +522,7 @@ const LandingPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#020408] text-white font-display relative" style={{ overflow: 'auto', height: '100vh' }}>
+        <div className="min-h-screen text-white font-display relative" style={{ overflow: 'auto', height: '100vh' }}>
             <style>{landingStyles}</style>
 
             {/* --- BACKGROUND LAYERS --- */}
@@ -468,11 +543,14 @@ const LandingPage = () => {
             </div>
 
             {/* --- NAVBAR --- */}
-            <nav className="sticky top-0 z-50 bg-slate-900/50 backdrop-blur-md border-b border-white/5">
+            <nav className="sticky top-0 z-50 fbt-panel border-b border-white/10">
                 <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <img src="/Logo Team LMU.svg" alt="FBT" className="w-8 h-8 object-contain" />
-                        <span className="text-sm font-bold text-white/80 tracking-wider">FBT</span>
+                        <div>
+                            <span className="text-sm font-bold text-white/80 tracking-wider">FBT</span>
+                            <div className="w-20 mt-1 fbt-tricolor-bar" />
+                        </div>
                     </div>
                     <div className="flex items-center gap-4">
                         {isAuthenticated ? (
@@ -516,6 +594,10 @@ const LandingPage = () => {
                     >
                         French Baguette <span className="text-indigo-500">TEAM</span>
                     </h1>
+
+                    <div className="mt-3 text-[10px] uppercase tracking-[0.35em] fbt-badge px-3 py-1 rounded-full">
+                        Engineering / Endurance / Execution
+                    </div>
 
                     <p className="animate-fade-in-up-d2 text-base md:text-lg text-slate-400 tracking-[0.2em] uppercase font-medium mt-6">
                         Endurance Racing Strategy Platform
@@ -572,7 +654,7 @@ const LandingPage = () => {
                     {FEATURES.map((feat, i) => (
                         <div
                             key={feat.title}
-                            className="bg-slate-900/40 border border-white/5 rounded-xl p-6 hover:border-indigo-500/30 transition-all duration-300 group"
+                            className="fbt-panel rounded-xl p-6 hover:border-indigo-500/30 transition-all duration-300 group"
                             style={{ animationDelay: `${i * 0.08}s` }}
                         >
                             <div className="w-11 h-11 rounded-lg bg-indigo-600/10 flex items-center justify-center mb-4 group-hover:bg-indigo-600/20 transition-colors">
@@ -628,7 +710,7 @@ const LandingPage = () => {
                                 <div
                                     key={team.id}
                                     onClick={() => handleJoinTeam(team.id)}
-                                    className={`group bg-slate-900/80 border border-white/10 border-b-2 ${getCategoryBorderColor(team.carCategory || '')} hover:border-indigo-500/50 rounded-2xl p-5 cursor-pointer transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 relative overflow-hidden`}
+                                    className={`group fbt-panel border-b-2 ${getCategoryBorderColor(team.carCategory || '')} hover:border-indigo-500/50 rounded-2xl p-5 cursor-pointer transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 relative overflow-hidden`}
                                 >
                                     {/* --- IMAGE DE FOND --- */}
                                     {bgImage && (

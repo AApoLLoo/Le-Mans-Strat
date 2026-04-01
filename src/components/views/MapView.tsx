@@ -9,41 +9,55 @@ interface MapViewProps {
     myCarId?: number | string;
     savedMap?: MapPoint[];
     trackName?: string;
+    trackLength?: number;
     onSaveMap?: (points: MapPoint[]) => void;
 }
 
 // 2. AJOUT DE trackName DANS LA DÉSTRUCTURATION DES PROPS
-const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveMap, trackName }) => {
+const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveMap, trackName, trackLength }) => {
     const [localTrack, setLocalTrack] = useState<MapPoint[]>([]);
     const [isRecording, setIsRecording] = useState(true);
     const [hasCrossedStart, setHasCrossedStart] = useState(false);
+    const [showOptions, setShowOptions] = useState(false);
+    const [showTop10Labels, setShowTop10Labels] = useState(true);
+    const [showSectorLines, setShowSectorLines] = useState(true);
+    const [autoSaveLoop, setAutoSaveLoop] = useState(true);
+    const [autoRecord, setAutoRecord] = useState(true);
 
     const lastPosRef = useRef<{x: number, z: number} | null>(null);
     const lastLapsCountRef = useRef<number>(-1);
-    const lastTrackNameRef = useRef<string | undefined>(trackName);
+    const lastSectorRef = useRef<number>(-1);
+    const getTrackKey = (name?: string, length?: number) => {
+        const safeName = (name || '').trim().toUpperCase();
+        const safeLen = Math.round(Number(length || 0));
+        if (!safeName || safeName === 'WAITING...' || safeName === 'UNKNOWN') return '';
+        return safeLen > 0 ? `${safeName}_${safeLen}` : safeName;
+    };
+    const lastTrackKeyRef = useRef<string>(getTrackKey(trackName, trackLength));
     const localTrackRef = useRef<MapPoint[]>(localTrack);
     localTrackRef.current = localTrack;
 
     // --- RESET AUTOMATIQUE AU CHANGEMENT DE CIRCUIT ---
     useEffect(() => {
-        // Ignorer les valeurs transitoires vides et le premier rendu
-        if (!trackName || trackName === lastTrackNameRef.current) return;
-        lastTrackNameRef.current = trackName;
+        const currentTrackKey = getTrackKey(trackName, trackLength);
+        if (!currentTrackKey || currentTrackKey === lastTrackKeyRef.current) return;
+        lastTrackKeyRef.current = currentTrackKey;
 
         setLocalTrack([]);
         setHasCrossedStart(false);
         setIsRecording(true);
         lastLapsCountRef.current = -1;
+        lastSectorRef.current = -1;
         lastPosRef.current = null;
-        console.log(`Map: new track detected: ${trackName} -> Reset`);
-    }, [trackName]);
+        console.log(`Map: new track detected: ${currentTrackKey} -> Reset`);
+    }, [trackName, trackLength]);
 
     const activeTrack = savedMap.length > MAP_MIN_POINTS_LOADED ? savedMap : localTrack;
     const isMapLoaded = savedMap.length > MAP_MIN_POINTS_LOADED;
 
     // --- ENREGISTREMENT AVEC SECTEURS ---
     useEffect(() => {
-        if (isMapLoaded || !isRecording) return;
+        if (isMapLoaded || !isRecording || !autoRecord) return;
 
         const tracer = vehicles.find(v => v.is_player === 1) || vehicles.find(v => v.position === 1);
         if (!tracer || tracer.x === undefined || tracer.z === undefined) return;
@@ -51,9 +65,12 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
         const currentLaps = tracer.laps || 0;
         // Normalisation du secteur (0 = 3 dans rF2/LMU)
         const currentSector = (tracer.sector === 0) ? 3 : (tracer.sector || 1);
+        const prevSector = lastSectorRef.current;
+        const lapIncreased = lastLapsCountRef.current > -1 && currentLaps > lastLapsCountRef.current;
+        const sectorStartTransition = prevSector === 3 && currentSector === 1;
 
         // DÉTECTION LIGNE DE DÉPART
-        if (lastLapsCountRef.current > -1 && currentLaps > lastLapsCountRef.current) {
+        if (lapIncreased || sectorStartTransition) {
             if (!hasCrossedStart) {
                 console.log("START LINE DETECTED");
                 setHasCrossedStart(true);
@@ -62,6 +79,7 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
             }
         }
         lastLapsCountRef.current = currentLaps;
+        lastSectorRef.current = currentSector;
 
         // ENREGISTREMENT DES POINTS
         if (!hasCrossedStart || !lastPosRef.current) return;
@@ -76,16 +94,18 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
         const dynamicThreshold = track.length > 100
             ? Math.max(20, Math.min(MAP_AUTO_CLOSE_THRESHOLD, track.length * 0.15))
             : MAP_AUTO_CLOSE_THRESHOLD;
-        if (track.length > MAP_MIN_POINTS_FOR_LOOP && Math.hypot(track[0].x - x, track[0].z - z) < dynamicThreshold) {
+        const loopByDistance = track.length > MAP_MIN_POINTS_FOR_LOOP && Math.hypot(track[0].x - x, track[0].z - z) < dynamicThreshold;
+        const loopByLap = track.length > MAP_MIN_POINTS_FOR_LOOP && lapIncreased;
+        if (loopByDistance || loopByLap) {
             const finalTrack = [...track, { x, z, sector: currentSector }];
             setLocalTrack(finalTrack);
             setIsRecording(false);
-            if (onSaveMap) onSaveMap(finalTrack);
+            if (autoSaveLoop && onSaveMap) onSaveMap(finalTrack);
         } else {
             setLocalTrack(prev => [...prev, { x, z, sector: currentSector }]);
         }
         lastPosRef.current = { x, z };
-    }, [vehicles, isMapLoaded, isRecording, onSaveMap, hasCrossedStart]);
+    }, [vehicles, isMapLoaded, isRecording, onSaveMap, hasCrossedStart, autoSaveLoop, autoRecord]);
 
     const handleReset = () => {
         if (confirm("🗑️ Voulez-vous vraiment SUPPRIMER la carte ?")) {
@@ -213,7 +233,7 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
                 )}
 
                 {/* LIGNES DE SECTEURS (JAUNE POINTILLÉ) */}
-                {isMapLoaded && mapElements.splitLines.map((line, idx) => (
+                {isMapLoaded && showSectorLines && mapElements.splitLines.map((line, idx) => (
                     <g key={idx}>
                         <line
                             x1={line.x - 3} y1={line.y} x2={line.x + 3} y2={line.y}
@@ -242,10 +262,10 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
                 const clsColor = getClassHexColor(v.class || "");
 
                 const zIndex = isMe ? 60 : (v.position && v.position <= 10 ? 50 : 10);
-                const showLabel = isMe || (v.position && v.position <= 10);
+                const showLabel = isMe || (showTop10Labels && v.position && v.position <= 10);
 
                 return (
-                    <div key={v.id || Math.random()} className="absolute flex items-center justify-center transition-all duration-200 ease-linear will-change-transform"
+                    <div key={String(v.id ?? `${v.position}-${v.driver || v.name || 'car'}`)} className="absolute flex items-center justify-center transition-all duration-200 ease-linear will-change-transform"
                          style={{ left: `${coords.x}%`, top: `${coords.y}%`, zIndex, transform: 'translate(-50%, -50%)' }}>
 
                         <div className={`rounded-full shadow-[0_0_8px_currentColor] border-[1.5px] border-white ${isMe ? 'w-3 h-3 animate-pulse scale-110' : 'w-2.5 h-2.5'}`}
@@ -279,6 +299,20 @@ const MapView: React.FC<MapViewProps> = ({ vehicles = [], savedMap = [], onSaveM
                 <button onClick={handleReset} className="bg-black/60 hover:bg-black/90 text-white p-2 rounded-full border border-white/10 transition-all active:scale-95">
                     <Trash2 size={16}/>
                 </button>
+            </div>
+
+            <div className="absolute top-3 right-3 pointer-events-auto">
+                <button onClick={() => setShowOptions((v) => !v)} className="bg-black/60 hover:bg-black/90 text-white p-2 rounded-full border border-white/10 transition-all active:scale-95">
+                    <MapIcon size={16}/>
+                </button>
+                {showOptions && (
+                    <div className="mt-2 w-52 bg-black/75 border border-white/10 rounded-lg p-2 text-[10px] text-slate-200 space-y-1.5">
+                        <label className="flex items-center justify-between"><span>Top 10 labels</span><input type="checkbox" checked={showTop10Labels} onChange={(e) => setShowTop10Labels(e.target.checked)} /></label>
+                        <label className="flex items-center justify-between"><span>Sector lines</span><input type="checkbox" checked={showSectorLines} onChange={(e) => setShowSectorLines(e.target.checked)} /></label>
+                        <label className="flex items-center justify-between"><span>Auto save loop</span><input type="checkbox" checked={autoSaveLoop} onChange={(e) => setAutoSaveLoop(e.target.checked)} /></label>
+                        <label className="flex items-center justify-between"><span>Auto record</span><input type="checkbox" checked={autoRecord} onChange={(e) => setAutoRecord(e.target.checked)} /></label>
+                    </div>
+                )}
             </div>
 
             {/* Indicateur Mapping */}

@@ -22,12 +22,14 @@ export interface StrategyInput {
     leaderLaps: number;
     leaderAvgLapTime: number;
     activeDriverId: number | string;
+    sessionMode: StrategySessionMode;
 
     // Configuration
     drivers: Driver[];
-    stintConfig: Record<number, StintConfig>;
-    stintAssignments: Record<number, number | string>;
-    stintNotes: Record<number, string>;
+    stintConfig: Record<string, StintConfig>;
+    // Legacy fallback only. Source of truth is stintConfig[idx].driverId.
+    stintAssignments?: Record<string, number | string>;
+    stintNotes: Record<string, string | number>;
     fuelCons: number;
     veCons: number;
     tankCapacity: number;
@@ -42,44 +44,22 @@ export interface StrategyInput {
     allVehicles: RawVehicle[];
 }
 
-export function calculateStrategy(input: {
-    currentLap: number;
-    carCategory: string;
-    fuelCurrent: number;
-    fuelMax: number;
-    fuelAvgCons: number;
-    veAvgCons: number;
-    veLastLapCons: number;
-    strategyEstPitTime: number;
-    telemetryPosition: number;
-    currentStint: number;
-    raceTimeRemaining: number;
-    avgLapTimeSeconds: number;
-    leaderLaps: number;
-    leaderAvgLapTime: number;
-    activeDriverId: number | string;
-    drivers: Driver[];
-    stintConfig: Record<string, StintConfig>;
-    stintAssignments: Record<string, number | string>;
-    stintNotes: Record<string, string | number>;
-    fuelCons: number;
-    veCons: number;
-    tankCapacity: number;
-    manualFuelTarget: number | null;
-    manualVETarget: number | null;
-    isHypercar: boolean;
-    isLMGT3: boolean;
-    allVehicles: RawVehicle[]
-}): StrategyData {
+type ComputedStint = Stint & {
+    driverSource?: 'config' | 'legacy' | 'auto';
+};
+
+type StrategySessionMode = 'RACE' | 'QUALIFY' | 'PRACTICE' | 'UNKNOWN';
+
+export function calculateStrategy(input: StrategyInput): StrategyData {
     const {
         currentLap, carCategory, fuelCurrent, fuelMax, fuelAvgCons, veAvgCons, veLastLapCons,
         strategyEstPitTime, telemetryPosition,
         currentStint: currentStintIndex, raceTimeRemaining, avgLapTimeSeconds,
-        leaderLaps, leaderAvgLapTime, activeDriverId,
-        drivers, stintConfig, stintAssignments, stintNotes,
+        leaderLaps, leaderAvgLapTime, activeDriverId, sessionMode,
+        drivers, stintConfig, stintAssignments = {}, stintNotes,
         fuelCons, veCons, tankCapacity: configTankCapacity,
         manualFuelTarget, manualVETarget,
-        isHypercar, isLMGT3,
+        isHypercar,
         allVehicles
     } = input;
 
@@ -88,35 +68,63 @@ export function calculateStrategy(input: {
     const leaderAvg = leaderAvgLapTime || DEFAULT_LAP_TIME;
     const myAvg = avgLapTimeSeconds > 0 ? avgLapTimeSeconds : DEFAULT_LAP_TIME;
 
-    if (leaderLaps > 0 && leaderAvg > 0) {
-        totalLapsTarget = Math.floor(leaderLaps + (raceTimeRemaining / leaderAvg));
-    } else if (currentLap > 0) {
-        totalLapsTarget = Math.floor(currentLap + (raceTimeRemaining / myAvg));
+    const activeFuelCons = Math.max(0.1, fuelAvgCons || fuelCons);
+    const tankCapacity = Math.max(1, fuelMax || configTankCapacity);
+    const maxLapsFuel = Math.floor(tankCapacity / activeFuelCons);
+    const isRaceSession = sessionMode === 'RACE';
+
+    if (isRaceSession) {
+        if (leaderLaps > 0 && leaderAvg > 0) {
+            totalLapsTarget = Math.floor(leaderLaps + (raceTimeRemaining / leaderAvg));
+        } else if (currentLap > 0) {
+            totalLapsTarget = Math.floor(currentLap + (raceTimeRemaining / myAvg));
+        }
+    } else {
+        const timedLaps = raceTimeRemaining > 0 ? Math.ceil(raceTimeRemaining / myAvg) : maxLapsFuel;
+        const lookaheadLaps = Math.max(1, Math.min(timedLaps, maxLapsFuel * 2));
+        totalLapsTarget = Math.max(currentLap + 1, currentLap + lookaheadLaps);
     }
 
     // 2. DÉTECTION HYBRIDE / VE
     const isHybridCar = isHybridCategory(carCategory);
-    const useVE = isHybridCar || isHypercar || isLMGT3 || (veLastLapCons > 0.1);
+    const useVE = isHybridCar || isHypercar || veLastLapCons > 0.1 || veAvgCons > 0.1;
 
     // 3. CONSOMMATIONS
-    const activeFuelCons = Math.max(0.1, fuelAvgCons || fuelCons);
-    const activeVECons = Math.max(0.1, veAvgCons || veCons);
-    const tankCapacity = Math.max(1, fuelMax || configTankCapacity);
+    const activeVECons = useVE ? Math.max(0.1, veAvgCons || veCons) : 0;
 
-    const maxLapsFuel = Math.floor(tankCapacity / activeFuelCons);
-    const maxLapsVE = (useVE && activeVECons > 0) ? Math.floor(100 / activeVECons) : 999;
-    const maxLapsPerStint = Math.max(1, useVE ? Math.min(maxLapsVE, maxLapsFuel) : maxLapsFuel);
+    const stints: ComputedStint[] = [];
 
-    const stints: Stint[] = [];
+    const resolveConfiguredDriver = (idx: number): { driverId?: number | string; source: 'config' | 'legacy' | 'auto' } => {
+        const cfgDriverId = stintConfig[idx]?.driverId;
+        if (cfgDriverId !== undefined && cfgDriverId !== null && cfgDriverId !== '') {
+            return { driverId: cfgDriverId, source: 'config' };
+        }
+
+        const legacyDriverId = (stintAssignments as Record<string, number | string | undefined>)[String(idx)];
+        if (legacyDriverId !== undefined && legacyDriverId !== null && legacyDriverId !== '') {
+            return { driverId: legacyDriverId, source: 'legacy' };
+        }
+
+        return { driverId: undefined, source: 'auto' };
+    };
+
+    const resolveAutoDriverId = (prevDriverId: number | string | undefined): number | string | undefined => {
+        if (!drivers.length) return undefined;
+        const prevIdx = drivers.findIndex(d => d.id === prevDriverId);
+        if (prevIdx < 0) return drivers[0]?.id;
+        return drivers[(prevIdx + 1) % drivers.length]?.id;
+    };
 
     // A. Relais Passés
     for (let i = 0; i < currentStintIndex; i++) {
         const config = stintConfig[i] || {};
-        const driverId = config.driverId || stintAssignments[i] || drivers[i % drivers.length]?.id;
+        const resolved = resolveConfiguredDriver(i);
+        const driverId = resolved.driverId ?? resolveAutoDriverId(i > 0 ? stints[i - 1]?.driverId : activeDriverId);
         const d = getSafeDriver(drivers.find(drv => drv.id === driverId));
         stints.push({
             id: i, stopNum: i + 1, startLap: 0, endLap: 0, lapsCount: 0,
             fuel: "DONE", driver: d, driverId: d.id, tyres: config.tyres,
+            driverSource: resolved.driverId ? resolved.source : 'auto',
             isCurrent: false, isNext: false, isDone: true,
             note: String(stintNotes[i + 1] || "")
         });
@@ -129,23 +137,24 @@ export function calculateStrategy(input: {
     while (simulationLap < totalLapsTarget) {
         const config = stintConfig[simIdx] || {};
 
-        let driverId = config.driverId || stintAssignments[simIdx];
+        const resolved = resolveConfiguredDriver(simIdx);
+        let driverId = resolved.driverId;
         if (!driverId && drivers.length > 0) {
             const prevStint = stints[stints.length - 1];
             const prevDriverId = prevStint ? prevStint.driverId : activeDriverId;
-            const prevIdx = drivers.findIndex(d => d.id === prevDriverId);
-            driverId = drivers[(prevIdx + 1) % drivers.length].id;
+            driverId = resolveAutoDriverId(prevDriverId);
         }
         const d = getSafeDriver(drivers.find(drv => drv.id === driverId));
 
-        // Ratio VE : modificateur de déploiement VE par relais (1.0 = normal, 0.8 = économie, 1.2 = agressif)
-        // Ce ratio n'affecte QUE la VE, le carburant est toujours calculé indépendamment.
-        const ratio = config.fuelEnergyRatio !== undefined ? config.fuelEnergyRatio : 1.0;
+        // Ratio VE du relais (1.0 = normal, 0.9 = economy, 1.1 = push).
+        // Ratio fuel/VE: fuel = VE * ratio (ex: 100 * 0.8 = 80L si 80L suffisent)
+        const fuelVERatio = config.fuelEnergyRatio !== undefined ? config.fuelEnergyRatio : 1.0;
 
-        // Durée — calculée avec les vrais max du relais (tenant compte du ratio VE)
-        const stintVECons = (useVE && activeVECons > 0) ? activeVECons * ratio : 0;
+        // Durée — VE et fuel sont indépendants: le ratio n'affecte que la VE.
+        const stintFuelCons = activeFuelCons;
+        const stintVECons = (useVE && activeVECons > 0) ? activeVECons : 0;
         const stintMaxLapsByVE = stintVECons > 0 ? Math.floor(100 / stintVECons) : 999;
-        const stintMaxLapsByFuel = Math.floor(tankCapacity / activeFuelCons);
+        const stintMaxLapsByFuel = Math.floor(tankCapacity / stintFuelCons);
         const stintMaxLaps = useVE ? Math.min(stintMaxLapsByVE, stintMaxLapsByFuel) : stintMaxLapsByFuel;
 
         let lapsDuration = stintMaxLaps;
@@ -154,7 +163,7 @@ export function calculateStrategy(input: {
         lapsDuration = Math.max(1, lapsDuration);
 
         // Calculs — fuel et VE sont toujours indépendants (comme dans LMU)
-        const fuelNeeded = lapsDuration * activeFuelCons;
+        const fuelNeeded = lapsDuration * stintFuelCons;
         let veDisplay = "-";
         let fuelDisplay = "";
 
@@ -163,16 +172,19 @@ export function calculateStrategy(input: {
             veDisplay = `${veNeeded.toFixed(0)}%`;
         }
 
+        const fuelFromVE = useVE && stintVECons > 0 ? (100 * fuelVERatio) : fuelNeeded;
+
         fuelDisplay = simIdx === currentStintIndex
             ? `${fuelCurrent.toFixed(1)}L (Rest)`
-            : `${fuelNeeded.toFixed(1)}L`;
+            : `${(useVE && stintVECons > 0 ? fuelFromVE : fuelNeeded).toFixed(1)}L`;
 
         stints.push({
             id: simIdx, stopNum: simIdx + 1,
             startLap: simulationLap, endLap: simulationLap + lapsDuration,
             lapsCount: lapsDuration, fuel: fuelDisplay,
-            virtualEnergy: veDisplay, fuelEnergyRatio: ratio,
+            virtualEnergy: veDisplay, fuelEnergyRatio: fuelVERatio,
             driver: d, driverId: d.id, tyres: config.tyres || 'AUTO',
+            driverSource: resolved.driverId ? resolved.source : 'auto',
             isCurrent: simIdx === currentStintIndex,
             isNext: simIdx === currentStintIndex + 1,
             isDone: false, note: String(stintNotes[simIdx + 1] || "")
@@ -180,7 +192,7 @@ export function calculateStrategy(input: {
 
         simulationLap += lapsDuration;
         simIdx++;
-        if (simIdx > currentStintIndex + MAX_STINTS_LOOKAHEAD) break;
+        if (simIdx > currentStintIndex + (isRaceSession ? MAX_STINTS_LOOKAHEAD : 2)) break;
     }
 
     // --- PRÉDICTION TRAFIC ---
@@ -195,7 +207,7 @@ export function calculateStrategy(input: {
         activeLapTime: avgLapTimeSeconds,
         pitStopsRemaining: Math.max(0, stints.length - 1 - currentStintIndex),
         targetFuelCons: manualFuelTarget ?? activeFuelCons,
-        targetVECons: manualVETarget ?? activeVECons,
+        targetVECons: useVE ? (manualVETarget ?? activeVECons) : 0,
         pitPrediction
     };
 }

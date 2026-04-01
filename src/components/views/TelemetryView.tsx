@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Fuel, Zap, CloudRain, Sun, Cloud, Thermometer, RefreshCw, Plus, Minus, XCircle } from 'lucide-react';
+import React from 'react';
+import { Fuel, Zap, CloudRain, Sun, Cloud, Thermometer, Plus, Minus, XCircle } from 'lucide-react';
 import type { TelemetryData, WeatherNode } from '../../types';
 import WeatherWidget from './WeatherWidget';
 import { formatLapTimePrecise as formatLapTime } from '../../utils/helpers';
@@ -50,9 +50,39 @@ const getWeatherIcon = (weather: string) => {
     return <Sun size={18} className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]"/>;
 };
 
+const formatGripLevel = (value: number | string | undefined) => {
+    if (value === undefined || value === null || value === '') return '-';
+
+    const num = Number(value);
+    if (!Number.isNaN(num)) {
+        if (num <= 1) return 'FAIBLE';
+        if (num === 2) return 'MOYENNE';
+        if (num >= 3) return 'ELEVEE';
+    }
+
+    const text = String(value).trim().toUpperCase();
+    if (!text) return '-';
+    return text;
+};
+
+const EMPTY_ELECTRONICS = {
+    tc: 0,
+    tc_cut: 0,
+    tc_slip: 0,
+    abs: 0,
+    motor_map: 0,
+    brake_migration: 0,
+    brake_bias: 0,
+    anti_sway_front: 0,
+    anti_sway_rear: 0,
+    tc_active: false,
+    abs_active: false,
+    wiper_state: 0
+};
+
 // --- SOUS-COMPOSANTS CONSO ---
 // (Identiques à avant, non modifiés)
-interface ConsumptionWidgetProps { label: string; icon: React.ReactNode; barColor: string; current: number; max: number; lastLap: number; avg: number; target?: number; unit: string; threshold: number; step: number; onAdjust: (delta: number) => void; onReset: () => void; }
+interface ConsumptionWidgetProps { label: string; icon: React.ReactNode; barColor: string; current: number; max: number; lastLap: number; avg: number; target?: number; unit: string; threshold: number; step: number; onAdjust: (_delta: number) => void; onReset: () => void; }
 const ConsumptionWidget: React.FC<ConsumptionWidgetProps> = ({ label, icon, barColor, current, max, lastLap, avg, target, unit, threshold, step, onAdjust, onReset }) => {
     const pct = Math.min(100, Math.max(0, (current / (max || 1)) * 100));
     const effectiveTarget = target ?? avg;
@@ -93,56 +123,6 @@ const ConsumptionWidget: React.FC<ConsumptionWidgetProps> = ({ label, icon, barC
     );
 };
 
-interface SingleConsumptionWidgetProps { fuel: any; VE: any; isVE: boolean; isCategoryGT3: boolean; targetFuelCons?: number; targetVECons?: number; onSetFuelTarget?: (v: number | null) => void; onSetVETarget?: (v: number | null) => void; onToggle: () => void; }
-const SingleConsumptionWidget: React.FC<SingleConsumptionWidgetProps> = ({ fuel, VE, isVE, isCategoryGT3, targetFuelCons, targetVECons, onSetFuelTarget, onSetVETarget, onToggle }) => {
-    const current = Number(isVE ? VE?.VEcurrent : fuel?.current) || 0;
-    const max = Number(isVE ? 100 : fuel?.max) || 100;
-    const pct = Math.min(100, Math.max(0, (current / max) * 100));
-    const lastLap = Number(isVE ? VE?.VElastLapCons : fuel?.lastLapCons) || 0;
-    const avg = Number(isVE ? VE?.VEaverageCons : fuel?.averageCons) || 0;
-    const target = isVE ? (targetVECons ?? avg) : (targetFuelCons ?? avg);
-    const isManual = isVE ? (targetVECons !== undefined && targetVECons !== null && Math.abs(targetVECons - avg) > 0.001) : (targetFuelCons !== undefined && targetFuelCons !== null && Math.abs(targetFuelCons - avg) > 0.001);
-    const threshold = isVE ? 0.5 : 0.1; const step = isVE ? 0.5 : 0.1; const delta = avg - target;
-    const barColor = isVE ? 'bg-cyan-500' : 'bg-blue-500'; const label = isVE ? 'VIRTUAL ENERGY' : 'FUEL LEVEL';
-    const icon = isVE ? <Zap size={14} className="text-cyan-300"/> : <Fuel size={14} className="text-blue-400"/>;
-    const unit = isVE ? '%' : 'L'; const setFunc = isVE ? onSetVETarget : onSetFuelTarget;
-    let statusColor = 'text-slate-400'; let statusText = 'OK';
-    if (delta > threshold) { statusColor = 'text-red-500 animate-pulse'; statusText = 'LIFT'; }
-    else if (delta < -threshold) { statusColor = 'text-emerald-400'; statusText = 'SAVE'; }
-    const adjust = (d: number) => { if (setFunc) setFunc(Number((target + d).toFixed(2))); };
-    const reset = () => { if (setFunc) setFunc(null); };
-    return (
-        <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 flex-1 relative overflow-hidden group">
-            <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold text-slate-400 flex items-center gap-2">{icon} {label}</span>
-                {isCategoryGT3 && <button onClick={onToggle} className="text-slate-500 hover:text-white transition-colors"><RefreshCw size={12}/></button>}
-            </div>
-            <div className="h-4 bg-slate-950 rounded border border-slate-700 overflow-hidden mb-2">
-                <div className={`h-full ${barColor} transition-all duration-500`} style={{width: `${pct}%`}}/>
-            </div>
-            <div className="flex justify-between items-end">
-                <div>
-                    <div className="text-2xl font-black text-white leading-none">{current.toFixed(1)} <span className="text-sm text-slate-500">{unit}</span></div>
-                    <div className="text-[10px] text-slate-400 mt-1">Last: {lastLap.toFixed(2)}</div>
-                </div>
-                <div className="text-right flex flex-col items-end">
-                    <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                        {isManual && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" title="Manual target"/>} Target
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 rounded px-1 border border-slate-700">
-                            <button onClick={() => adjust(-step)} className="p-0.5 hover:text-white text-slate-400"><Minus size={10}/></button>
-                            <button onClick={reset} className="p-0.5 hover:text-blue-400 text-slate-400"><XCircle size={10}/></button>
-                            <button onClick={() => adjust(step)} className="p-0.5 hover:text-white text-slate-400"><Plus size={10}/></button>
-                        </div>
-                    </div>
-                    <div className={`text-xl font-mono font-bold ${statusColor}`}>{avg.toFixed(2)} <span className="text-[10px] text-slate-500 ml-1">/ {target.toFixed(2)}</span></div>
-                    <div className={`text-[10px] font-black ${statusColor} uppercase tracking-wider bg-black/20 px-1 rounded`}>{statusText}</div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
 interface TelemetryViewProps {
     telemetryData: TelemetryData;
     isHypercar: boolean;
@@ -153,16 +133,17 @@ interface TelemetryViewProps {
     airTemp: number;
     trackTemp: number;
     trackWetness: number;
+    trackGripLevel?: number | string;
     targetFuelCons?: number;
     targetVECons?: number;
-    onSetFuelTarget?: (val: number | null) => void;
-    onSetVETarget?: (val: number | null) => void;
+    onSetFuelTarget?: (_val: number | null) => void;
+    onSetVETarget?: (_val: number | null) => void;
     weatherForecast?: WeatherNode[];
 }
 
 const TelemetryView: React.FC<TelemetryViewProps> = ({
                                                          telemetryData, isHypercar, isLMGT3, position,
-                                                         weather, airTemp, trackTemp, trackWetness,
+                                                         weather, airTemp, trackTemp, trackWetness, trackGripLevel,
                                                          targetFuelCons, targetVECons, onSetFuelTarget, onSetVETarget,
                                                          avgLapTimeSeconds, weatherForecast
                                                      }) => {
@@ -181,11 +162,26 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
         throttle = 0, brake = 0, clutch = 0, steering = 0,
         speed = 0, rpm = 0, maxRpm = 8000, gear = 0, waterTemp = 0, oilTemp = 0,
         lmu_electronics,
-        lmu_wheels_extra
+        lmu_wheels_extra,
+        vehicleHealth,
+        restapiSuspensionDamage,
+        strategyPitLaps
     } = telemetryData || ({} as Partial<TelemetryData>);
 
     const displayAvgLap = formatLapTime(avgLapTimeSeconds);
     const compounds = tireCompounds || { fl: "---", fr: "---", rl: "---", rr: "---" };
+    const electronics = { ...EMPTY_ELECTRONICS, ...(lmu_electronics || {}) };
+    const hasElectronicsData = Boolean(lmu_electronics && Object.keys(lmu_electronics).length > 0);
+
+    const roundedWetness = Math.round(trackWetness);
+    const trackState = roundedWetness > 50
+        ? { label: 'FLOODED', cls: 'text-blue-200 bg-blue-900/40 border-blue-500/40' }
+        : roundedWetness > 20
+            ? { label: 'WET', cls: 'text-blue-300 bg-blue-900/30 border-blue-500/30' }
+            : roundedWetness > 5
+                ? { label: 'DAMP', cls: 'text-cyan-300 bg-cyan-900/30 border-cyan-500/30' }
+                : { label: 'DRY', cls: 'text-amber-300 bg-amber-900/20 border-amber-500/30' };
+    const displayGripLevel = formatGripLevel(trackGripLevel);
 
     // 2. Forcer le type strict Boolean() pour éviter l'erreur "string | boolean"
     const isCategoryGT3 = Boolean(
@@ -195,8 +191,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
         isHypercar || (carCategory && typeof carCategory === 'string' && (carCategory.toLowerCase().includes('hyper') || carCategory.toLowerCase().includes('lmh') || carCategory.toLowerCase().includes('lmdh') || carCategory.toLowerCase().includes('gtop')))
     );
 
-    const [showVirtualEnergy, setShowVirtualEnergy] = useState(true);
-    const isVE = showVirtualEnergy && !isCategoryHypercar && isCategoryGT3;
+    const showVEWidget = isCategoryHypercar || isCategoryGT3 || Number(VE?.VEcurrent) > 0 || Number(VE?.VEaverageCons) > 0 || Number(VE?.VElastLapCons) > 0;
 
     const currentRpm = Math.round(Number(rpm) || 0);
     const limitRpm = Math.round(Number(maxRpm)) || 8000;
@@ -256,7 +251,12 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                     </div>
                     <div className="flex gap-4 text-xs">
                         <div><span className="text-slate-500 font-bold">AIR</span> <span className="text-white font-mono ml-1">{Math.round(airTemp)}°C</span></div>
-                        <div><span className="text-slate-500 font-bold">TRACK</span> <span className="text-amber-500 font-mono ml-1">{Math.round(trackTemp)}°C</span></div>
+                        <div>
+                            <span className="text-slate-500 font-bold">TRACK</span>
+                            <span className="text-amber-500 font-mono ml-1">{Math.round(trackTemp)}°C</span>
+                            <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded border ${trackState.cls}`}>{trackState.label}</span>
+                            <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded border text-violet-300 bg-violet-900/30 border-violet-500/30">GRIP: {displayGripLevel}</span>
+                        </div>
                         {trackWetness > 0.5 && (
                             <div><span className="text-blue-400 font-bold">WET</span> <span className="text-blue-200 font-mono ml-1">{Math.round(trackWetness)}%</span></div>
                         )}
@@ -340,69 +340,74 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                     </div>
 
                     {/* PANNEAU ELECTRONICS */}
-                    {lmu_electronics && (
-                        <div className="mt-4 pt-4 border-t border-slate-700/50">
+                    <div className="mt-4 pt-4 border-t border-slate-700/50">
+                            <div className="mb-1.5 flex justify-end">
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${hasElectronicsData ? 'text-emerald-300 bg-emerald-900/30 border border-emerald-500/30' : 'text-amber-300 bg-amber-900/30 border border-amber-500/30'}`}>
+                                    {hasElectronicsData ? 'ELEC LIVE' : 'ELEC NO DATA'}
+                                </span>
+                            </div>
                             <div className="grid grid-cols-4 gap-2">
-                                <div className={`flex flex-col items-center justify-center p-1.5 rounded-lg border transition-colors ${lmu_electronics.tc_active ? 'bg-cyan-500/20 border-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)]' : 'bg-black/40 border-slate-700/50'}`}>
+                                <div className={`flex flex-col items-center justify-center p-1.5 rounded-lg border transition-colors ${electronics.tc_active ? 'bg-cyan-500/20 border-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)]' : 'bg-black/40 border-slate-700/50'}`}>
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">TC</span>
-                                    <span className="font-mono text-sm text-white font-black">{Number(lmu_electronics.tc) || 0}</span>
+                                    <span className="font-mono text-sm text-white font-black">{Number(electronics.tc) || 0}</span>
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">TC CUT</span>
-                                    <span className="font-mono text-sm text-amber-400 font-black">{Number(lmu_electronics.tc_cut) || 0}</span>
+                                    <span className="font-mono text-sm text-amber-400 font-black">{Number(electronics.tc_cut) || 0}</span>
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">TC SLIP</span>
-                                    <span className="font-mono text-sm text-amber-400 font-black">{Number(lmu_electronics.tc_slip) || 0}</span>
+                                    <span className="font-mono text-sm text-amber-400 font-black">{Number(electronics.tc_slip) || 0}</span>
                                 </div>
-                                <div className={`flex flex-col items-center justify-center p-1.5 rounded-lg border transition-colors ${lmu_electronics.abs_active ? 'bg-red-500/20 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-black/40 border-slate-700/50'}`}>
+                                <div className={`flex flex-col items-center justify-center p-1.5 rounded-lg border transition-colors ${electronics.abs_active ? 'bg-red-500/20 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-black/40 border-slate-700/50'}`}>
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">ABS</span>
-                                    <span className="font-mono text-sm text-white font-black">{Number(lmu_electronics.abs) || 0}</span>
+                                    <span className="font-mono text-sm text-white font-black">{Number(electronics.abs) || 0}</span>
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">MAP</span>
-                                    <span className="font-mono text-sm text-emerald-400 font-black">{Number(lmu_electronics.motor_map) || 0}</span>
+                                    <span className="font-mono text-sm text-emerald-400 font-black">{Number(electronics.motor_map) || 0}</span>
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">MIG</span>
-                                    <span className="font-mono text-sm text-white font-black">{Number(lmu_electronics.brake_migration) || 0}</span>
+                                    <span className="font-mono text-sm text-white font-black">{Number(electronics.brake_migration) || 0}</span>
+                                </div>
+                                <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
+                                    <span className="text-[8px] text-slate-400 font-bold tracking-wider">B BIAS</span>
+                                    <span className="font-mono text-sm text-white font-black">{Number(electronics.brake_bias || 0).toFixed(1)}%</span>
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">ARB F</span>
-                                    <span className="font-mono text-sm text-white font-black">{Number(lmu_electronics.anti_sway_front) || 0}</span>
+                                    <span className="font-mono text-sm text-white font-black">{Number(electronics.anti_sway_front) || 0}</span>
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">ARB R</span>
-                                    <span className="font-mono text-sm text-white font-black">{Number(lmu_electronics.anti_sway_rear) || 0}</span>
+                                    <span className="font-mono text-sm text-white font-black">{Number(electronics.anti_sway_rear) || 0}</span>
                                 </div>
-                                <div className={`flex flex-col items-center justify-center p-1.5 rounded-lg border transition-colors ${lmu_electronics.wiper_state > 0 ? 'bg-blue-500/20 border-blue-500' : 'bg-black/40 border-slate-700/50'}`}>
+                                <div className={`flex flex-col items-center justify-center p-1.5 rounded-lg border transition-colors ${electronics.wiper_state > 0 ? 'bg-blue-500/20 border-blue-500' : 'bg-black/40 border-slate-700/50'}`}>
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">WIPER</span>
-                                    <span className={`font-mono text-sm font-black ${lmu_electronics.wiper_state > 0 ? 'text-blue-300' : 'text-slate-600'}`}>
-                                        {lmu_electronics.wiper_state === 0 ? 'OFF' : lmu_electronics.wiper_state}
+                                    <span className={`font-mono text-sm font-black ${electronics.wiper_state > 0 ? 'text-blue-300' : 'text-slate-600'}`}>
+                                        {electronics.wiper_state === 0 ? 'OFF' : electronics.wiper_state}
                                     </span>
                                 </div>
                             </div>
                         </div>
-                    )}
                 </div>
 
                 {/* DATA (Droite) */}
                 <div className="col-span-3 flex flex-col gap-3">
                     {/* WIDGET CONSO */}
-                    {isCategoryHypercar ? (
-                        <div className="flex flex-col gap-2 flex-1">
-                            <ConsumptionWidget
-                                label="FUEL LEVEL" icon={<Fuel size={12} className="text-blue-400"/>} barColor="bg-blue-500"
-                                current={Number(fuel?.current) || 0} max={Number(fuel?.max) || 100} lastLap={Number(fuel?.lastLapCons) || 0} avg={Number(fuel?.averageCons) || 0} target={targetFuelCons} unit="L" threshold={0.1} step={0.1} onAdjust={(d) => onSetFuelTarget && onSetFuelTarget(Number(((targetFuelCons || Number(fuel?.averageCons) || 0) + d).toFixed(2)))} onReset={() => onSetFuelTarget && onSetFuelTarget(null)}
-                            />
+                    <div className="flex flex-col gap-2 flex-1">
+                        <ConsumptionWidget
+                            label="FUEL LEVEL" icon={<Fuel size={12} className="text-blue-400"/>} barColor="bg-blue-500"
+                            current={Number(fuel?.current) || 0} max={Number(fuel?.max) || 100} lastLap={Number(fuel?.lastLapCons) || 0} avg={Number(fuel?.averageCons) || 0} target={targetFuelCons} unit="L" threshold={0.1} step={0.1} onAdjust={(d) => onSetFuelTarget && onSetFuelTarget(Number(((targetFuelCons || Number(fuel?.averageCons) || 0) + d).toFixed(2)))} onReset={() => onSetFuelTarget && onSetFuelTarget(null)}
+                        />
+                        {showVEWidget && (
                             <ConsumptionWidget
                                 label="VIRTUAL ENERGY" icon={<Zap size={12} className="text-cyan-300"/>} barColor="bg-cyan-500"
                                 current={Number(VE?.VEcurrent) || 0} max={100} lastLap={Number(VE?.VElastLapCons) || 0} avg={Number(VE?.VEaverageCons) || 0} target={targetVECons} unit="%" threshold={0.5} step={0.5} onAdjust={(d) => onSetVETarget && onSetVETarget(Number(((targetVECons || Number(VE?.VEaverageCons) || 0) + d).toFixed(2)))} onReset={() => onSetVETarget && onSetVETarget(null)}
                             />
-                        </div>
-                    ) : (
-                        <SingleConsumptionWidget fuel={fuel} VE={VE} isVE={isVE} isCategoryGT3={!!isCategoryGT3} targetFuelCons={targetFuelCons} targetVECons={targetVECons} onSetFuelTarget={onSetFuelTarget} onSetVETarget={onSetVETarget} onToggle={() => setShowVirtualEnergy(!showVirtualEnergy)} />
-                    )}
+                        )}
+                    </div>
 
                     {/* WIDGET HYBRIDE */}
                     {isCategoryHypercar && (
@@ -430,6 +435,32 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                         <div className="grid grid-cols-2 gap-2 text-center">
                             <div className="bg-black/30 p-1 rounded"><div className="text-[9px] text-slate-500">OIL</div><div className="font-mono font-bold text-amber-500">{Math.round(Number(oilTemp))}°</div></div>
                             <div className="bg-black/30 p-1 rounded"><div className="text-[9px] text-slate-500">WATER</div><div className="font-mono font-bold text-blue-400">{Math.round(Number(waterTemp))}°</div></div>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
+                        <span className="text-xs font-bold text-slate-400 uppercase mb-2 block">Wheel Damage</span>
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                            {(['fl', 'fr', 'rl', 'rr'] as const).map((wheel, idx) => {
+                                const wheelHealth = vehicleHealth?.by_wheel?.[wheel];
+                                const flat = Boolean(wheelHealth?.flat);
+                                const detached = Boolean(wheelHealth?.detached);
+                                const susp = Number(restapiSuspensionDamage?.[idx] ?? 0);
+                                return (
+                                    <div key={wheel} className="bg-black/30 rounded p-2 border border-white/5">
+                                        <div className="flex items-center justify-between">
+                                            <span className="uppercase text-slate-400 font-bold">{wheel}</span>
+                                            <span className={`px-1 rounded font-bold ${detached ? 'text-red-300 bg-red-900/30' : flat ? 'text-amber-300 bg-amber-900/30' : 'text-emerald-300 bg-emerald-900/30'}`}>
+                                                {detached ? 'DET' : flat ? 'FLAT' : 'OK'}
+                                            </span>
+                                        </div>
+                                        <div className="mt-1 text-slate-300">Susp: <span className="font-mono text-cyan-300">{susp.toFixed(2)}</span></div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="mt-2 text-[10px] text-slate-500">
+                            Flats: {Number(vehicleHealth?.tire_flat_count || 0)} | Detached: {Number(vehicleHealth?.wheel_detached_count || 0)} | Next pit laps: {Number(strategyPitLaps || 0)}
                         </div>
                     </div>
 

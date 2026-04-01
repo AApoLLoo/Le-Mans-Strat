@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Calculator, Clock, Fuel, Flag, RotateCcw } from 'lucide-react';
 import type { GameState } from '../../types';
 import { formatTime } from '../../utils/helpers';
@@ -12,31 +12,24 @@ const FuelCalculatorView: React.FC<FuelCalculatorProps> = ({ gameState }) => {
     const [timeRemaining, setTimeRemaining] = useState(gameState.sessionTimeRemaining || 3600);
     const [lapTime, setLapTime] = useState(gameState.avgLapTimeSeconds || 210);
     const [fuelCons, setFuelCons] = useState(gameState.fuelCons || 3.5);
-    const [tankCap, setTankCap] = useState(gameState.tankCapacity || 100);
+    const tankCap = gameState.tankCapacity || 100;
     const [currentFuel, setCurrentFuel] = useState(gameState.telemetry.fuel.current || 0);
 
-    // Mettre à jour les valeurs si le jeu change (optionnel, pour garder la synchro)
-    useEffect(() => {
-        if (gameState.isRaceRunning) {
-            setTimeRemaining(gameState.sessionTimeRemaining);
-            setCurrentFuel(gameState.telemetry.fuel.current);
-        }
-    }, [gameState.sessionTimeRemaining, gameState.telemetry.fuel.current, gameState.isRaceRunning]);
+    // En course active, on priorise les données live; sinon on garde les valeurs saisies localement.
+    const effectiveTimeRemaining = gameState.isRaceRunning ? gameState.sessionTimeRemaining : timeRemaining;
+    const effectiveCurrentFuel = gameState.isRaceRunning ? gameState.telemetry.fuel.current : currentFuel;
 
     // --- CALCULS ---
     // 1. Combien de tours restants ? (Temps restant / Temps au tour)
     // On ajoute une marge de sécurité (ex: +1 tour si on passe la ligne juste avant la fin)
-    const lapsRemainingExact = timeRemaining / lapTime;
+    const lapsRemainingExact = effectiveTimeRemaining / lapTime;
     const lapsRemainingSafe = Math.ceil(lapsRemainingExact + 0.2); // +0.2 pour la sécurité passage de ligne
 
     // 2. Carburant Total nécessaire
     const totalFuelNeeded = lapsRemainingSafe * fuelCons;
 
     // 3. Carburant à ajouter (Delta)
-    const fuelToAdd = Math.max(0, totalFuelNeeded - currentFuel);
-
-    // 4. Nombre d'arrêts restants (Splash inclus)
-    const stopsRemaining = Math.ceil(Math.max(0, totalFuelNeeded - currentFuel) / tankCap);
+    const fuelToAdd = Math.max(0, totalFuelNeeded - effectiveCurrentFuel);
 
     // 5. Est-ce que c'est un Splash ? (Si < 20% du réservoir)
     const isSplash = fuelToAdd > 0 && fuelToAdd < (tankCap * 0.2);
@@ -64,11 +57,11 @@ const FuelCalculatorView: React.FC<FuelCalculatorProps> = ({ gameState }) => {
                         <Clock size={12}/> Time Remaining
                     </div>
                     <div className="font-mono text-2xl font-bold text-white mb-2">
-                        {formatTime(timeRemaining)}
+                        {formatTime(effectiveTimeRemaining)}
                     </div>
                     <input
                         type="range" min="0" max="86400" step="60"
-                        value={timeRemaining}
+                        value={effectiveTimeRemaining}
                         onChange={(e) => setTimeRemaining(Number(e.target.value))}
                         className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                     />
@@ -115,7 +108,7 @@ const FuelCalculatorView: React.FC<FuelCalculatorProps> = ({ gameState }) => {
                     <div className="flex items-center gap-2 mb-2">
                         <input
                             type="number" step="0.1"
-                            value={currentFuel}
+                            value={effectiveCurrentFuel}
                             onChange={(e) => setCurrentFuel(Number(e.target.value))}
                             className="bg-slate-900 border border-white/10 rounded px-2 py-1 text-xl font-mono font-bold w-24 text-center outline-none focus:border-indigo-500"
                         />

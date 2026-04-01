@@ -1,6 +1,34 @@
 // API
 export const API_BASE_URL = "https://api.racetelemetrybyfbt.com";
 
+// LMU Bridge local API (game REST API on port 6397)
+export const LMU_API_BASE_URL = "http://localhost:6397";
+
+// VPS Proxy endpoints for CORS-safe access to bridge endpoints
+export const VPS_BRIDGE_SETUPS_LIST = "/api/bridge/setups/list";
+export const VPS_BRIDGE_SETUPS_APPLY = "/api/bridge/setups/apply";
+
+// Setup bridge REST - Real LMU endpoints
+export const SETUPS_LIST_ENDPOINT = "/rest/garage/setups";
+export const SETUPS_LOAD_ENDPOINT = "/rest/garage/setups/apply";
+
+// Fallback endpoints to try in order
+export const SETUPS_LIST_ENDPOINTS = [
+	"/rest/garage/setups",
+	"/api/setups",
+	"/api/setup-bridge/setups",
+	"/api/garage/setups",
+	"/setups"
+];
+
+export const SETUPS_LOAD_ENDPOINTS = [
+	"/rest/garage/setups/apply",
+	"/api/setups/load",
+	"/api/setup-bridge/load",
+	"/api/setups/apply",
+	"/rest/garage/setups/load"
+];
+
 // Pit stop timing (seconds)
 export const PIT_LANE_LOSS = 28;
 export const DEFAULT_STATIONARY_TIME = 35;

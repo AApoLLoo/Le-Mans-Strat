@@ -1,5 +1,5 @@
 // src/utils/helpers.ts
-import type { Driver } from '../types';
+import type { Driver, SessionMode } from '../types';
 
 export const formatTime = (s: number) => {
     if(isNaN(s) || s < 0) return "00:00:00";
@@ -41,6 +41,14 @@ export const formatLapTimeForTable = (seconds?: number) => {
 
 export const getSafeDriver = (driver: Driver | undefined): Driver => {
   return driver || { id: 'unknown', name: "---", phone: "", color: "#3b82f6", text: "text-slate-500" };
+};
+
+export const normalizeSessionMode = (rawSessionType?: string): SessionMode => {
+    const normalized = String(rawSessionType || '').toUpperCase();
+    if (normalized.includes('RACE')) return 'RACE';
+    if (normalized.includes('QUAL')) return 'QUALIFY';
+    if (normalized.includes('PRACT')) return 'PRACTICE';
+    return 'UNKNOWN';
 };
 
 export const getLapTimeDelta = (estimatedTime: number, realTimeAvg: number) => {

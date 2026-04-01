@@ -12,6 +12,7 @@ export const CLASS_BORDER_STYLES: Record<string, string> = {
 /** Hex colors for MapView vehicle dots */
 export const CLASS_HEX_COLORS: Record<string, string> = {
     'hypercar': '#ff3333',
+    'lmp3': '#b133ff',
     'lmp2': '#3399ff',
     'gt3': '#ff9933',
     'default': '#cccccc'
@@ -21,6 +22,7 @@ export const CLASS_HEX_COLORS: Record<string, string> = {
 export const getClassKey = (rawClass: string): string => {
     const c = (rawClass || "").toLowerCase();
     if (c.includes('hyper') || c.includes('lmh') || c.includes('lmdh')) return 'hypercar';
+    if (c.includes('lmp3')) return 'lmp3';
     if (c.includes('lmp2')) return 'lmp2';
     if (c.includes('gt3')) return 'gt3';
     return 'default';
