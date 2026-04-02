@@ -455,7 +455,6 @@ const TeamDashboard = ({ teamId }: { teamId: string }) => {
                             <ErrorBoundary fallbackLabel="Map">
                                 <MapView
                                     vehicles={gameState.allVehicles}
-                                    myCarId={gameState.telemetry.position}
                                     savedMap={gameState.trackMap}
                                     trackName={gameState.trackName}
                                     trackLength={gameState.trackLength}
