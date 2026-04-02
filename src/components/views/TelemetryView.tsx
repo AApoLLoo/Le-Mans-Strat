@@ -43,7 +43,13 @@ const getTempColor = (temp: number, type: 'brake' | 'tire', optimalTemp?: number
     }
 };
 
-const getWeatherIcon = (weather: string) => {
+const getWeatherIcon = (weather: string, cloudCoverage?: number | null) => {
+    if (cloudCoverage !== null && cloudCoverage !== undefined && Number.isFinite(cloudCoverage)) {
+        if (cloudCoverage >= 5) return <CloudRain size={18} className="text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.8)]"/>;
+        if (cloudCoverage >= 2) return <Cloud size={18} className="text-slate-400"/>;
+        return <Sun size={18} className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]"/>;
+    }
+
     const w = (weather || "SUNNY").toUpperCase();
     if (w.includes('RAIN') || w.includes('WET')) return <CloudRain size={18} className="text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.8)]"/>;
     if (w.includes('CLOUD') || w.includes('OVERCAST')) return <Cloud size={18} className="text-slate-400"/>;
@@ -55,14 +61,59 @@ const formatGripLevel = (value: number | string | undefined) => {
 
     const num = Number(value);
     if (!Number.isNaN(num)) {
-        if (num <= 1) return 'FAIBLE';
-        if (num === 2) return 'MOYENNE';
-        if (num >= 3) return 'ELEVEE';
+        const gripLevels = [
+            'VERT',
+            'ADHERENCE LEGERE',
+            'ADHERENCE MOYENNE',
+            'ADHERENCE HAUTE',
+            'ADHERENCE SATUREE'
+        ];
+        const idx = Math.round(num);
+        if (idx >= 0 && idx < gripLevels.length) return gripLevels[idx];
     }
 
     const text = String(value).trim().toUpperCase();
-    if (!text) return '-';
+    if (!text || text === '-' || text === 'N/A' || text === 'UNKNOWN') return '-';
     return text;
+};
+
+
+const formatCloudCoverage = (value: unknown, fallbackWeather: string) => {
+    const num = Number(value);
+    const cloudStates = [
+        'Degage',
+        'Legerement nuageux',
+        'Partiellement nuageux',
+        'Nuageux',
+        'Couvert',
+        'Nuageux & bruine',
+        'Nuageux & pluie legere',
+        'Couvert & pluie legere',
+        'Couvert & pluvieux',
+        'Couvert & forte pluie',
+        'Tempete'
+    ];
+
+    if (Number.isFinite(num)) {
+        const idx = Math.round(num);
+        if (idx >= 0 && idx < cloudStates.length) {
+            return { label: cloudStates[idx], index: idx };
+        }
+    }
+
+    return { label: fallbackWeather || 'Sunny', index: null as number | null };
+};
+
+const formatBrakeMigrationPreset = (value: unknown) => {
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return '-';
+
+    const preset = Math.min(5, Math.max(0, Math.round(raw)));
+    if (preset >= 5) return 'Disabled';
+
+    // LMU preset map: 0 => 2.5% Front ... 4 => 0.5% Front, 5 => Disabled
+    const frontPct = (5 - preset) * 0.5;
+    return `${frontPct.toFixed(1)}% Front`;
 };
 
 const EMPTY_ELECTRONICS = {
@@ -175,13 +226,95 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
 
     const roundedWetness = Math.round(trackWetness);
     const trackState = roundedWetness > 50
-        ? { label: 'FLOODED', cls: 'text-blue-200 bg-blue-900/40 border-blue-500/40' }
+        ? { label: 'INNONDE', cls: 'text-blue-200 bg-blue-900/40 border-blue-500/40' }
         : roundedWetness > 20
-            ? { label: 'WET', cls: 'text-blue-300 bg-blue-900/30 border-blue-500/30' }
+            ? { label: 'MOUILLE', cls: 'text-blue-300 bg-blue-900/30 border-blue-500/30' }
             : roundedWetness > 5
-                ? { label: 'DAMP', cls: 'text-cyan-300 bg-cyan-900/30 border-cyan-500/30' }
-                : { label: 'DRY', cls: 'text-amber-300 bg-amber-900/20 border-amber-500/30' };
-    const displayGripLevel = formatGripLevel(trackGripLevel);
+                ? { label: 'HUMIDE', cls: 'text-cyan-300 bg-cyan-900/30 border-cyan-500/30' }
+                : { label: 'SEC', cls: 'text-amber-300 bg-amber-900/20 border-amber-500/30' };
+    const estimatedGripLabel = roundedWetness > 50
+        ? 'ESTIME (FAIBLE)'
+        : roundedWetness > 20
+            ? 'ESTIME (MOYEN)'
+            : roundedWetness > 5
+                ? 'ESTIME (BON)'
+                : 'ESTIME (ELEVEE)';
+    const lmuExtra = telemetryData?.lmu_extra as Record<string, unknown> | undefined;
+    const showGripDebug = false;
+    const pickMeaningfulGrip = (...candidates: unknown[]) => {
+        for (const candidate of candidates) {
+            if (candidate === undefined || candidate === null) continue;
+            const text = String(candidate).trim();
+            if (!text || text === '-' || text.toUpperCase() === 'N/A' || text.toUpperCase() === 'UNKNOWN') continue;
+            return candidate;
+        }
+        return undefined;
+    };
+    const rawGripFromProp = trackGripLevel;
+    const rawGripFromLmuSnake = lmuExtra?.['track_grip_level'];
+    const rawGripFromLmuCamel = lmuExtra?.['trackGripLevel'];
+    const rawGripFromLmuAltSnake = lmuExtra?.['track_grip'];
+    const rawGripFromLmuGripLevel = lmuExtra?.['grip_level'];
+    const rawGripFromLmuGripCamel = lmuExtra?.['gripLevel'];
+    const rawGripFromNestedScoring = (lmuExtra?.['scoring_extra'] as Record<string, unknown> | undefined)?.['track_grip_level'];
+    const rawGripFromNestedScoringCamel = (lmuExtra?.['scoring_extra'] as Record<string, unknown> | undefined)?.['trackGripLevel'];
+    const rawGripFromNestedScoringAltSnake = (lmuExtra?.['scoring_extra'] as Record<string, unknown> | undefined)?.['track_grip'];
+    const rawGripFromNestedScoringGripLevel = (lmuExtra?.['scoring_extra'] as Record<string, unknown> | undefined)?.['grip_level'];
+    const rawGripFromNestedScoringGripCamel = (lmuExtra?.['scoring_extra'] as Record<string, unknown> | undefined)?.['gripLevel'];
+    const rawGripFromTelemetryScoringExtra = (telemetryData as unknown as Record<string, unknown>)?.['scoring_extra']
+        ? ((telemetryData as unknown as Record<string, unknown>)['scoring_extra'] as Record<string, unknown>)['track_grip_level']
+        : undefined;
+    const rawGripFromTelemetryScoringExtraCamel = (telemetryData as unknown as Record<string, unknown>)?.['scoring_extra']
+        ? ((telemetryData as unknown as Record<string, unknown>)['scoring_extra'] as Record<string, unknown>)['trackGripLevel']
+        : undefined;
+    const rawGripFromTelemetryScoringExtraAltSnake = (telemetryData as unknown as Record<string, unknown>)?.['scoring_extra']
+        ? ((telemetryData as unknown as Record<string, unknown>)['scoring_extra'] as Record<string, unknown>)['track_grip']
+        : undefined;
+    const rawGripFromTelemetryScoringExtraGripLevel = (telemetryData as unknown as Record<string, unknown>)?.['scoring_extra']
+        ? ((telemetryData as unknown as Record<string, unknown>)['scoring_extra'] as Record<string, unknown>)['grip_level']
+        : undefined;
+    const rawGripFromTelemetryScoringExtraGripCamel = (telemetryData as unknown as Record<string, unknown>)?.['scoring_extra']
+        ? ((telemetryData as unknown as Record<string, unknown>)['scoring_extra'] as Record<string, unknown>)['gripLevel']
+        : undefined;
+    const gripRaw = pickMeaningfulGrip(
+        rawGripFromLmuSnake,
+        rawGripFromLmuCamel,
+        rawGripFromLmuAltSnake,
+        rawGripFromLmuGripLevel,
+        rawGripFromLmuGripCamel,
+        rawGripFromNestedScoring,
+        rawGripFromNestedScoringCamel,
+        rawGripFromNestedScoringAltSnake,
+        rawGripFromNestedScoringGripLevel,
+        rawGripFromNestedScoringGripCamel,
+        rawGripFromTelemetryScoringExtra,
+        rawGripFromTelemetryScoringExtraCamel,
+        rawGripFromTelemetryScoringExtraAltSnake,
+        rawGripFromTelemetryScoringExtraGripLevel,
+        rawGripFromTelemetryScoringExtraGripCamel,
+        rawGripFromProp
+    );
+    const gripNum = Number(gripRaw);
+    const gripLevelRaw = Number.isFinite(gripNum)
+        ? gripNum
+        : (typeof gripRaw === 'string' && gripRaw.trim() !== '' && gripRaw.trim() !== '-' ? gripRaw : undefined);
+    const formattedGrip = formatGripLevel(gripLevelRaw as number | string | undefined);
+    const displayGripLevel = formattedGrip === '-' ? estimatedGripLabel : formattedGrip;
+    const gripSource =
+        rawGripFromLmuSnake !== undefined && rawGripFromLmuSnake !== null ? 'lmu_extra.track_grip_level'
+            : rawGripFromLmuCamel !== undefined && rawGripFromLmuCamel !== null ? 'lmu_extra.trackGripLevel'
+                : rawGripFromNestedScoring !== undefined && rawGripFromNestedScoring !== null ? 'lmu_extra.scoring_extra.track_grip_level'
+                    : rawGripFromTelemetryScoringExtra !== undefined && rawGripFromTelemetryScoringExtra !== null ? 'telemetryData.scoring_extra.track_grip_level'
+                        : rawGripFromProp !== undefined && rawGripFromProp !== null ? 'prop.trackGripLevel'
+                            : 'none';
+
+    const cloudCoverageRaw =
+        lmuExtra?.['cloud_coverage']
+        ?? lmuExtra?.['cloudiness']
+        ?? weatherForecast?.[0]?.cloud;
+    const cloudCoverageNum = Number(cloudCoverageRaw);
+    const cloudCoverage = Number.isFinite(cloudCoverageNum) ? cloudCoverageNum : null;
+    const weatherDisplay = formatCloudCoverage(cloudCoverage, weather);
 
     // 2. Forcer le type strict Boolean() pour éviter l'erreur "string | boolean"
     const isCategoryGT3 = Boolean(
@@ -246,8 +379,8 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
             <div className="bg-slate-900/60 border border-white/10 rounded-xl p-3 flex items-center justify-between shrink-0 shadow-lg">
                 <div className="flex items-center gap-6">
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5">
-                        {getWeatherIcon(weather)}
-                        <span className="text-xs font-bold text-slate-200 tracking-wide">{weather || "SUNNY"}</span>
+                        {getWeatherIcon(weather, weatherDisplay.index)}
+                        <span className="text-xs font-bold text-slate-200 tracking-wide">{weatherDisplay.label}</span>
                     </div>
                     <div className="flex gap-4 text-xs">
                         <div><span className="text-slate-500 font-bold">AIR</span> <span className="text-white font-mono ml-1">{Math.round(airTemp)}°C</span></div>
@@ -256,6 +389,11 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                             <span className="text-amber-500 font-mono ml-1">{Math.round(trackTemp)}°C</span>
                             <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded border ${trackState.cls}`}>{trackState.label}</span>
                             <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded border text-violet-300 bg-violet-900/30 border-violet-500/30">GRIP: {displayGripLevel}</span>
+                            {showGripDebug && (
+                                <span className="ml-2 text-[9px] font-mono text-slate-400 bg-black/40 border border-slate-700/70 rounded px-1.5 py-0.5">
+                                    dbg p:{String(rawGripFromProp)} s:{String(rawGripFromLmuSnake)} c:{String(rawGripFromLmuCamel)} n:{String(rawGripFromNestedScoring)} t:{String(rawGripFromTelemetryScoringExtra)} src:{gripSource}
+                                </span>
+                            )}
                         </div>
                         {trackWetness > 0.5 && (
                             <div><span className="text-blue-400 font-bold">WET</span> <span className="text-blue-200 font-mono ml-1">{Math.round(trackWetness)}%</span></div>
@@ -369,7 +507,7 @@ const TelemetryView: React.FC<TelemetryViewProps> = ({
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">MIG</span>
-                                    <span className="font-mono text-sm text-white font-black">{Number(electronics.brake_migration) || 0}</span>
+                                    <span className="font-mono text-sm text-white font-black">{formatBrakeMigrationPreset(electronics.brake_migration)}</span>
                                 </div>
                                 <div className="flex flex-col items-center justify-center p-1.5 rounded-lg border border-slate-700/50 bg-black/40">
                                     <span className="text-[8px] text-slate-400 font-bold tracking-wider">B BIAS</span>

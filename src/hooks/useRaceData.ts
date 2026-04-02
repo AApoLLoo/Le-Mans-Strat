@@ -337,7 +337,7 @@ export const useRaceData = (teamId: string) => {
         airTemp: 25,
         trackTemp: 25,
         trackWetness: 0,
-        trackGripLevel: '-',
+        trackGripLevel: 'INCONNU',
         rainIntensity: 0,
         fuelCons: 3.65,
         veCons: 2.5,
@@ -381,7 +381,7 @@ export const useRaceData = (teamId: string) => {
             localVelocity: { ...DEFAULT_VEC3 },
             localAcceleration: { ...DEFAULT_VEC3 },
             localRotAcceleration: { ...DEFAULT_VEC3 },
-            carState: { speed_limiter: false, headlights: false, ignition: 0, drs: false, attack_mode: 0 },
+            carState: { speed_limiter: false, headlights: false, ignition: 0 },
             vehicleHealth: {
                 overheating: false,
                 tire_flat_count: 0,
@@ -512,6 +512,60 @@ export const useRaceData = (teamId: string) => {
             ?? (playerVehicle as any)?.tireCompounds;
         const normalizedCompounds = normalizeTireCompounds(compoundsCandidate, prev.telemetry.tireCompounds || DEFAULT_COMPOUNDS, normalizedWheelsExtra);
 
+        const readFirstMeaningful = (...candidates: unknown[]) => {
+            for (const candidate of candidates) {
+                if (candidate === undefined || candidate === null) continue;
+                const text = String(candidate).trim();
+                if (!text || text === '-' || text.toUpperCase() === 'N/A' || text.toUpperCase() === 'UNKNOWN') continue;
+                return candidate;
+            }
+            return undefined;
+        };
+
+        const scoringExtraFromPaths = pickFirstObject(
+            (docData as any).scoring_extra,
+            (docData as any).scoringExtra,
+            (docData as any).lmu_scoring_extra,
+            (docData as any).lmuScoringExtra,
+            (docData as any).scoring?.scoring_extra,
+            (docData as any).scoring?.scoringExtra,
+            (docData as any).scoring?.lmu_scoring_extra,
+            (docData as any).scoring?.lmuScoringExtra,
+            (docData as any).scoring?.extra,
+            (docData as any).telemetry?.scoring_extra,
+            (docData as any).telemetry?.scoringExtra,
+            (scoring as any).scoring_extra,
+            (scoring as any).scoringExtra,
+            (scoring as any).lmu_scoring_extra,
+            (scoring as any).lmuScoringExtra,
+            (scoring as any).extra
+        );
+
+        const scoringExtraCandidate = pickFirstObject(
+            scoringExtraFromPaths,
+            (docData as any).scoring_extra,
+            (docData as any).scoring?.scoring_extra
+        );
+        const normalizedScoringExtra = isPlainObject(scoringExtraCandidate)
+            ? (scoringExtraCandidate as Record<string, unknown>)
+            : {};
+
+        const lmuExtraCandidate = pickFirstObject(
+            (tele as any).lmu_extra,
+            (docData as any).lmu_extra,
+            (docData as any).telemetry?.lmu_extra,
+            (playerVehicle as any)?.lmu_extra,
+            prev.telemetry.lmu_extra
+        );
+        const normalizedLmuExtra = {
+            ...(prev.telemetry.lmu_extra || {}),
+            ...(isPlainObject(lmuExtraCandidate) ? (lmuExtraCandidate as Record<string, unknown>) : {}),
+            ...normalizedScoringExtra
+        };
+
+        const resolveGripLevel = (...candidates: unknown[]) =>
+            readFirstMeaningful(...candidates, prev.trackGripLevel) ?? 'INCONNU';
+
         const electronicsPathCandidates = [
             'telemetry.lmu_electronics',
             'telemetry.lmuElectronics',
@@ -570,7 +624,7 @@ export const useRaceData = (teamId: string) => {
         const newTelemetry: TelemetryData = {
             ...prev.telemetry,
             laps: Number(tele.laps || scoring.vehicle_data?.laps || prev.telemetry.laps),
-            curLap: Number(tele.times?.current || prev.telemetry.curLap),
+            curLap: tele.times?.current !== undefined ? Number(tele.times.current) : prev.telemetry.curLap,
             lastLap: Number(scoring.vehicle_data?.last_lap || prev.telemetry.lastLap),
             bestLap: Number(scoring.vehicle_data?.best_lap || prev.telemetry.bestLap),
             position: myPosition,
@@ -589,9 +643,7 @@ export const useRaceData = (teamId: string) => {
             carState: {
                 speed_limiter: toBoolSafe((tele as any).car_state?.speed_limiter, prev.telemetry.carState?.speed_limiter || false),
                 headlights: toBoolSafe((tele as any).car_state?.headlights, prev.telemetry.carState?.headlights || false),
-                ignition: toNumberSafe((tele as any).car_state?.ignition, prev.telemetry.carState?.ignition || 0),
-                drs: toBoolSafe((tele as any).car_state?.drs, prev.telemetry.carState?.drs || false),
-                attack_mode: toNumberSafe((tele as any).car_state?.attack_mode, prev.telemetry.carState?.attack_mode || 0)
+                ignition: toNumberSafe((tele as any).car_state?.ignition, prev.telemetry.carState?.ignition || 0)
             },
             vehicleHealth: {
                 overheating: toBoolSafe((tele as any).vehicle_health?.overheating, prev.telemetry.vehicleHealth?.overheating || false),
@@ -694,7 +746,7 @@ export const useRaceData = (teamId: string) => {
             isOverheating: prev.telemetry.isOverheating,
             lmu_electronics: normalizeElectronics(mergedElectronicsCandidate, prev.telemetry.lmu_electronics),
             lmu_wheels_extra: normalizedWheelsExtra,
-            lmu_extra: isPlainObject((tele as any).lmu_extra) ? ((tele as any).lmu_extra as Record<string, unknown>) : (prev.telemetry.lmu_extra || {}),
+            lmu_extra: normalizedLmuExtra,
             lmu_extra_wheels: isPlainObject((tele as any).lmu_wheels_extra) ? ((tele as any).lmu_wheels_extra as Record<string, unknown>) : (prev.telemetry.lmu_extra_wheels || {}),
             restapiExpectedFuelConsumption: toNumberSafe(restapi.expected_fuel_consumption, prev.telemetry.restapiExpectedFuelConsumption || 0),
             restapiExpectedVEConsumption: toNumberSafe(restapi.expected_virtual_energy_consumption, prev.telemetry.restapiExpectedVEConsumption || 0),
@@ -744,7 +796,68 @@ export const useRaceData = (teamId: string) => {
             airTemp: safeAirTemp,
             trackTemp: (scoring.weather?.track_temp ?? prev.trackTemp),
             trackWetness: trackWetnessVal * 100,
-            trackGripLevel: (scoring.weather?.track_grip_level ?? prev.trackGripLevel),
+            trackGripLevel: resolveGripLevel(
+                scoring.weather?.track_grip_level,
+                (scoring.weather as any)?.trackGripLevel,
+                (scoring.weather as any)?.track_grip,
+                (scoring.weather as any)?.grip_level,
+                (scoring.weather as any)?.gripLevel,
+                (weather as any)?.track_grip_level,
+                (weather as any)?.trackGripLevel,
+                (weather as any)?.track_grip,
+                (weather as any)?.grip_level,
+                (weather as any)?.gripLevel,
+                (scoring as any)?.track_grip_level,
+                (scoring as any)?.trackGripLevel,
+                (scoring as any)?.track_grip,
+                (scoring as any)?.grip_level,
+                (scoring as any)?.gripLevel,
+                (scoring as any)?.lmu_scoring_extra?.track_grip_level,
+                (scoring as any)?.lmu_scoring_extra?.trackGripLevel,
+                (scoring as any)?.lmu_scoring_extra?.track_grip,
+                (scoring as any)?.lmu_scoring_extra?.grip_level,
+                (scoring as any)?.lmu_scoring_extra?.gripLevel,
+                (scoring as any)?.lmuScoringExtra?.track_grip_level,
+                (scoring as any)?.lmuScoringExtra?.trackGripLevel,
+                (scoring as any)?.lmuScoringExtra?.track_grip,
+                (scoring as any)?.lmuScoringExtra?.grip_level,
+                (scoring as any)?.lmuScoringExtra?.gripLevel,
+                (normalizedScoringExtra as any)?.track_grip_level,
+                (normalizedScoringExtra as any)?.trackGripLevel,
+                (normalizedScoringExtra as any)?.track_grip,
+                (normalizedScoringExtra as any)?.grip_level,
+                (normalizedScoringExtra as any)?.gripLevel,
+                (scoringExtraFromPaths as any)?.track_grip_level,
+                (scoringExtraFromPaths as any)?.trackGripLevel,
+                (scoringExtraFromPaths as any)?.track_grip,
+                (scoringExtraFromPaths as any)?.grip_level,
+                (scoringExtraFromPaths as any)?.gripLevel,
+                (normalizedLmuExtra as any)?.track_grip_level,
+                (normalizedLmuExtra as any)?.trackGripLevel,
+                (normalizedLmuExtra as any)?.track_grip,
+                (normalizedLmuExtra as any)?.grip_level,
+                (normalizedLmuExtra as any)?.gripLevel,
+                (docData as any)?.track_grip_level,
+                (docData as any)?.trackGripLevel,
+                (docData as any)?.track_grip,
+                (docData as any)?.grip_level,
+                (docData as any)?.gripLevel,
+                (docData as any)?.scoring?.weather?.track_grip_level,
+                (docData as any)?.scoring?.weather?.trackGripLevel,
+                (docData as any)?.scoring?.weather?.track_grip,
+                (docData as any)?.scoring?.weather?.grip_level,
+                (docData as any)?.scoring?.weather?.gripLevel,
+                (tele as any)?.track_grip_level,
+                (tele as any)?.trackGripLevel,
+                (tele as any)?.track_grip,
+                (tele as any)?.grip_level,
+                (tele as any)?.gripLevel,
+                (tele as any)?.weather?.track_grip_level,
+                (tele as any)?.weather?.trackGripLevel,
+                (tele as any)?.weather?.track_grip,
+                (tele as any)?.weather?.grip_level,
+                (tele as any)?.weather?.gripLevel
+            ),
             rainIntensity: (weather.rain_intensity ?? prev.rainIntensity),
             telemetry: newTelemetry,
             avgLapTimeSeconds: calculatedAvg,

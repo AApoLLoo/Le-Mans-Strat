@@ -41,8 +41,6 @@ export interface CarStateData {
     speed_limiter: boolean;
     headlights: boolean;
     ignition: number;
-    drs: boolean;
-    attack_mode: number;
 }
 
 export interface VehicleHealthData {
@@ -219,8 +217,6 @@ export interface RawVehicle {
     stint_laps?: number;
     last_pit_lap?: number;
     predicted_pit_lap?: number;
-    drs?: boolean;
-    attack_mode?: number;
     fuel_fraction?: number;
 
 
